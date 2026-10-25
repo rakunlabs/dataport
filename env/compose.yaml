@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: pw
+    ports:
+      - "55432:5432"
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: pw
+      MYSQL_DATABASE: app
+    ports:
+      - "53306:3306"
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: Str0ng!Passw0rd
+    ports:
+      - "51433:1433"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3
+    environment:
+      CLICKHOUSE_USER: ch
+      CLICKHOUSE_PASSWORD: pw
+      CLICKHOUSE_DB: app
+    ports:
+      - "59000:9000"

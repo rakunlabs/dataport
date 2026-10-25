@@ -1,0 +1,9 @@
+/bin/
+/data/
+/dist/
+.env.local
+/_ui/node_modules/
+/internal/server/dist/*
+!/internal/server/dist/.gitkeep
+/dataport.yaml
+/.impeccable/
