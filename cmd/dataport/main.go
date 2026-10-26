@@ -77,6 +77,7 @@ func run(ctx context.Context) error {
 	}
 
 	au := auth.New(st, cfg.Auth.SessionTTL)
+	au.SetRememberTTL(cfg.Auth.RememberTTL)
 	go au.Janitor(ctx)
 
 	if err := engine.ConfigureFiles(cfg.Query.FileDir, cfg.DataDir); err != nil {

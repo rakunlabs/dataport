@@ -306,25 +306,32 @@ type Session struct {
 	LastSeenAt int64
 	IP         string
 	UserAgent  string
+	// Remember keeps the session for the longer "remember me" lifetime.
+	Remember bool
 }
 
 func (s *Store) CreateSession(ctx context.Context, sess *Session) error {
 	_, err := s.exec(ctx, "INSERT INTO "+s.t("sessions")+
-		" (token_hash, user_id, created_at, expires_at, last_seen_at, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		sess.TokenHash, sess.UserID, sess.CreatedAt, sess.ExpiresAt, sess.LastSeenAt, sess.IP, sess.UserAgent)
+		" (token_hash, user_id, created_at, expires_at, last_seen_at, ip, user_agent, remember) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		sess.TokenHash, sess.UserID, sess.CreatedAt, sess.ExpiresAt, sess.LastSeenAt, sess.IP, sess.UserAgent, b2i(sess.Remember))
 
 	return err
 }
 
 func (s *Store) GetSession(ctx context.Context, tokenHash string) (*Session, error) {
-	var sess Session
+	var (
+		sess     Session
+		remember int
+	)
 
-	err := s.queryRow(ctx, "SELECT token_hash, user_id, created_at, expires_at, last_seen_at, ip, user_agent FROM "+
+	err := s.queryRow(ctx, "SELECT token_hash, user_id, created_at, expires_at, last_seen_at, ip, user_agent, remember FROM "+
 		s.t("sessions")+" WHERE token_hash = ?", tokenHash).
-		Scan(&sess.TokenHash, &sess.UserID, &sess.CreatedAt, &sess.ExpiresAt, &sess.LastSeenAt, &sess.IP, &sess.UserAgent)
+		Scan(&sess.TokenHash, &sess.UserID, &sess.CreatedAt, &sess.ExpiresAt, &sess.LastSeenAt, &sess.IP, &sess.UserAgent, &remember)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
+
+	sess.Remember = remember != 0
 
 	return &sess, err
 }

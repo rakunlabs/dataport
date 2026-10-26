@@ -96,9 +96,12 @@ func RandomPassword() string {
 // ////////////////////////////////////////////
 
 type Auth struct {
-	store   *store.Store
-	ttl     time.Duration
-	limiter *limiter
+	store *store.Store
+	ttl   time.Duration
+	// rememberTTL is the lifetime of a "remember me" session; zero turns
+	// remembering off.
+	rememberTTL time.Duration
+	limiter     *limiter
 
 	// dummyHash keeps a failed login for an unknown user as slow as one for a
 	// known user, so usernames cannot be probed by timing.
@@ -109,10 +112,11 @@ func New(st *store.Store, ttl time.Duration) *Auth {
 	dummy, _ := HashPassword(RandomPassword())
 
 	return &Auth{
-		store:     st,
-		ttl:       ttl,
-		limiter:   newLimiter(5, time.Minute),
-		dummyHash: dummy,
+		store:       st,
+		ttl:         ttl,
+		rememberTTL: 30 * 24 * time.Hour,
+		limiter:     newLimiter(5, time.Minute),
+		dummyHash:   dummy,
 	}
 }
 
@@ -120,9 +124,30 @@ func (a *Auth) TTL() time.Duration {
 	return a.ttl
 }
 
+// SetRememberTTL sets how long a remembered session lasts; zero turns
+// "remember me" off.
+func (a *Auth) SetRememberTTL(d time.Duration) {
+	a.rememberTTL = d
+}
+
+// RememberTTL is the lifetime of a remembered session, zero when
+// remembering is off.
+func (a *Auth) RememberTTL() time.Duration {
+	return a.rememberTTL
+}
+
+// SessionTTL is the lifetime of a session.
+func (a *Auth) SessionTTL(remember bool) time.Duration {
+	if remember && a.rememberTTL > a.ttl {
+		return a.rememberTTL
+	}
+
+	return a.ttl
+}
+
 // Login checks the credentials and opens a session. It returns the raw
 // session token that goes into the cookie.
-func (a *Auth) Login(ctx context.Context, username, password, ip, userAgent string) (string, *store.User, error) {
+func (a *Auth) Login(ctx context.Context, username, password, ip, userAgent string, remember bool) (string, *store.User, error) {
 	username = strings.TrimSpace(username)
 	key := strings.ToLower(username) + "|" + ip
 
@@ -150,7 +175,7 @@ func (a *Auth) Login(ctx context.Context, username, password, ip, userAgent stri
 
 	a.limiter.reset(key)
 
-	token, err := a.CreateSession(ctx, user.ID, ip, userAgent)
+	token, err := a.CreateSession(ctx, user.ID, ip, userAgent, remember)
 	if err != nil {
 		return "", nil, err
 	}
@@ -160,7 +185,11 @@ func (a *Auth) Login(ctx context.Context, username, password, ip, userAgent stri
 	return token, user, nil
 }
 
-func (a *Auth) CreateSession(ctx context.Context, userID, ip, userAgent string) (string, error) {
+// CreateSession opens a session; a remembered one lives for the longer
+// remember-me lifetime.
+func (a *Auth) CreateSession(ctx context.Context, userID, ip, userAgent string, remember bool) (string, error) {
+	remember = remember && a.rememberTTL > a.ttl
+
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
@@ -177,10 +206,11 @@ func (a *Auth) CreateSession(ctx context.Context, userID, ip, userAgent string) 
 		TokenHash:  hashToken(token),
 		UserID:     userID,
 		CreatedAt:  ts.UnixMilli(),
-		ExpiresAt:  ts.Add(a.ttl).UnixMilli(),
+		ExpiresAt:  ts.Add(a.SessionTTL(remember)).UnixMilli(),
 		LastSeenAt: ts.UnixMilli(),
 		IP:         ip,
 		UserAgent:  userAgent,
+		Remember:   remember,
 	}); err != nil {
 		return "", fmt.Errorf("create session; %w", err)
 	}
@@ -191,38 +221,46 @@ func (a *Auth) CreateSession(ctx context.Context, userID, ip, userAgent string) 
 // Authenticate resolves a session token to its user. Sessions slide: each use
 // more than a minute after the last one extends the expiry.
 func (a *Auth) Authenticate(ctx context.Context, token string) (*store.User, error) {
+	user, _, err := a.AuthenticateSession(ctx, token)
+
+	return user, err
+}
+
+// AuthenticateSession is Authenticate that also returns the session, whose
+// Remember decides the cookie's lifetime.
+func (a *Auth) AuthenticateSession(ctx context.Context, token string) (*store.User, *store.Session, error) {
 	if token == "" {
-		return nil, store.ErrNotFound
+		return nil, nil, store.ErrNotFound
 	}
 
 	hash := hashToken(token)
 
 	sess, err := a.store.GetSession(ctx, hash)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	ts := time.Now()
 	if ts.UnixMilli() > sess.ExpiresAt {
 		_ = a.store.DeleteSession(ctx, hash)
 
-		return nil, store.ErrNotFound
+		return nil, nil, store.ErrNotFound
 	}
 
 	user, err := a.store.GetUser(ctx, sess.UserID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if user.Disabled {
-		return nil, store.ErrNotFound
+		return nil, nil, store.ErrNotFound
 	}
 
 	if ts.UnixMilli()-sess.LastSeenAt > time.Minute.Milliseconds() {
-		_ = a.store.TouchSession(ctx, hash, ts.UnixMilli(), ts.Add(a.ttl).UnixMilli())
+		_ = a.store.TouchSession(ctx, hash, ts.UnixMilli(), ts.Add(a.SessionTTL(sess.Remember)).UnixMilli())
 	}
 
-	return user, nil
+	return user, sess, nil
 }
 
 func (a *Auth) Logout(ctx context.Context, token string) error {
@@ -244,9 +282,16 @@ func (a *Auth) Janitor(ctx context.Context) {
 			return
 		case <-ticker.C:
 			_, _ = a.store.DeleteExpiredSessions(ctx)
+			_, _ = a.store.DeleteExpiredOAuthCodes(ctx)
+			_, _ = a.store.DeleteExpiredAccessTokens(ctx)
 			a.limiter.cleanup()
 		}
 	}
+}
+
+// HashSecret is the stored form of a token, refresh token or code.
+func HashSecret(secret string) string {
+	return hashToken(secret)
 }
 
 func hashToken(token string) string {

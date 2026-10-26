@@ -90,6 +90,21 @@
 }
 
 @layer base {
+  /* CJK text falls back to system fonts; the language decides which, so a
+     character shared by Chinese and Japanese is drawn the local way. */
+  :lang(ja) {
+    --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, 'Noto Sans JP', 'Noto Sans CJK JP', sans-serif;
+  }
+  :lang(ko) {
+    --font-sans: 'Inter Variable', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', sans-serif;
+  }
+  :lang(zh-CN) {
+    --font-sans: 'Inter Variable', 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', 'Noto Sans CJK SC', sans-serif;
+  }
+  :lang(zh-TW) {
+    --font-sans: 'Inter Variable', 'PingFang TC', 'Microsoft JhengHei UI', 'Microsoft JhengHei', 'Noto Sans TC', 'Noto Sans CJK TC', sans-serif;
+  }
+
   .dark {
     --color-json-key: #8cc4f0;
     --color-json-str: #67c792;

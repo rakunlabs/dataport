@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/rakunlabs/ada"
 	mfolder "github.com/rakunlabs/ada/handler/folder"
@@ -43,6 +45,8 @@ type Server struct {
 	engine *engine.Manager
 	sso    *sso.Manager
 	mux    *ada.Server
+	// Bound scheduled work per instance, including the startup catch-up.
+	docDispatch sync.Mutex
 }
 
 func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, en *engine.Manager, sm *sso.Manager) (*Server, error) {
@@ -87,6 +91,9 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.GET("/connections/{id}/routines", s.routines)
 	user.GET("/connections/{id}/definition", s.definition)
 	user.GET("/connections/{id}/diagram", s.diagram)
+	user.GET("/connections/{id}/docs", s.serveDoc)
+	user.POST("/connections/{id}/docs/refresh", s.serveDoc)
+	user.PUT("/connections/{id}/docs/schedule", s.docSchedule)
 	user.PUT("/connections/{id}/credentials", s.setCredential)
 	user.DELETE("/connections/{id}/credentials", s.deleteCredential)
 	user.POST("/connections/{id}/query", s.runQuery)
@@ -134,8 +141,18 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	admin.DELETE("/sso/{name}", s.adminDeleteSSO)
 	admin.DELETE("/users/{id}/identities", s.adminUnlinkSSO)
 
+	s.mux = mux
+
 	if cfg.MCP.Enabled {
-		base.Handle("/mcp", s.mcpHandler())
+		h := s.mcpHandler()
+		base.Handle("/mcp", h)
+		// One endpoint per connection, for clients set up for one database.
+		base.Handle("/mcp/{conn}", h)
+
+		s.registerOAuth()
+
+		user.GET("/oauth/authorize", s.oauthAuthorizeInfo)
+		user.POST("/oauth/authorize", s.oauthApprove)
 	}
 
 	sub, err := fs.Sub(uiFS, "dist")
@@ -171,6 +188,25 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 }
 
 func (s *Server) Start(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobs, err := s.startDocJobs(ctx)
+	if err != nil {
+		return err
+	}
+	initialDone := make(chan struct{})
+	go func() {
+		defer close(initialDone)
+		if err := s.dispatchDocs(ctx); err != nil && ctx.Err() == nil {
+			slog.Error("load documentation schedules", "error", err)
+		}
+	}()
+	defer func() {
+		cancel()
+		<-jobs.Stop().Done()
+		<-initialDone
+	}()
+
 	addr := net.JoinHostPort(s.cfg.Server.Host, s.cfg.Server.Port)
 	slog.Info("starting server", "addr", addr, "base_path", s.cfg.Server.BasePath)
 
@@ -197,7 +233,14 @@ func (s *Server) requireUser(next http.Handler) http.Handler {
 			return
 		}
 
-		user, err := s.auth.Authenticate(r.Context(), cookie.Value)
+		user, sess, err := s.auth.AuthenticateSession(r.Context(), cookie.Value)
+		if err == nil && sess.Remember && time.Since(time.UnixMilli(sess.LastSeenAt)) > time.Hour {
+			// The session slides on the server; the cookie of a remembered
+			// one is renewed on the first visit after a pause, so it does
+			// not run out while the session is still in use.
+			s.setCookie(w, r, cookie.Value, true)
+		}
+
 		if err != nil {
 			if !errors.Is(err, store.ErrNotFound) {
 				slog.Error("authenticate", "error", err)
@@ -357,16 +400,23 @@ func (s *Server) cookiePath() string {
 	return s.cfg.Server.BasePath + "/"
 }
 
-func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, token string) {
-	http.SetCookie(w, &http.Cookie{
+// setCookie sets the session cookie. A remembered session keeps its
+// cookie for its whole lifetime; any other lives until the browser closes.
+func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, token string, remember bool) {
+	c := &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
 		Path:     s.cookiePath(),
 		HttpOnly: true,
 		Secure:   s.isSecure(r),
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(s.auth.TTL().Seconds()),
-	})
+	}
+
+	if remember {
+		c.MaxAge = int(s.auth.SessionTTL(true).Seconds())
+	}
+
+	http.SetCookie(w, c)
 }
 
 func (s *Server) clearCookie(w http.ResponseWriter, r *http.Request) {

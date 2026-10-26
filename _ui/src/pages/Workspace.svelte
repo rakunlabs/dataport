@@ -9,6 +9,7 @@
   import RightPanel from '@/lib/components/RightPanel.svelte';
   import Settings from '@/pages/Settings.svelte';
   import DiagramTab from '@/lib/components/DiagramTab.svelte';
+  import DocsTab from '@/lib/components/DocsTab.svelte';
   import ProcessesTab from '@/lib/components/ProcessesTab.svelte';
   import UsersTab from '@/lib/components/UsersTab.svelte';
   import DbIcon from '@/lib/components/DbIcon.svelte';
@@ -80,6 +81,8 @@
               <Settings />
             {:else if tab.kind === 'diagram'}
               <DiagramTab {tab} />
+            {:else if tab.kind === 'docs'}
+              <DocsTab {tab} />
             {:else if tab.kind === 'processes'}
               <ProcessesTab {tab} />
             {:else if tab.kind === 'users'}

@@ -110,6 +110,75 @@ export interface Diagram {
   truncated: boolean;
 }
 
+export interface DocColumn extends ColumnInfo {
+  comment?: string;
+}
+
+export interface DocReference {
+  table: string;
+  name: string;
+  columns: string[];
+  ref_columns: string[];
+}
+
+export interface DocTable {
+  name: string;
+  kind: string;
+  comment?: string;
+  // The database's own estimate; absent when it keeps no statistics.
+  rows?: number;
+  columns: DocColumn[];
+  indexes: IndexInfo[];
+  foreign_keys: ForeignKey[];
+  referenced_by: DocReference[];
+  definition?: string;
+}
+
+export type AnomalyKind =
+  | 'no_primary_key'
+  | 'unindexed_foreign_key'
+  | 'implied_relationship'
+  | 'orphan_table'
+  | 'single_column'
+  | 'nullable_unique'
+  | 'null_string_default'
+  | 'incrementing_columns'
+  | 'duplicate_index';
+
+export interface Anomaly {
+  kind: AnomalyKind;
+  table: string;
+  columns?: string[];
+  ref?: string;
+  ref_columns?: string[];
+}
+
+export interface SchemaDoc {
+  schema: string;
+  db_type: string;
+  generated_at: number;
+  tables: DocTable[];
+  routines: Routine[];
+  anomalies: Anomaly[];
+  // False where the database keeps no keys or indexes to check.
+  keys: boolean;
+  truncated: boolean;
+  table_count: number;
+}
+
+export interface DocStatus {
+  cron_spec: string;
+  next_run: number;
+  attempted_at: number;
+  last_error: string;
+  refreshing: boolean;
+}
+
+export interface SavedDoc {
+  document: SchemaDoc;
+  status: DocStatus;
+}
+
 export interface Column {
   name: string;
   type: string;
@@ -239,6 +308,10 @@ export interface AccessToken {
   created_at: number;
   expires_at: number;
   last_used_at: number;
+  // The one connection the token may use; empty for all.
+  connection_id: string;
+  // Set for tokens an MCP client got by signing in (OAuth).
+  client_id: string;
 }
 
 export interface TokenList {
@@ -248,6 +321,8 @@ export interface TokenList {
   max_ttl_days: number;
   default_rows: number;
   external_base: string;
+  // The public URL of dataport with its base path, as the server sees it.
+  base_url: string;
 }
 
 export interface SsoProvider {
@@ -274,6 +349,8 @@ export interface SsoProvider {
 }
 
 export interface AuthInfo {
+  // Days a "remember me" sign-in lasts; 0 when the server turned it off.
+  remember_days?: number;
   password: boolean;
   providers: { name: string; label: string }[];
 }

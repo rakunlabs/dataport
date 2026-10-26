@@ -1,11 +1,11 @@
 <script lang="ts">
   import { link } from 'svelte-spa-router';
-  import { FilePlus2, History, Bookmark, Moon, Sun, Monitor, Settings, LogOut, KeyRound, ChevronDown, Check, Bot } from 'lucide-svelte';
+  import { FilePlus2, History, Bookmark, Moon, Sun, Monitor, Settings, LogOut, KeyRound, ChevronDown, Bot } from 'lucide-svelte';
   import Logo from '@/lib/components/Logo.svelte';
   import { logout, session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
   import { activeTab, openQueryTab, openSettings, ws } from '@/lib/stores/workspace.svelte';
-  import { i18n, locales, setLocale, t } from '@/lib/i18n/index.svelte';
+  import { i18n, locales, setLocale, t, type Locale } from '@/lib/i18n/index.svelte';
   import PasswordDialog from '@/lib/components/PasswordDialog.svelte';
 
   let menuOpen = $state(false);
@@ -114,14 +114,11 @@
 
         <div class="px-3 py-1.5">
           <div class="mb-1.5 text-xs text-muted">{t('app.language')}</div>
-          <div class="segmented w-full">
+          <select class="input h-7 w-full text-sm" value={i18n.locale} onchange={(e) => setLocale(e.currentTarget.value as Locale)} aria-label={t('app.language')}>
             {#each locales as l (l.value)}
-              <button class="flex-1 justify-center" aria-pressed={i18n.locale === l.value} onclick={() => setLocale(l.value)}>
-                {#if i18n.locale === l.value}<Check size={12} />{/if}
-                {l.label}
-              </button>
+              <option value={l.value}>{l.label}</option>
             {/each}
-          </div>
+          </select>
         </div>
 
         <div class="menu-sep"></div>

@@ -125,7 +125,7 @@
             </section>
             <section>
               <span class="label">{t('app.language')}</span>
-              <div class="flex gap-2">
+              <div class="flex flex-wrap gap-2">
                 {#each locales as l (l.value)}
                   <button
                     class="flex h-9 items-center gap-2 rounded-md border px-3 text-sm {i18n.locale === l.value ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover'}"

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t as tr } from '@/lib/i18n/index.svelte';
-  import { X, Table2, FileCode2, Settings2, Network, Activity, UsersRound } from 'lucide-svelte';
+  import { X, Table2, FileCode2, Settings2, Network, Activity, UsersRound, BookOpen } from 'lucide-svelte';
   import { closeOthers, closeTab, connection, ws } from '@/lib/stores/workspace.svelte';
 
   let menu = $state<{ id: string; x: number; y: number } | null>(null);
@@ -40,6 +40,8 @@
         <Settings2 size={14} class="shrink-0 {active ? 'text-accent' : ''}" />
       {:else if t.kind === 'diagram'}
         <Network size={14} class="shrink-0 {active ? 'text-accent' : ''}" />
+      {:else if t.kind === 'docs'}
+        <BookOpen size={14} class="shrink-0 {active ? 'text-accent' : ''}" />
       {:else if t.kind === 'processes'}
         <Activity size={14} class="shrink-0 {active ? 'text-accent' : ''}" />
       {:else if t.kind === 'users'}

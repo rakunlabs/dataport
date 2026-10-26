@@ -33,7 +33,18 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 	return b.next.RoundTrip(r)
 }
 
-func TestMCP(t *testing.T) {
+// mcpEnv is a server with two users and three SQLite connections on the
+// same file: alice has shop and shop-prod, bob has hidden.
+type mcpEnv struct {
+	st         *store.Store
+	srv        *Server
+	httpSrv    *httptest.Server
+	alice, bob *store.User
+}
+
+func newMCPEnv(t *testing.T, basePath string) *mcpEnv {
+	t.Helper()
+
 	ctx := context.Background()
 	files := t.TempDir()
 
@@ -43,6 +54,9 @@ func TestMCP(t *testing.T) {
 	}
 
 	if _, err := seed.Exec(`CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id), code TEXT, product_id INTEGER);
+CREATE UNIQUE INDEX orders_code ON orders(code);
+CREATE TRIGGER orders_audit AFTER INSERT ON orders BEGIN SELECT 1; END;
 INSERT INTO customers VALUES (1, 'Ada'), (2, '` + strings.Repeat("x", 50) + `');`); err != nil {
 		t.Fatal(err)
 	}
@@ -52,23 +66,24 @@ INSERT INTO customers VALUES (1, 'Ada'), (2, '` + strings.Repeat("x", 50) + `');
 	if err := engine.ConfigureFiles(files); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = engine.ConfigureFiles("") }()
+	t.Cleanup(func() { _ = engine.ConfigureFiles("") })
 
 	st, err := store.New(ctx, config.Store{Type: "sqlite", TablePrefix: "dataport_", DSN: "file:" + filepath.Join(t.TempDir(), "t.db")}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = st.Close() }()
+	t.Cleanup(func() { _ = st.Close() })
 
 	en := engine.NewManager(store.Limits{MaxOpen: 2}, time.Minute)
-	defer en.Close()
+	t.Cleanup(en.Close)
 
 	ci, _ := crypto.New("k")
 	au := auth.New(st, time.Hour)
 
 	cfg := &config.Config{
-		Query: config.Query{DefaultMaxRows: 100, DefaultTimeout: 10 * time.Second, MaxRowsLimit: 1000},
-		MCP:   config.MCP{Enabled: true, MaxRows: 50, MaxCellChars: 10, MaxSchemaTables: 10},
+		Server: config.Server{BasePath: basePath},
+		Query:  config.Query{DefaultMaxRows: 100, DefaultTimeout: 10 * time.Second, MaxRowsLimit: 1000},
+		MCP:    config.MCP{Enabled: true, MaxRows: 50, MaxCellChars: 10, MaxSchemaTables: 10},
 	}
 
 	srv, err := New(cfg, st, au, ci, en, nil)
@@ -103,6 +118,14 @@ INSERT INTO customers VALUES (1, 'Ada'), (2, '` + strings.Repeat("x", 50) + `');
 		httpSrv.CloseClientConnections()
 		httpSrv.Close()
 	})
+
+	return &mcpEnv{st: st, srv: srv, httpSrv: httpSrv, alice: alice, bob: bob}
+}
+
+func TestMCP(t *testing.T) {
+	ctx := context.Background()
+	env := newMCPEnv(t, "")
+	st, httpSrv, alice := env.st, env.httpSrv, env.alice
 
 	newToken := func(u *store.User, readOnly bool) string {
 		raw, h, err := auth.NewAccessToken()
@@ -196,6 +219,28 @@ INSERT INTO customers VALUES (1, 'Ada'), (2, '` + strings.Repeat("x", 50) + `');
 	_, out = call(rw, "dataport_schema_context", map[string]any{"connection": "shop"})
 	if !strings.Contains(out["compact"].(string), "customers(id INTEGER pk, name TEXT not null)") {
 		t.Fatalf("schema context: %v", out["compact"])
+	}
+
+	// table_docs tells code what a table holds and how it joins.
+	res, out := call(rw, "dataport_table_docs", map[string]any{"connection": "shop", "tables": []string{"ORDERS", "nope"}})
+	doc := errText(res)
+	if doc == "" {
+		doc, _ = out["doc"].(string)
+	}
+
+	for _, want := range []string{
+		"# orders", "customer_id INTEGER NOT NULL -> customers.id", `references: JOIN "customers" ON "orders"."customer_id" = "customers"."id"`,
+		"unique keys (upsert targets): (code)", "trigger orders_audit", "not found: nope", "# related tables\ncustomers(id INTEGER PK, name TEXT)",
+		"design notes: unindexed_foreign_key(customer_id)",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("table docs lack %q:\n%s", want, doc)
+		}
+	}
+
+	_, out = call(rw, "dataport_schema_report", map[string]any{"connection": "shop"})
+	if r := out["report"].(string); !strings.Contains(r, "customers, 2 columns") || !strings.Contains(r, "referenced by orders") {
+		t.Errorf("schema report:\n%s", r)
 	}
 
 	_, out = call(rw, "dataport_query", map[string]any{"connection": "shop", "sql": "select id, name from customers order by id"})

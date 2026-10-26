@@ -12,6 +12,12 @@ import (
 	"github.com/rakunlabs/logi"
 	"github.com/rakunlabs/tell"
 
+	_ "github.com/rakunlabs/chu/loader/external/loaderawssecrets"
+	_ "github.com/rakunlabs/chu/loader/external/loaderawsssm"
+	_ "github.com/rakunlabs/chu/loader/external/loaderazurekeyvault"
+	_ "github.com/rakunlabs/chu/loader/external/loaderconsul"
+	_ "github.com/rakunlabs/chu/loader/external/loadergcpparameter"
+	_ "github.com/rakunlabs/chu/loader/external/loadergcpsecret"
 	_ "github.com/rakunlabs/chu/loader/external/loadervault"
 )
 
@@ -87,6 +93,9 @@ type Auth struct {
 	AdminPassword string `cfg:"admin_password" log:"-"`
 
 	SessionTTL time.Duration `cfg:"session_ttl" default:"12h"`
+	// RememberTTL is how long a session lasts when the user ticks "remember
+	// me" on sign-in; it also slides with use. Zero hides the option.
+	RememberTTL time.Duration `cfg:"remember_ttl" default:"720h"`
 	// DisablePasswordLogin hides the username and password form, leaving
 	// only SSO. Keep it off until an SSO admin can sign in.
 	DisablePasswordLogin bool `cfg:"disable_password_login"`

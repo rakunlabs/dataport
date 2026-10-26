@@ -1,30 +1,59 @@
 import en from '@/lib/i18n/en';
 
 export type Messages = typeof en;
-export type Locale = 'en' | 'tr';
+export type Locale = 'en' | 'de' | 'es' | 'fr' | 'nl' | 'pl' | 'ru' | 'tr' | 'ja' | 'ko' | 'zh-CN' | 'zh-TW';
 
+// Each language names itself, so it can be found by someone who does not
+// read the current one.
 export const locales: { value: Locale; label: string }[] = [
   { value: 'en', label: 'English' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'es', label: 'Español' },
+  { value: 'fr', label: 'Français' },
+  { value: 'nl', label: 'Nederlands' },
+  { value: 'pl', label: 'Polski' },
+  { value: 'ru', label: 'Русский' },
   { value: 'tr', label: 'Türkçe' },
+  { value: 'ja', label: '日本語' },
+  { value: 'ko', label: '한국어' },
+  { value: 'zh-CN', label: '简体中文' },
+  { value: 'zh-TW', label: '繁體中文' },
 ];
 
 const key = 'dataport.locale';
+// Languages other than English load on demand.
 const loaders: Record<Locale, () => Promise<{ default: Messages }>> = {
   en: async () => ({ default: en }),
+  de: () => import('@/lib/i18n/de'),
+  es: () => import('@/lib/i18n/es'),
+  fr: () => import('@/lib/i18n/fr'),
+  nl: () => import('@/lib/i18n/nl'),
+  pl: () => import('@/lib/i18n/pl'),
+  ru: () => import('@/lib/i18n/ru'),
   tr: () => import('@/lib/i18n/tr'),
+  ja: () => import('@/lib/i18n/ja'),
+  ko: () => import('@/lib/i18n/ko'),
+  'zh-CN': () => import('@/lib/i18n/zh-CN'),
+  'zh-TW': () => import('@/lib/i18n/zh-TW'),
 };
+
+const isLocale = (v: string | null): v is Locale => !!v && v in loaders;
 
 function detect(): Locale {
   try {
     const stored = localStorage.getItem(key);
-    if (stored === 'en' || stored === 'tr') return stored;
+    if (isLocale(stored)) return stored;
   } catch {
     // Storage may be disabled.
   }
 
   for (const lang of navigator.languages ?? [navigator.language]) {
-    const prefix = lang.toLowerCase().split('-')[0];
-    if (prefix === 'tr' || prefix === 'en') return prefix;
+    const tag = lang.toLowerCase();
+    // Chinese splits by script: Taiwan, Hong Kong and Macau write
+    // Traditional, the rest Simplified.
+    if (tag.startsWith('zh')) return /^zh-(tw|hk|mo|hant)/.test(tag) ? 'zh-TW' : 'zh-CN';
+    const prefix = tag.split('-')[0];
+    if (isLocale(prefix)) return prefix;
   }
 
   return 'en';
@@ -57,17 +86,36 @@ function lookup(messages: unknown, path: string): string | undefined {
   return typeof node === 'string' ? node : undefined;
 }
 
+// The plural forms a language writes, in the order messages list them:
+// English "one | other", Polish and Russian "one | few | many".
+const categoryOrder = ['zero', 'one', 'two', 'few', 'many', 'other'];
+const pluralCache = new Map<string, { rules: Intl.PluralRules; order: string[] }>();
+
+function pluralIndex(locale: string, count: number): number {
+  let p = pluralCache.get(locale);
+  if (!p) {
+    const rules = new Intl.PluralRules(locale);
+    const order = [...rules.resolvedOptions().pluralCategories].sort((a, b) => categoryOrder.indexOf(a) - categoryOrder.indexOf(b));
+    p = { rules, order };
+    pluralCache.set(locale, p);
+  }
+  return Math.max(0, p.order.indexOf(p.rules.select(count)));
+}
+
 /**
- * Translates a dotted key. `{name}` placeholders are filled from params; a
- * "one | many" message picks the form from params.count.
+ * Translates a dotted key. `{name}` placeholders are filled from params. A
+ * message with forms separated by " | " picks one by params.count, in the
+ * language's plural categories (one | other, or one | few | many); a
+ * message with fewer forms uses its last one for the rest.
  */
 export function t(path: string, params: Record<string, string | number> = {}): string {
-  let msg = lookup(i18n.messages, path) ?? lookup(en, path) ?? path;
+  const own = lookup(i18n.messages, path);
+  let msg = own ?? lookup(en, path) ?? path;
 
   if (msg.includes(' | ')) {
     const forms = msg.split(' | ');
-    const count = Number(params.count ?? 0);
-    msg = forms[count === 1 ? 0 : Math.min(1, forms.length - 1)];
+    const i = pluralIndex(own !== undefined ? i18n.locale : 'en', Number(params.count ?? 0));
+    msg = forms[Math.min(i, forms.length - 1)];
   }
 
   return msg.replace(/\{(\w+)\}/g, (m, name) => (name in params ? String(params[name]) : m));

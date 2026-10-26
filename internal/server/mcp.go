@@ -29,6 +29,10 @@ const mcpToolPrefix = "dataport_"
 type mcpCaller struct {
 	user  *store.User
 	token *store.AccessToken
+	// scope is the one connection the caller may use: the one of the
+	// endpoint (/mcp/<name>) or the one the token was made for. Empty
+	// allows every connection of the user.
+	scope string
 }
 
 func (s *Server) mcpHandler() http.Handler {
@@ -49,25 +53,68 @@ func (s *Server) mcpHandler() http.Handler {
 		DisableLocalhostProtection: true,
 	})
 
-	verify := func(ctx context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
-		user, t, err := s.auth.AuthenticateToken(ctx, token)
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return nil, fmt.Errorf("%w: unknown or expired token", auth.ErrInvalidToken)
-			}
+	return limitBody(4 << 20)(withCORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caller, status, msg := s.mcpAuthenticate(r)
+		if caller == nil {
+			// The header sends OAuth clients to the metadata, where they
+			// learn how to sign in (RFC 9728).
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata=%q, scope="mcp"`, s.resourceMetadataURL(r)))
+			http.Error(w, msg, status)
 
-			return nil, err
+			return
 		}
 
-		info := &auth.TokenInfo{UserID: user.ID, Extra: map[string]any{"caller": &mcpCaller{user: user, token: t}}}
-		if t.ExpiresAt > 0 {
-			info.Expiration = time.UnixMilli(t.ExpiresAt)
+		info := &auth.TokenInfo{UserID: caller.user.ID, Extra: map[string]any{"caller": caller}}
+		if caller.token.ExpiresAt > 0 {
+			info.Expiration = time.UnixMilli(caller.token.ExpiresAt)
 		}
 
-		return info, nil
+		// The SDK reads the caller from its own context key, which only its
+		// middleware sets; the token was checked above.
+		verified := func(context.Context, string, *http.Request) (*auth.TokenInfo, error) { return info, nil }
+		auth.RequireBearerToken(verified, &auth.RequireBearerTokenOptions{AllowMissingExpiration: true})(handler).ServeHTTP(w, r)
+	})))
+}
+
+// mcpAuthenticate checks the bearer token of a request and the connection
+// of its endpoint. The token is checked again on every request, so a
+// revoked token or a disabled user stops at once.
+func (s *Server) mcpAuthenticate(r *http.Request) (*mcpCaller, int, string) {
+	fields := strings.Fields(r.Header.Get("Authorization"))
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "bearer") {
+		return nil, http.StatusUnauthorized, "sign in: send an access token as a bearer token"
 	}
 
-	return limitBody(4 << 20)(auth.RequireBearerToken(verify, &auth.RequireBearerTokenOptions{AllowMissingExpiration: true})(handler))
+	user, t, err := s.auth.AuthenticateToken(r.Context(), fields[1])
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			slog.Error("mcp authenticate", "error", err)
+
+			return nil, http.StatusInternalServerError, "cannot check the token"
+		}
+
+		return nil, http.StatusUnauthorized, "unknown or expired token"
+	}
+
+	caller := &mcpCaller{user: user, token: t, scope: t.ConnectionID}
+
+	name := r.PathValue("conn")
+	if name == "" {
+		return caller, 0, ""
+	}
+
+	g, err := s.grantByName(r, user, name)
+	if err != nil {
+		return nil, http.StatusNotFound, "no connection " + name + " for you"
+	}
+
+	if t.ConnectionID != "" && t.ConnectionID != g.Connection.ID {
+		return nil, http.StatusForbidden, "this token is for another connection"
+	}
+
+	caller.scope = g.Connection.ID
+
+	return caller, 0, ""
 }
 
 func mcpCallerFrom(ctx context.Context) *mcpCaller {
@@ -99,12 +146,26 @@ func (s *Server) newMCPServer(caller *mcpCaller) *mcp.Server {
 		Title:   "dataport",
 		Version: config.Service,
 	}, &mcp.ServerOptions{
-		Instructions: mcpInstructions(s.cfg.MCP, caller.token.ReadOnly),
+		Instructions: s.mcpInstructions(caller),
 	})
 
 	s.registerMCPTools(server, caller.token.ReadOnly)
 
 	return server
+}
+
+func (s *Server) mcpInstructions(caller *mcpCaller) string {
+	text := mcpInstructions(s.cfg.MCP, caller.token.ReadOnly)
+	if caller.scope == "" {
+		return text
+	}
+
+	name := caller.scope
+	if c, err := s.store.GetConnection(context.Background(), caller.scope); err == nil {
+		name = c.Name + " (" + c.DBType + ")"
+	}
+
+	return text + "\nThis endpoint serves one connection, " + name + "; the connection argument of the tools may be omitted.\n"
 }
 
 func mcpInstructions(cfg config.MCP, readOnly bool) string {
@@ -157,7 +218,7 @@ type listConnectionsOut struct {
 }
 
 type connectionIn struct {
-	Connection string `json:"connection" jsonschema:"connection name from dataport_list_connections"`
+	Connection string `json:"connection,omitempty" jsonschema:"connection name from dataport_list_connections; may be omitted on an endpoint for one connection"`
 }
 
 type listSchemasOut struct {
@@ -166,7 +227,7 @@ type listSchemasOut struct {
 }
 
 type listTablesIn struct {
-	Connection string `json:"connection" jsonschema:"connection name from dataport_list_connections"`
+	Connection string `json:"connection,omitempty" jsonschema:"connection name from dataport_list_connections; may be omitted on an endpoint for one connection"`
 	Schema     string `json:"schema,omitempty" jsonschema:"schema (or database) to list; omit for the first one dataport_list_schemas returns"`
 }
 
@@ -177,7 +238,7 @@ type listTablesOut struct {
 }
 
 type describeTableIn struct {
-	Connection string `json:"connection" jsonschema:"connection name from dataport_list_connections"`
+	Connection string `json:"connection,omitempty" jsonschema:"connection name from dataport_list_connections; may be omitted on an endpoint for one connection"`
 	Schema     string `json:"schema,omitempty" jsonschema:"schema of the table; omit for the default schema"`
 	Table      string `json:"table" jsonschema:"table or view name"`
 }
@@ -192,7 +253,7 @@ type describeTableOut struct {
 }
 
 type schemaContextIn struct {
-	Connection string   `json:"connection" jsonschema:"connection name from dataport_list_connections"`
+	Connection string   `json:"connection,omitempty" jsonschema:"connection name from dataport_list_connections; may be omitted on an endpoint for one connection"`
 	Schema     string   `json:"schema,omitempty" jsonschema:"schema to describe; omit for the default schema"`
 	Tables     []string `json:"tables,omitempty" jsonschema:"describe only these tables; omit for every table up to the server cap"`
 }
@@ -206,14 +267,52 @@ type schemaContextOut struct {
 	Compact    string `json:"compact"`
 }
 
+type schemaReportIn struct {
+	Connection string `json:"connection,omitempty" jsonschema:"connection name from dataport_list_connections; may be omitted on an endpoint for one connection"`
+	Schema     string `json:"schema,omitempty" jsonschema:"schema to analyse; omit for the default schema"`
+}
+
+type schemaReportOut struct {
+	GeneratedAt int64            `json:"generated_at"`
+	Status      docStatus        `json:"status"`
+	Connection  string           `json:"connection"`
+	Schema      string           `json:"schema"`
+	TableCount  int              `json:"table_count"`
+	Truncated   bool             `json:"truncated,omitempty"`
+	Anomalies   []engine.Anomaly `json:"anomalies"`
+	Report      string           `json:"report"`
+}
+
+type tableDocsIn struct {
+	Connection string   `json:"connection,omitempty" jsonschema:"connection name from dataport_list_connections; may be omitted on an endpoint for one connection"`
+	Schema     string   `json:"schema,omitempty" jsonschema:"schema of the tables; omit for the default schema"`
+	Tables     []string `json:"tables" jsonschema:"tables or views to document, at most 20"`
+	// Related is a pointer so that leaving it out means true.
+	Related *bool `json:"include_related,omitempty" jsonschema:"also list the columns of the tables they reference or are referenced by, for writing joins; default true"`
+}
+
+type tableDocsOut struct {
+	GeneratedAt int64             `json:"generated_at"`
+	Status      docStatus         `json:"status"`
+	Connection  string            `json:"connection"`
+	Schema      string            `json:"schema"`
+	Tables      []engine.DocTable `json:"tables"`
+	// Triggers of each documented table, by table name.
+	Triggers  map[string][]engine.TriggerInfo `json:"triggers,omitempty"`
+	Related   []engine.DocTable               `json:"related,omitempty"`
+	Anomalies []engine.Anomaly                `json:"anomalies,omitempty"`
+	Missing   []string                        `json:"missing,omitempty"`
+	Doc       string                          `json:"doc"`
+}
+
 type queryIn struct {
-	Connection string `json:"connection" jsonschema:"connection name from dataport_list_connections"`
+	Connection string `json:"connection,omitempty" jsonschema:"connection name from dataport_list_connections; may be omitted on an endpoint for one connection"`
 	SQL        string `json:"sql" jsonschema:"one or more read-only statements (SELECT, WITH, SHOW, EXPLAIN) separated by semicolons"`
 	MaxRows    int    `json:"max_rows,omitempty" jsonschema:"rows to return per statement; may be lower than the server cap, never higher"`
 }
 
 type executeIn struct {
-	Connection string `json:"connection" jsonschema:"connection name from dataport_list_connections; it must be writable"`
+	Connection string `json:"connection,omitempty" jsonschema:"connection name from dataport_list_connections; it must be writable. May be omitted on an endpoint for one connection"`
 	SQL        string `json:"sql" jsonschema:"statements that change data or schema, separated by semicolons; they run in one transaction where the database has transactions"`
 }
 
@@ -368,6 +467,97 @@ func (s *Server) registerMCPTools(server *mcp.Server, readOnly bool) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        mcpToolPrefix + "table_docs",
+		Annotations: ro("Document tables"),
+		Description: "Full documentation of the tables you are about to write code or SQL for: every column with type, " +
+			"nullability, default, primary key and comment; the foreign keys it holds and the tables that reference it, " +
+			"with ready JOIN clauses; indexes and unique keys; triggers; a view's definition; the estimated row count; and " +
+			"design problems found in it. The columns of directly related tables come along, so joins and ORM models use " +
+			"the real names. Uses a saved snapshot with generated_at and refresh status; may be older than the live schema. Never reads table data.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in tableDocsIn) (*mcp.CallToolResult, tableDocsOut, error) {
+		g, password, caller, err := s.mcpGrant(ctx, req, in.Connection)
+		if err != nil {
+			return nil, tableDocsOut{}, err
+		}
+
+		if len(in.Tables) == 0 || len(in.Tables) > maxTableDocs {
+			return nil, tableDocsOut{}, fmt.Errorf("pass 1 to %d tables", maxTableDocs)
+		}
+
+		schema, err := s.mcpSchema(ctx, g, password, in.Schema)
+		if err != nil {
+			return nil, tableDocsOut{}, err
+		}
+
+		saved, err := s.documentation(ctx, store.DocKey{ConnectionID: g.Connection.ID, UserID: caller.user.ID, Schema: schema}, false)
+		if err != nil {
+			return nil, tableDocsOut{}, mcpEngineError(err)
+		}
+
+		out := tableDocs(saved.Document, in.Tables, in.Related == nil || *in.Related)
+		out.Connection, out.Schema = g.Connection.Name, schema
+		out.GeneratedAt, out.Status = saved.Document.GeneratedAt, saved.Status
+
+		// Triggers change what a write does, so code touching the table
+		// should know them. They come from the same saved snapshot.
+		for _, t := range out.Tables {
+			if t.Kind != "table" {
+				continue
+			}
+
+			if len(t.Triggers) > 0 {
+				if out.Triggers == nil {
+					out.Triggers = map[string][]engine.TriggerInfo{}
+				}
+
+				out.Triggers[t.Name] = t.Triggers
+			}
+		}
+
+		out.Doc = tableDocsText(g.Connection.DBType, &out)
+
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: out.Doc}}}, out, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        mcpToolPrefix + "schema_report",
+		Annotations: ro("Schema report"),
+		Description: "Map a whole schema like SchemaSpy: every table with its estimated row count, which tables it references and " +
+			"which reference it, and design anomalies (tables without primary key, foreign keys without an index, implied " +
+			"relationships no key declares, orphan tables, duplicate indexes and more). Use it to find your way around or " +
+			"review a design; for the details of the tables you work on call " + mcpToolPrefix + "table_docs. Uses a saved snapshot with generated_at; never reads table data.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in schemaReportIn) (*mcp.CallToolResult, schemaReportOut, error) {
+		g, password, caller, err := s.mcpGrant(ctx, req, in.Connection)
+		if err != nil {
+			return nil, schemaReportOut{}, err
+		}
+
+		schema, err := s.mcpSchema(ctx, g, password, in.Schema)
+		if err != nil {
+			return nil, schemaReportOut{}, err
+		}
+
+		saved, err := s.documentation(ctx, store.DocKey{ConnectionID: g.Connection.ID, UserID: caller.user.ID, Schema: schema}, false)
+		if err != nil {
+			return nil, schemaReportOut{}, mcpEngineError(err)
+		}
+
+		doc := saved.Document
+		out := schemaReportOut{
+			GeneratedAt: doc.GeneratedAt, Status: saved.Status,
+			Connection: g.Connection.Name, Schema: schema, TableCount: doc.TableCount, Truncated: doc.Truncated,
+			Anomalies: doc.Anomalies, Report: schemaReportText(doc),
+		}
+
+		head := fmt.Sprintf("connection: %s\nschema: %s\ntables: %d\n", out.Connection, schema, doc.TableCount) + docFreshness(doc.GeneratedAt, saved.Status)
+		if doc.Truncated {
+			head += fmt.Sprintf("truncated: the first %d tables are analysed\n", len(doc.Tables))
+		}
+
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: head + "\n" + out.Report}}}, out, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name: mcpToolPrefix + "query",
 		Annotations: &mcp.ToolAnnotations{
 			Title: "Run a read-only query", ReadOnlyHint: true, OpenWorldHint: &closed,
@@ -414,6 +604,10 @@ func (s *Server) mcpConnections(ctx context.Context, caller *mcpCaller) ([]mcpCo
 	list := make([]mcpConnection, 0, len(grants))
 
 	for _, g := range grants {
+		if caller.scope != "" && g.Connection.ID != caller.scope {
+			continue
+		}
+
 		c := g.Connection
 		list = append(list, mcpConnection{
 			Name:        c.Name,
@@ -438,40 +632,33 @@ func (s *Server) mcpGrant(ctx context.Context, req *mcp.CallToolRequest, name st
 	}
 
 	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, "", nil, errors.New("connection is required; call dataport_list_connections")
-	}
 
-	grants, err := s.store.ListGrants(ctx, caller.user)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	id := ""
-
-	for _, g := range grants {
-		if g.Connection.Name == name || g.Connection.ID == name {
-			id = g.Connection.ID
-
-			break
-		}
-	}
+	// An endpoint or token for one connection needs no name.
+	id := caller.scope
 
 	if id == "" {
-		for _, g := range grants {
-			if strings.EqualFold(g.Connection.Name, name) {
-				id = g.Connection.ID
-
-				break
-			}
+		if name == "" {
+			return nil, "", nil, errors.New("connection is required; call dataport_list_connections")
 		}
-	}
 
-	if id == "" {
-		return nil, "", nil, fmt.Errorf("unknown connection %q; call dataport_list_connections", name)
+		grants, err := s.store.ListGrants(ctx, caller.user)
+		if err != nil {
+			return nil, "", nil, err
+		}
+
+		g := findGrant(grants, name)
+		if g == nil {
+			return nil, "", nil, fmt.Errorf("unknown connection %q; call dataport_list_connections", name)
+		}
+
+		id = g.Connection.ID
 	}
 
 	g, password, err := s.resolveGrant(ctx, caller.user, id)
+	if err == nil && caller.scope != "" && name != "" && findGrant([]*store.Grant{g}, name) == nil {
+		return nil, "", nil, fmt.Errorf("this endpoint only serves connection %q", g.Connection.Name)
+	}
+
 	if err != nil {
 		var credErr *credentialsError
 		if errors.As(err, &credErr) {
@@ -577,6 +764,346 @@ func (s *Server) schemaContext(ctx context.Context, g *store.Grant, password str
 	out.Compact = b.String()
 
 	return out, nil
+}
+
+// maxTableDocs bounds one table_docs call; related tables come on top.
+const maxTableDocs = 20
+
+// tableDocs picks the asked tables out of a schema document, with the
+// tables one key away and the anomalies of the asked ones.
+func tableDocs(doc *engine.SchemaDoc, names []string, related bool) tableDocsOut {
+	out := tableDocsOut{Tables: []engine.DocTable{}}
+
+	byName := map[string]engine.DocTable{}
+	lower := map[string]string{}
+
+	for _, t := range doc.Tables {
+		byName[t.Name] = t
+		lower[strings.ToLower(t.Name)] = t.Name
+	}
+
+	asked := map[string]bool{}
+
+	for _, n := range names {
+		name, ok := byName[n]
+		if !ok {
+			// Models often change the case of a name.
+			real, found := lower[strings.ToLower(n)]
+			if !found {
+				out.Missing = append(out.Missing, n)
+
+				continue
+			}
+
+			name = byName[real]
+		}
+
+		if !asked[name.Name] {
+			asked[name.Name] = true
+			out.Tables = append(out.Tables, name)
+		}
+	}
+
+	if related {
+		seen := map[string]bool{}
+
+		add := func(n string) {
+			if t, ok := byName[n]; ok && !asked[n] && !seen[n] {
+				seen[n] = true
+				out.Related = append(out.Related, t)
+			}
+		}
+
+		for _, t := range out.Tables {
+			for _, fk := range t.ForeignKeys {
+				add(fk.RefTable)
+			}
+
+			for _, r := range t.ReferencedBy {
+				add(r.Table)
+			}
+		}
+
+		for _, a := range doc.Anomalies {
+			if a.Kind == engine.AnomalyImplied && asked[a.Table] {
+				add(a.Ref)
+			}
+		}
+	}
+
+	for _, a := range doc.Anomalies {
+		if asked[a.Table] {
+			out.Anomalies = append(out.Anomalies, a)
+		}
+	}
+
+	return out
+}
+
+// tableDocsText writes table documentation for a model: compact, with the
+// joins spelled out in the connection's quoting.
+func tableDocsText(dbType string, out *tableDocsOut) string {
+	d, _ := engine.GetDriver(dbType)
+	q := func(s string) string {
+		if d == nil {
+			return s
+		}
+
+		return d.QuoteIdent(s)
+	}
+
+	join := func(from string, fromCols []string, to string, toCols []string) string {
+		conds := make([]string, 0, len(fromCols))
+		for i, c := range fromCols {
+			if i < len(toCols) {
+				conds = append(conds, q(from)+"."+q(c)+" = "+q(to)+"."+q(toCols[i]))
+			}
+		}
+
+		return "JOIN " + q(to) + " ON " + strings.Join(conds, " AND ")
+	}
+
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "connection: %s\nschema: %s\n", out.Connection, out.Schema)
+	b.WriteString(docFreshness(out.GeneratedAt, out.Status))
+
+	if len(out.Missing) > 0 {
+		fmt.Fprintf(&b, "not found: %s (see %slist_tables)\n", strings.Join(out.Missing, ", "), mcpToolPrefix)
+	}
+
+	for _, t := range out.Tables {
+		fmt.Fprintf(&b, "\n# %s", t.Name)
+
+		if t.Kind != "table" {
+			b.WriteString(" [" + t.Kind + "]")
+		}
+
+		if t.Rows != nil {
+			fmt.Fprintf(&b, " (~%d rows)", *t.Rows)
+		}
+
+		b.WriteString("\n")
+
+		if t.Comment != "" {
+			b.WriteString(t.Comment + "\n")
+		}
+
+		refs := map[string]string{}
+
+		for _, fk := range t.ForeignKeys {
+			for i, c := range fk.Columns {
+				if i < len(fk.RefColumns) {
+					refs[c] = fk.RefTable + "." + fk.RefColumns[i]
+				}
+			}
+		}
+
+		b.WriteString("columns:\n")
+
+		for _, c := range t.Columns {
+			fmt.Fprintf(&b, "  %s %s", c.Name, c.Type)
+
+			if c.PrimaryKey {
+				b.WriteString(" PK")
+			}
+
+			if !c.Nullable {
+				b.WriteString(" NOT NULL")
+			}
+
+			if c.Extra != "" {
+				b.WriteString(" " + c.Extra)
+			}
+
+			if c.Default != "" {
+				b.WriteString(" DEFAULT " + c.Default)
+			}
+
+			if r := refs[c.Name]; r != "" {
+				b.WriteString(" -> " + r)
+			}
+
+			if c.Comment != "" {
+				b.WriteString("  -- " + strings.ReplaceAll(c.Comment, "\n", " "))
+			}
+
+			b.WriteString("\n")
+		}
+
+		var uniques []string
+
+		for _, ix := range t.Indexes {
+			kind := "index"
+
+			switch {
+			case ix.Primary:
+				kind = "primary key"
+			case ix.Unique:
+				kind = "unique"
+				uniques = append(uniques, "("+strings.Join(ix.Columns, ", ")+")")
+			}
+
+			fmt.Fprintf(&b, "%s %s (%s)\n", kind, ix.Name, strings.Join(ix.Columns, ", "))
+		}
+
+		if len(uniques) > 0 {
+			b.WriteString("unique keys (upsert targets): " + strings.Join(uniques, ", ") + "\n")
+		}
+
+		for _, fk := range t.ForeignKeys {
+			fmt.Fprintf(&b, "references: %s", join(t.Name, fk.Columns, fk.RefTable, fk.RefColumns))
+
+			if fk.OnDelete != "" && fk.OnDelete != "NO ACTION" {
+				b.WriteString("  (on delete " + fk.OnDelete + ")")
+			}
+
+			b.WriteString("\n")
+		}
+
+		for _, r := range t.ReferencedBy {
+			fmt.Fprintf(&b, "referenced by: %s\n", join(t.Name, r.RefColumns, r.Table, r.Columns))
+		}
+
+		for _, a := range out.Anomalies {
+			if a.Table == t.Name && a.Kind == engine.AnomalyImplied {
+				fmt.Fprintf(&b, "probably references (no foreign key): %s\n", join(t.Name, a.Columns, a.Ref, a.RefCols))
+			}
+		}
+
+		for _, tr := range out.Triggers[t.Name] {
+			fmt.Fprintf(&b, "trigger %s %s %s", tr.Name, tr.Timing, tr.Event)
+
+			if !tr.Enabled {
+				b.WriteString(" (disabled)")
+			}
+
+			b.WriteString("\n")
+		}
+
+		if t.Definition != "" {
+			b.WriteString("definition:\n" + t.Definition + "\n")
+		}
+
+		var notes []string
+
+		for _, a := range out.Anomalies {
+			if a.Table != t.Name || a.Kind == engine.AnomalyImplied {
+				continue
+			}
+
+			n := a.Kind
+			if len(a.Columns) > 0 {
+				n += "(" + strings.Join(a.Columns, ", ") + ")"
+			}
+
+			notes = append(notes, n)
+		}
+
+		if len(notes) > 0 {
+			b.WriteString("design notes: " + strings.Join(notes, "; ") + "\n")
+		}
+	}
+
+	if len(out.Related) > 0 {
+		b.WriteString("\n# related tables\n")
+
+		for _, t := range out.Related {
+			cols := make([]string, len(t.Columns))
+
+			for i, c := range t.Columns {
+				cols[i] = c.Name + " " + c.Type
+				if c.PrimaryKey {
+					cols[i] += " PK"
+				}
+			}
+
+			fmt.Fprintf(&b, "%s(%s)\n", t.Name, strings.Join(cols, ", "))
+		}
+	}
+
+	return b.String()
+}
+
+func docFreshness(at int64, status docStatus) string {
+	text := "snapshot generated: " + time.UnixMilli(at).UTC().Format(time.RFC3339) + " (not live; refresh in the documentation UI)\n"
+	if status.LastError != "" {
+		text += "last refresh failed; showing last successful snapshot\n"
+	}
+	if status.Refreshing {
+		text += "refresh in progress\n"
+	}
+	return text
+}
+
+// schemaReportText writes a schema document as plain lines for a model.
+func schemaReportText(doc *engine.SchemaDoc) string {
+	var b strings.Builder
+
+	b.WriteString("## tables\n")
+
+	for _, t := range doc.Tables {
+		b.WriteString(t.Name)
+
+		if t.Kind != "table" {
+			b.WriteString(" [" + t.Kind + "]")
+		}
+
+		if t.Rows != nil {
+			fmt.Fprintf(&b, " ~%d rows", *t.Rows)
+		}
+
+		fmt.Fprintf(&b, ", %d columns", len(t.Columns))
+
+		for _, fk := range t.ForeignKeys {
+			fmt.Fprintf(&b, "; %s -> %s(%s)", strings.Join(fk.Columns, ","), fk.RefTable, strings.Join(fk.RefColumns, ","))
+		}
+
+		if len(t.ReferencedBy) > 0 {
+			refs := make([]string, len(t.ReferencedBy))
+			for i, r := range t.ReferencedBy {
+				refs[i] = r.Table
+			}
+
+			b.WriteString("; referenced by " + strings.Join(refs, ", "))
+		}
+
+		if t.Comment != "" {
+			b.WriteString(" -- " + t.Comment)
+		}
+
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n## anomalies\n")
+
+	if !doc.Keys {
+		b.WriteString("(this database keeps no keys or indexes; key checks skipped)\n")
+	}
+
+	if len(doc.Anomalies) == 0 {
+		b.WriteString("none\n")
+	}
+
+	for _, a := range doc.Anomalies {
+		b.WriteString(a.Kind + ": " + a.Table)
+
+		if len(a.Columns) > 0 {
+			b.WriteString("(" + strings.Join(a.Columns, ", ") + ")")
+		}
+
+		if a.Ref != "" {
+			b.WriteString(" -> " + a.Ref)
+
+			if len(a.RefCols) > 0 {
+				b.WriteString("(" + strings.Join(a.RefCols, ", ") + ")")
+			}
+		}
+
+		b.WriteString("\n")
+	}
+
+	return b.String()
 }
 
 func (s *Server) mcpRun(ctx context.Context, req *mcp.CallToolRequest, name, sqlText string, maxRows int, readOnly bool) (*mcp.CallToolResult, queryOut, error) {
@@ -741,6 +1268,8 @@ type tokenRequest struct {
 	ReadOnly bool   `json:"read_only"`
 	// ExpiresInDays of zero uses the longest lifetime the server allows.
 	ExpiresInDays int `json:"expires_in_days"`
+	// ConnectionID limits the token to one connection.
+	ConnectionID string `json:"connection_id"`
 }
 
 func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
@@ -758,6 +1287,7 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 		"max_ttl_days":  int(s.cfg.MCP.TokenTTL.Hours() / 24),
 		"default_rows":  s.cfg.MCP.MaxRows,
 		"external_base": strings.TrimRight(s.cfg.Auth.ExternalURL, "/"),
+		"base_url":      s.publicBase(r),
 	})
 }
 
@@ -792,7 +1322,15 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t := &store.AccessToken{UserID: currentUser(r).ID, Name: req.Name, TokenHash: hash, ReadOnly: req.ReadOnly}
+	if req.ConnectionID != "" {
+		if _, err := s.store.GetGrant(r.Context(), currentUser(r), req.ConnectionID); err != nil {
+			writeError(w, http.StatusBadRequest, "you have no access to this connection")
+
+			return
+		}
+	}
+
+	t := &store.AccessToken{UserID: currentUser(r).ID, Name: req.Name, TokenHash: hash, ReadOnly: req.ReadOnly, ConnectionID: req.ConnectionID}
 	if req.ExpiresInDays > 0 {
 		t.ExpiresAt = time.Now().Add(time.Duration(req.ExpiresInDays) * 24 * time.Hour).UnixMilli()
 	}
@@ -807,7 +1345,15 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteAccessToken(r.Context(), currentUser(r).ID, r.PathValue("id")); err != nil {
+	user := currentUser(r)
+
+	// Revoking a signed-in client also forgets its approval, so it has to
+	// ask again.
+	if t, err := s.store.GetAccessToken(r.Context(), user.ID, r.PathValue("id")); err == nil && t.ClientID != "" {
+		_ = s.store.DeleteOAuthConsent(r.Context(), user.ID, t.ClientID)
+	}
+
+	if err := s.store.DeleteAccessToken(r.Context(), user.ID, r.PathValue("id")); err != nil {
 		writeStoreError(w, err)
 
 		return

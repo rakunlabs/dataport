@@ -85,7 +85,7 @@
 
   const split = (v: string, sep: RegExp) => v.split(sep).map((s) => s.trim()).filter(Boolean);
 
-  const callback = $derived(`${location.origin}${location.pathname.replace(/\/$/, '')}/api/v1/auth/sso/callback/${form.name || '<name>'}`);
+  const callback = $derived(new URL(`./api/v1/auth/sso/callback/${form.name || '<name>'}`, location.href).href);
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();

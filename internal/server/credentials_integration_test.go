@@ -96,7 +96,7 @@ GRANT SELECT ON dp_cred_t TO dp_alice`})
 			t.Fatal(err)
 		}
 
-		token, err := au.CreateSession(ctx, u.ID, "", "")
+		token, err := au.CreateSession(ctx, u.ID, "", "", false)
 		if err != nil {
 			t.Fatal(err)
 		}

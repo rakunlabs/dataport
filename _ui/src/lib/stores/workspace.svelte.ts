@@ -9,7 +9,7 @@ import { prefs } from '@/lib/stores/prefs.svelte';
 import { declarationLines, placeholders, substitute } from '@/lib/helper/variables';
 import { askVariables } from '@/lib/stores/variables.svelte';
 
-export type TabKind = 'query' | 'table' | 'settings' | 'diagram' | 'processes' | 'users';
+export type TabKind = 'query' | 'table' | 'settings' | 'diagram' | 'docs' | 'processes' | 'users';
 
 export interface Tab {
   id: string;
@@ -252,6 +252,25 @@ export function openDiagram(connectionId: string, schema: string) {
   const tab = baseTab('diagram', connectionId);
   tab.title = schema;
   tab.schema = schema;
+  ws.tabs.push(tab);
+  ws.activeId = tab.id;
+  persist();
+  return ws.tabs[ws.tabs.length - 1];
+}
+
+// openDocs shows the documentation of a schema, one tab per schema.
+export function openDocs(connectionId: string, schema: string, table = '') {
+  const existing = ws.tabs.find((t) => t.kind === 'docs' && t.connectionId === connectionId && t.schema === schema);
+  if (existing) {
+    if (table) existing.table = table;
+    ws.activeId = existing.id;
+    return existing;
+  }
+
+  const tab = baseTab('docs', connectionId);
+  tab.title = schema;
+  tab.schema = schema;
+  tab.table = table;
   ws.tabs.push(tab);
   ws.activeId = tab.id;
   persist();

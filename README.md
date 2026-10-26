@@ -66,7 +66,8 @@ too).
 | `DATAPORT_AUTH_SECRET_KEY` | generated | Encrypts stored connection passwords. Any text; an AES key is derived from it with argon2id. Back it up |
 | `DATAPORT_AUTH_ADMIN_USERNAME` | `admin` | First admin, created when there are no users |
 | `DATAPORT_AUTH_ADMIN_PASSWORD` | generated | |
-| `DATAPORT_AUTH_SESSION_TTL` | `12h` | Sliding session lifetime |
+| `DATAPORT_AUTH_SESSION_TTL` | `12h` | Sliding session lifetime; the cookie ends when the browser closes |
+| `DATAPORT_AUTH_REMEMBER_TTL` | `720h` | Sliding lifetime of a session signed in with *Remember me*, whose cookie survives closing the browser; `0` hides the option |
 | `DATAPORT_AUTH_SECURE_COOKIE` | `false` | Force the Secure cookie flag |
 | `DATAPORT_AUTH_EXTERNAL_URL` | | Public origin for SSO redirect URIs, e.g. `https://dataport.example.com` |
 | `DATAPORT_AUTH_DISABLE_PASSWORD_LOGIN` | `false` | Hide the password form and allow only SSO |
@@ -83,10 +84,10 @@ too).
 | `DATAPORT_MCP_MAX_ROWS` | `200` | Rows returned to an agent per statement |
 | `DATAPORT_MCP_MAX_CELL_CHARS` | `2000` | Longer text values are shortened for agents |
 | `DATAPORT_MCP_MAX_SCHEMA_TABLES` | `100` | Tables described by one `dataport_schema_context` call |
-| `DATAPORT_MCP_TOKEN_TTL` | `2160h` | Longest lifetime of an access token; `0` allows tokens that never expire |
+| `DATAPORT_MCP_TOKEN_TTL` | `2160h` | Longest lifetime of an access token, and of an OAuth sign-in before the client must sign in again; `0` allows tokens that never expire |
 | `DATAPORT_MCP_STATELESS` | `false` | No MCP sessions on the server, for replicas without sticky sessions; production writes are then refused |
 | `DATAPORT_SERVER_PORT` | `8080` | |
-| `DATAPORT_SERVER_BASE_PATH` | | Serve under a sub path such as `/dataport` |
+| `DATAPORT_SERVER_BASE_PATH` | | Serve under a sub path such as `/dataport`. The UI uses relative paths, so it works under any base path without a rebuild |
 
 ## How access works
 
@@ -118,6 +119,12 @@ too).
   primary key; tables without one only accept new rows.
 
 ## Workspace
+
+The interface speaks English, German, Spanish, French, Dutch, Polish,
+Russian, Turkish, Japanese, Korean and Chinese (Simplified and Traditional);
+it follows the browser and can be changed from the
+user menu or the sign-in page. Translations live in `_ui/src/lib/i18n`, one
+file per language typed against `en.ts`, so a missing key fails the build.
 
 The workspace follows DBX and DBeaver: a connection tree on the left, tabs on
 the right. Administration (connections, users, groups, single sign-on, query
@@ -162,6 +169,51 @@ Objects of a schema are grouped by kind (tables, views, procedures,
 functions, sequences…); routines and sequences open with their source, and
 a schema opens as an ER diagram. Every statement a menu writes is
 shown for review (run, open in editor, cancel) before it runs.
+
+**Documentation** (right-click a schema or table → *Documentation*)
+
+A schema report in the manner of [SchemaSpy](https://schemaspy.org), built
+in and working on every database: an overview with counts and the largest
+and most referenced tables; every table and column with types, defaults,
+keys and comments; the relationships; estimated row counts from the
+database's statistics; and a page per table with what it references, what
+references it, its indexes and a view's definition. It reads only the
+catalog, as the signed-in user, never table data.
+
+It also lists SchemaSpy's anomalies: tables without a primary key, foreign
+keys without an index, implied relationships (`customer_id` next to
+`customers.id` with no foreign key), tables with no relationships, single
+column tables, nullable unique columns, defaults of the text `'null'`,
+numbered columns (`phone1`, `phone2`) and duplicate indexes. Where one
+statement fixes it (a missing index, an implied foreign key, a duplicate
+index) *Write the fix* opens it in an editor. *Download HTML* saves the
+whole report, diagram included, as one file to share.
+
+The first read saves a documentation snapshot in the application store;
+subsequent UI and MCP reads use it rather than scanning the target database
+again. Snapshots (including triggers) are isolated by user, connection and
+schema, survive restarts, and are invalidated when the connection or saved
+database identity changes. Current access is checked on every read and job.
+
+*Refresh now* rebuilds the snapshot. *Auto-refresh* saves a personal cron
+schedule for this schema, powered by
+[hardloop](https://github.com/rakunlabs/hardloop). Leave it blank to turn it
+off, use `@hourly`, or e.g. `CRON_TZ=Europe/Istanbul 0 3 * * *` for 03:00
+Istanbul time daily. The minimum interval is one minute; without `CRON_TZ`
+the server's time zone applies. Day-of-month and weekday restrictions use
+AND, not traditional cron's OR. The UI shows the snapshot date, next run,
+refresh-in-progress and failure status. MCP outputs also state the snapshot
+date and that it is not live.
+
+Hardloop checks due schedules each minute and once at startup. A missed
+schedule runs once on recovery, not once per missed occurrence. Jobs run
+sequentially per instance; persisted, expiring leases prevent manual and
+scheduled refreshes from overlapping across replicas, with fenced writes.
+On failure the last successful document stays available with a warning;
+no partial replacement is published. A metadata scan is capped at 90 seconds
+and 300 tables. All replicas need the same application store and encryption
+key. Protect store backups: documentation contains schema details, comments
+and definitions, though no table rows or connection passwords.
 
 **Connection tools** (right-click a connection)
 
@@ -234,21 +286,48 @@ the picker as unavailable.
 ## MCP
 
 AI agents (Claude Code, Cursor, VS Code…) can use dataport through the Model
-Context Protocol at `<base path>/mcp` (streamable HTTP). Each user creates
-personal access tokens under Settings → *MCP access*, which also shows
-the client setup:
+Context Protocol (streamable HTTP). Settings → *MCP access* shows the
+address and the client setup.
+
+**Endpoints**
+
+- `<base path>/mcp` serves every connection shared with the user; tools take
+  a connection name.
+- `<base path>/mcp/<connection>` serves one connection, such as
+  `/mcp/orders-db`. The agent sees nothing else and needs no connection
+  name, so one client can hold a server per database.
+
+**Signing in**
+
+- *Browser sign-in (OAuth)*: add the server without a token,
+  `claude mcp add --transport http dataport https://dataport.example.com/mcp`.
+  The first time, the client opens dataport in the browser; the user signs
+  in (password or SSO), picks the databases and read-only or read-write,
+  and approves. *Remember this client* approves it again later without
+  asking, until its access is revoked. The client renews its access by itself. dataport is the
+  OAuth 2.1 server: dynamic client registration, PKCE (S256), one-hour
+  access tokens and rotating refresh tokens that live as long as
+  `DATAPORT_MCP_TOKEN_TTL`.
+- *Access tokens*: for clients without browser sign-in, scripts and CI,
+  create a `dpt_…` token (optionally for one connection) and send it as a
+  bearer token:
 
 ```sh
 claude mcp add --transport http dataport https://dataport.example.com/mcp \
   --header "Authorization: Bearer dpt_…"
 ```
 
-An agent acts as the token's user and gets nothing more:
+Both kinds show under *Your tokens* and can be revoked there. Behind a
+reverse proxy set `DATAPORT_AUTH_EXTERNAL_URL`, so the OAuth addresses
+dataport announces are the public ones.
 
-- only the connections granted to the user, with the same read-only and
+An agent acts as its user and gets nothing more:
+
+- only the connections granted to the user (and, for a token or endpoint
+  of one connection, only that one), with the same read-only and
   own-account rules; host and credentials are never shown;
-- a token can be made read-only, which hides the write tool and keeps every
-  run read-only even where the user may write;
+- a token can be read-only, which hides the write tool and keeps every run
+  read-only even where the user may write;
 - writes on production connections ask the user to confirm the exact SQL
   through the client (MCP elicitation); clients that cannot ask are refused;
 - every statement goes to the query log with source `mcp`, filterable under
@@ -257,7 +336,12 @@ An agent acts as the token's user and gets nothing more:
 
 Tools: `dataport_list_connections`, `dataport_list_schemas`,
 `dataport_list_tables`, `dataport_describe_table`, `dataport_schema_context`
-(one line per table, cheap on tokens), `dataport_query` (read-only, rolled
-back) and `dataport_execute` (only for tokens that may write).
+(one line per table, cheap on tokens), `dataport_table_docs` (everything
+code needs about given tables: columns with comments and defaults, ready
+`JOIN` clauses both ways, unique keys for upserts, triggers, a view's
+definition, row estimates and the columns of related tables),
+`dataport_schema_report` (the documentation's map and anomalies of a whole
+schema), `dataport_query` (read-only, rolled back) and `dataport_execute`
+(only for tokens that may write).
 
 Integration tests run against `make env`: `go test -tags integration ./internal/engine/`.

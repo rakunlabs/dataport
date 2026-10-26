@@ -31,6 +31,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Remember bool   `json:"remember"`
 	}
 
 	if !readJSON(w, r, &req) {
@@ -43,7 +44,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, user, err := s.auth.Login(r.Context(), req.Username, req.Password, clientIP(r), r.UserAgent())
+	token, user, err := s.auth.Login(r.Context(), req.Username, req.Password, clientIP(r), r.UserAgent(), req.Remember)
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrLocked):
@@ -57,7 +58,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.setCookie(w, r, token)
+	s.setCookie(w, r, token, req.Remember)
 	writeJSON(w, http.StatusOK, toMe(user))
 }
 
@@ -123,17 +124,25 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sign out every other session and start a new one here.
+	// Sign out every other session and start a new one here, remembered
+	// if this one was.
+	remember := false
+	if cookie, err := r.Cookie(cookieName); err == nil {
+		if _, sess, err := s.auth.AuthenticateSession(r.Context(), cookie.Value); err == nil {
+			remember = sess.Remember
+		}
+	}
+
 	_ = s.store.DeleteUserSessions(r.Context(), user.ID)
 
-	token, err := s.auth.CreateSession(r.Context(), user.ID, clientIP(r), r.UserAgent())
+	token, err := s.auth.CreateSession(r.Context(), user.ID, clientIP(r), r.UserAgent(), remember)
 	if err != nil {
 		writeStoreError(w, err)
 
 		return
 	}
 
-	s.setCookie(w, r, token)
+	s.setCookie(w, r, token, remember)
 	w.WriteHeader(http.StatusNoContent)
 }
 

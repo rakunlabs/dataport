@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/rakunlabs/dataport/internal/sso"
 	"github.com/rakunlabs/dataport/internal/store"
@@ -15,13 +16,42 @@ func (s *Server) authInfo(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"password":  !s.cfg.Auth.DisablePasswordLogin,
 		"providers": s.sso.Public(),
+		// Days a "remember me" session lasts; zero hides the option.
+		"remember_days": int(s.auth.RememberTTL().Hours() / 24),
 	})
+}
+
+const rememberCookie = "dataport_remember"
+
+// setRememberCookie keeps the "remember me" choice while the browser is at
+// the SSO provider; on false it is cleared.
+func (s *Server) setRememberCookie(w http.ResponseWriter, r *http.Request, on bool) {
+	c := &http.Cookie{
+		Name:     rememberCookie,
+		Value:    "1",
+		Path:     s.cfg.Server.BasePath + "/api/v1/auth/sso/",
+		HttpOnly: true,
+		Secure:   s.isSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600,
+	}
+
+	if !on {
+		c.Value, c.MaxAge = "", -1
+	}
+
+	http.SetCookie(w, c)
 }
 
 // ssoLogin starts the flow (redirect to the provider) and finishes it on the
 // callback, where it opens a dataport session and returns to the app.
 func (s *Server) ssoLogin(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+
+	// "Remember me" crosses the provider in a short cookie of its own.
+	if v := r.URL.Query().Get("remember"); v != "" && !strings.Contains(r.URL.Path, "/callback/") {
+		s.setRememberCookie(w, r, v == "1")
+	}
 
 	id, provider, ok := s.sso.Login(w, r, name)
 	if !ok {
@@ -44,7 +74,14 @@ func (s *Server) ssoLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.auth.CreateSession(r.Context(), user.ID, clientIP(r), r.UserAgent())
+	remember := false
+	if c, err := r.Cookie(rememberCookie); err == nil {
+		remember = c.Value == "1"
+	}
+
+	s.setRememberCookie(w, r, false)
+
+	token, err := s.auth.CreateSession(r.Context(), user.ID, clientIP(r), r.UserAgent(), remember)
 	if err != nil {
 		slog.Error("sso session", "error", err)
 		s.redirectLogin(w, r, "sign-in failed, try again")
@@ -54,7 +91,7 @@ func (s *Server) ssoLogin(w http.ResponseWriter, r *http.Request) {
 
 	_ = s.store.TouchUserLogin(r.Context(), user.ID)
 
-	s.setCookie(w, r, token)
+	s.setCookie(w, r, token, remember)
 	http.Redirect(w, r, s.cookiePath(), http.StatusSeeOther)
 }
 

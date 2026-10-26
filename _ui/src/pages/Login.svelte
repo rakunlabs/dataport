@@ -2,14 +2,19 @@
   import { push, router } from 'svelte-spa-router';
   import { LogIn, KeyRound, Languages, TriangleAlert, LoaderCircle } from 'lucide-svelte';
   import Logo from '@/lib/components/Logo.svelte';
-  import { login, session } from '@/lib/stores/session.svelte';
+  import { login, session, takeReturn } from '@/lib/stores/session.svelte';
   import { api } from '@/lib/api/client';
   import type { AuthInfo } from '@/lib/api/types';
-  import { i18n, locales, serverMessage, setLocale, t } from '@/lib/i18n/index.svelte';
+  import { i18n, locales, serverMessage, setLocale, t, type Locale } from '@/lib/i18n/index.svelte';
 
   let username = $state('');
   let password = $state('');
   let busy = $state(false);
+  // The last choice is kept in this browser, as sign-in pages usually do.
+  let remember = $state(localStorage.getItem('dataport.remember') === '1');
+  $effect(() => {
+    localStorage.setItem('dataport.remember', remember ? '1' : '0');
+  });
   let info = $state<AuthInfo | null>(null);
 
   // SSO failures come back as #/login?error=...
@@ -28,8 +33,8 @@
     busy = true;
     error = '';
     try {
-      await login(username, password);
-      await push('/');
+      await login(username, password, remember && !!info?.remember_days);
+      await push(takeReturn() || '/');
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -58,7 +63,7 @@
       {#if info?.providers.length}
         <div class="space-y-2">
           {#each info.providers as p (p.name)}
-            <a href={`./api/v1/auth/sso/${encodeURIComponent(p.name)}`} class="btn-outline h-8 w-full justify-center">
+            <a href={`./api/v1/auth/sso/${encodeURIComponent(p.name)}?remember=${remember && info?.remember_days ? 1 : 0}`} class="btn-outline h-8 w-full justify-center">
               <KeyRound size={14} /> {t('login.continueWith', { name: p.label })}
             </a>
           {/each}
@@ -69,6 +74,16 @@
           </div>
         {/if}
       {/if}
+
+      {#snippet rememberBox()}
+        {#if info?.remember_days}
+          <label class="flex items-center gap-2 text-sm text-fg-2" title={t('login.rememberHint', { days: info.remember_days })}>
+            <input type="checkbox" bind:checked={remember} />
+            {t('login.remember')}
+            <span class="text-xs text-faint">{t('login.rememberDays', { days: info.remember_days })}</span>
+          </label>
+        {/if}
+      {/snippet}
 
       {#if !info || info.password}
         <form onsubmit={submit} class="space-y-3">
@@ -81,21 +96,25 @@
             <label class="label" for="password">{t('login.password')}</label>
             <input id="password" class="input h-8" type="password" autocomplete="current-password" bind:value={password} required />
           </div>
+          {@render rememberBox()}
           <button class="btn-primary h-8 w-full justify-center" disabled={busy}>
             {#if busy}<LoaderCircle size={14} class="animate-spin" />{:else}<LogIn size={14} />{/if}
             {busy ? t('login.signingIn') : t('login.signIn')}
           </button>
         </form>
       {:else}
-        <p class="text-xs text-muted">{t('login.passwordDisabled')}</p>
+        <div class="mt-3">{@render rememberBox()}</div>
+        <p class="mt-3 text-xs text-muted">{t('login.passwordDisabled')}</p>
       {/if}
     </div>
   </div>
 
   <div class="flex h-10 shrink-0 items-center justify-center gap-1 text-xs text-muted">
     <Languages size={12} />
-    {#each locales as l (l.value)}
-      <button class="rounded-sm px-1.5 py-0.5 {i18n.locale === l.value ? 'font-medium text-fg' : 'hover:text-fg'}" onclick={() => setLocale(l.value)}>{l.label}</button>
-    {/each}
+    <select class="cursor-pointer rounded-sm bg-transparent px-1 py-0.5 text-xs text-muted hover:text-fg" value={i18n.locale} onchange={(e) => setLocale(e.currentTarget.value as Locale)} aria-label="Language">
+      {#each locales as l (l.value)}
+        <option value={l.value}>{l.label}</option>
+      {/each}
+    </select>
   </div>
 </div>
