@@ -354,7 +354,10 @@ func (in *Inserter) Flush() error {
 // ////////////////////////////////////////////
 // column types across databases
 
-var typeArgs = regexp.MustCompile(`\(([^)]*)\)`)
+var (
+	typeArgs    = regexp.MustCompile(`\(([^)]*)\)`)
+	numericArgs = regexp.MustCompile(`^\s*(\d+|max)\s*(,\s*\d+\s*)?$`)
+)
 
 // MapType translates a column type of one database into one the target
 // understands. The same database keeps the type as it is.
@@ -374,8 +377,10 @@ func MapType(from, to string, typ string) string {
 
 	args := ""
 
-	if m := typeArgs.FindStringSubmatch(t); m != nil {
-		args = m[1]
+	// Only lengths and precisions carry over; anything else in the
+	// parentheses (an enum list, a time zone) does not fit the target.
+	if m := typeArgs.FindStringSubmatch(t); m != nil && numericArgs.MatchString(m[1]) {
+		args = strings.ReplaceAll(m[1], " ", "")
 	}
 
 	base := strings.TrimSpace(typeArgs.ReplaceAllString(t, ""))

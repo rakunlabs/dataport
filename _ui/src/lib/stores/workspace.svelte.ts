@@ -6,7 +6,7 @@ import { t } from '@/lib/i18n/index.svelte';
 import { quoteIdent } from '@/lib/helper/copy';
 import { askCredentials, needsCredentials, withCredentials } from '@/lib/stores/credentials.svelte';
 import { prefs } from '@/lib/stores/prefs.svelte';
-import { placeholders, substitute } from '@/lib/helper/variables';
+import { declarationLines, placeholders, substitute } from '@/lib/helper/variables';
 import { askVariables } from '@/lib/stores/variables.svelte';
 
 export type TabKind = 'query' | 'table' | 'settings' | 'diagram' | 'processes' | 'users';
@@ -368,6 +368,12 @@ export function tableSQL(t: Tab, probe = true): string {
     return `SELECT * FROM ${from}${where}${order ? ` ORDER BY ${order}` : ''}${offset} FETCH FIRST ${n} ROWS ONLY`;
   }
 
+  // Trino takes OFFSET before LIMIT only.
+  if (dbType === 'trino') {
+    const offset = t.offset ? ` OFFSET ${t.offset}` : '';
+    return `SELECT * FROM ${from}${where}${order ? ` ORDER BY ${order}` : ''}${offset} LIMIT ${n}`;
+  }
+
   return `SELECT * FROM ${from}${where}${order ? ` ORDER BY ${order}` : ''} LIMIT ${n} OFFSET ${t.offset}`;
 }
 
@@ -415,7 +421,8 @@ async function execute(t: Tab, sql: string, confirm = false, mode: RunMode = 're
     if (needsCredentials(e)) {
       t.running = false;
       t.queryId = '';
-      if (await askCredentials(t.connectionId, (e as ApiError).message)) return execute(t, sql, confirm, mode);
+      // await: the finally below must not end the retried run.
+      if (await askCredentials(t.connectionId, (e as ApiError).message)) return await execute(t, sql, confirm, mode);
       fail(t, sql, run, (e as ApiError).message, mode);
       return;
     }
@@ -424,7 +431,7 @@ async function execute(t: Tab, sql: string, confirm = false, mode: RunMode = 're
       t.queryId = '';
       const conn = connection(t.connectionId);
       if (await confirmProduction({ connection: conn?.name ?? '', sql, risk: String(e.data.risk ?? 'write') })) {
-        return execute(t, sql, true, mode);
+        return await execute(t, sql, true, mode);
       }
       return;
     }
@@ -485,15 +492,16 @@ export async function run(id: string, sql?: string, mode: RunMode = 'replace') {
   // statement in the editor count too when only part of it runs.
   if (prefs.variables) {
     const syn = prefs.variableSyntaxes;
-    const scope = sql !== undefined && sql.trim() !== t.sql.trim() ? declarationsBefore(t.sql, sql) + text : text;
-    const missing = placeholders(scope, syn).filter((p) => p.value === undefined);
+    const dbType = connection(t.connectionId)?.db_type ?? '';
+    const scope = sql !== undefined && sql.trim() !== t.sql.trim() ? declarationsBefore(t.sql, sql, dbType) + text : text;
+    const missing = placeholders(scope, syn, dbType).filter((p) => p.value === undefined);
     let given: Record<string, string> = {};
     if (missing.length) {
       const answer = await askVariables(missing);
       if (!answer) return;
       given = answer;
     }
-    text = substitute(scope, syn, given);
+    text = substitute(scope, syn, given, dbType);
     if (!text) return;
   }
 
@@ -502,11 +510,9 @@ export async function run(id: string, sql?: string, mode: RunMode = 'replace') {
 
 // declarationsBefore returns the @set lines of the document, so running one
 // statement still sees the values declared for the script.
-function declarationsBefore(doc: string, part: string): string {
+function declarationsBefore(doc: string, part: string, dbType: string): string {
   const at = doc.indexOf(part.trim());
-  const head = at > 0 ? doc.slice(0, at) : doc;
-  const found = head.match(/@set\s+[\p{L}_][\p{L}\p{N}_]*\s*=\s*(?:'(?:[^']|'')*'|[^;]*?)\s*;/giu) ?? [];
-  return found.length ? found.join('\n') + '\n' : '';
+  return declarationLines(at > 0 ? doc.slice(0, at) : doc, dbType);
 }
 
 export async function runTable(id: string) {

@@ -5,6 +5,7 @@
 
 import { qualified, quoteIdent } from '@/lib/stores/workspace.svelte';
 import type { ColumnInfo, ForeignKey, IndexInfo } from '@/lib/api/types';
+import { stringLiteral } from '@/lib/helper/copy';
 
 export interface ColumnDraft {
   // The column as loaded; empty for a new one.
@@ -16,6 +17,8 @@ export interface ColumnDraft {
   primary: boolean;
   comment: string;
   dropped: boolean;
+  // Kept as loaded, so restating a MySQL column keeps AUTO_INCREMENT.
+  extra?: string;
 }
 
 export interface IndexDraft {
@@ -66,6 +69,7 @@ export function draftOf(l: Loaded): Draft {
       nullable: c.nullable,
       default: c.default,
       primary: c.primary_key,
+      extra: c.extra ?? '',
       comment: l.comments[c.name] ?? '',
       dropped: false,
     })),
@@ -113,9 +117,6 @@ export function typeSuggestions(db: string): string[] {
 
 export const fkActions = ['', 'CASCADE', 'SET NULL', 'SET DEFAULT', 'RESTRICT', 'NO ACTION'];
 
-function str(s: string) {
-  return `'${s.replaceAll("'", "''")}'`;
-}
 
 const mysqlish = (db: string) => db === 'mysql' || db === 'mariadb';
 
@@ -126,8 +127,9 @@ function columnDef(db: string, c: ColumnDraft): string {
   if (!c.nullable) out += ' NOT NULL';
   else if (db === 'mssql') out += ' NULL';
   if (c.default.trim()) out += ` DEFAULT ${c.default.trim()}`;
-  if (mysqlish(db) && c.comment) out += ` COMMENT ${str(c.comment)}`;
-  if (db === 'clickhouse' && c.comment) out += ` COMMENT ${str(c.comment)}`;
+  if (mysqlish(db) && c.extra) out += ` ${c.extra}`;
+  if (mysqlish(db) && c.comment) out += ` COMMENT ${stringLiteral(db, c.comment)}`;
+  if (db === 'clickhouse' && c.comment) out += ` COMMENT ${stringLiteral(db, c.comment)}`;
   return out;
 }
 
@@ -192,7 +194,7 @@ export function alterSQL(db: string, schema: string, table: string, loaded: Load
 
     let name = old.name;
     if (c.name !== old.name) {
-      if (db === 'mssql') out.push(`EXEC sp_rename ${str(`${schema ? schema + '.' : ''}${table}.${old.name}`)}, ${str(c.name)}, 'COLUMN';`);
+      if (db === 'mssql') out.push(`EXEC sp_rename ${stringLiteral(db, `${schema ? quoteIdent(db, schema) + '.' : ''}${quoteIdent(db, table)}.${quoteIdent(db, old.name)}`)}, ${stringLiteral(db, c.name)}, 'COLUMN';`);
       else out.push(`ALTER TABLE ${T} RENAME COLUMN ${q(old.name)} TO ${q(c.name)};`);
       name = c.name;
     }
@@ -230,7 +232,7 @@ export function alterSQL(db: string, schema: string, table: string, loaded: Load
         let type = c.type.trim();
         if (nullChanged && c.nullable && !/^Nullable\(/i.test(type)) type = `Nullable(${type})`;
         if (nullChanged && !c.nullable) type = type.replace(/^Nullable\((.*)\)$/i, '$1');
-        out.push(`ALTER TABLE ${T} MODIFY COLUMN ${q(name)} ${type}${c.default.trim() ? ` DEFAULT ${c.default.trim()}` : ''}${c.comment ? ` COMMENT ${str(c.comment)}` : ''};`);
+        out.push(`ALTER TABLE ${T} MODIFY COLUMN ${q(name)} ${type}${c.default.trim() ? ` DEFAULT ${c.default.trim()}` : ''}${c.comment ? ` COMMENT ${stringLiteral(db, c.comment)}` : ''};`);
       }
       continue;
     } else {
@@ -270,13 +272,13 @@ export function alterSQL(db: string, schema: string, table: string, loaded: Load
 function commentSQL(db: string, schema: string, table: string, column: string, text: string): string {
   const T = qualified(db, schema, table);
   const q = (s: string) => quoteIdent(db, s);
-  if (mysqlish(db)) return `ALTER TABLE ${T} COMMENT = ${str(text)};`;
-  if (db === 'clickhouse') return column ? `ALTER TABLE ${T} COMMENT COLUMN ${q(column)} ${str(text)};` : `ALTER TABLE ${T} MODIFY COMMENT ${str(text)};`;
+  if (mysqlish(db)) return `ALTER TABLE ${T} COMMENT = ${stringLiteral(db, text)};`;
+  if (db === 'clickhouse') return column ? `ALTER TABLE ${T} COMMENT COLUMN ${q(column)} ${stringLiteral(db, text)};` : `ALTER TABLE ${T} MODIFY COMMENT ${stringLiteral(db, text)};`;
   if (db === 'mssql') {
-    const s = str(schema || 'dbo');
-    const lvl2 = column ? `, 'COLUMN', ${str(column)}` : '';
-    return `EXEC sys.sp_addextendedproperty 'MS_Description', ${str(text)}, 'SCHEMA', ${s}, 'TABLE', ${str(table)}${lvl2};`;
+    const s = stringLiteral(db, schema || 'dbo');
+    const lvl2 = column ? `, 'COLUMN', ${stringLiteral(db, column)}` : '';
+    return `EXEC sys.sp_addextendedproperty 'MS_Description', ${stringLiteral(db, text)}, 'SCHEMA', ${s}, 'TABLE', ${stringLiteral(db, table)}${lvl2};`;
   }
   const target = column ? `COLUMN ${T}.${q(column)}` : `TABLE ${T}`;
-  return `COMMENT ON ${target} IS ${text ? str(text) : 'NULL'};`;
+  return `COMMENT ON ${target} IS ${text ? stringLiteral(db, text) : 'NULL'};`;
 }

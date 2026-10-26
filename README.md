@@ -117,9 +117,73 @@ too).
   if any update or delete does not hit exactly one row. Editing needs a
   primary key; tables without one only accept new rows.
 
+## Workspace
+
+The workspace follows DBX and DBeaver: a connection tree on the left, tabs on
+the right. Administration (connections, users, groups, single sign-on, query
+log) lives in the **Settings** tab (gear icon), next to personal settings;
+non-admins only see the personal part.
+
+**Query tabs**
+
+- `Ctrl+Enter` runs the selection, or the whole editor, and replaces the
+  current result; `Ctrl+\` adds a new result tab instead.
+  `Ctrl+Shift+Enter` runs only the statement under the cursor, and each
+  statement ending with `;` has a run button in the gutter.
+- Variables are filled in in the browser before a run, so the query log
+  sees the final SQL: `@set x = 1` then `@x`, `${x}`, `#{x}`, and optionally
+  `:x`. Undeclared names are asked for. Settings → Editor turns the
+  syntaxes on or off and shows a live preview.
+- Editor settings (font, line height, tab size, vim mode, run buttons…) are
+  kept in the browser.
+
+**Table tabs**
+
+- Rows are filtered with a WHERE and ORDER BY bar that completes column
+  names; `Ctrl+Enter` or `F5` reloads.
+- Cells are edited in place and rows added with *Add row*; changes stay
+  pending until saved (see above).
+- The value panel on the right shows the selected cell; JSON shows as a
+  tree that folds with +/−, keeps large integers exact and can be edited
+  as text.
+- *Structure* edits columns, indexes, foreign keys, triggers and comments.
+  The changes become ALTER statements for the database, shown for review
+  before they run. SQLite only adds, renames and drops columns; Trino and
+  ODBC are read-only. *DDL* shows the CREATE statement; on PostgreSQL also
+  the owner, comments and triggers, as pg_dump writes them.
+- *Export* downloads CSV or JSON or copies CSV, TSV, JSON, Markdown or
+  INSERT statements of the rows shown.
+
+**The tree**
+
+Right-click menus open tables, show their DDL, write SELECT/INSERT/UPDATE
+templates, and under *More* truncate, empty (`DELETE`) or drop a table.
+Objects of a schema are grouped by kind (tables, views, procedures,
+functions, sequences…); routines and sequences open with their source, and
+a schema opens as an ER diagram. Every statement a menu writes is
+shown for review (run, open in editor, cancel) before it runs.
+
+**Connection tools** (right-click a connection)
+
+- *Disconnect* closes the connection's pool; shared pools only drop their
+  idle connections.
+- *Processes* lists the sessions of the database and kills one: PostgreSQL,
+  MySQL/MariaDB, SQL Server, Oracle, ClickHouse and Trino.
+- *Users & privileges* lists the database's accounts and their grants, and
+  creates, changes or drops them.
+- *Export* streams tables from the server as CSV, JSON or SQL (structure
+  and/or data), several tables as a zip; the row limit does not apply.
+- *Import* loads a CSV or JSON file into a new or existing table, in batches
+  that each run in one transaction.
+- *Data transfer* copies tables to another connection, also across database
+  types, mapping column types; each table is one transaction on the target.
+  Indexes and foreign keys are not copied.
+
+Tools that write need a read-write grant and follow the production rules.
+
 ## Single sign-on
 
-Admins add OpenID Connect / OAuth2 providers under Administration → Single
+Admins add OpenID Connect / OAuth2 providers under Settings → Single
 sign-on (Keycloak, Entra ID, Google, Okta, Dex…). By default only existing
 users can sign in: an identity is linked to the user with the same verified
 email, or an admin-created link. Optionally users are created on first
@@ -171,7 +235,7 @@ the picker as unavailable.
 
 AI agents (Claude Code, Cursor, VS Code…) can use dataport through the Model
 Context Protocol at `<base path>/mcp` (streamable HTTP). Each user creates
-personal access tokens from the user menu → *MCP access*, which also shows
+personal access tokens under Settings → *MCP access*, which also shows
 the client setup:
 
 ```sh
@@ -188,7 +252,7 @@ An agent acts as the token's user and gets nothing more:
 - writes on production connections ask the user to confirm the exact SQL
   through the client (MCP elicitation); clients that cannot ask are refused;
 - every statement goes to the query log with source `mcp`, filterable under
-  Administration → Query log;
+  Settings → Query log;
 - revoking a token or disabling the user stops it at once.
 
 Tools: `dataport_list_connections`, `dataport_list_schemas`,

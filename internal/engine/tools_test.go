@@ -1,9 +1,12 @@
 package engine
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rakunlabs/dataport/internal/store"
 )
 
 func TestRedact(t *testing.T) {
@@ -26,6 +29,8 @@ func TestMapType(t *testing.T) {
 	cases := []struct{ from, to, typ, want string }{
 		{"postgres", "postgres", "jsonb", "jsonb"},
 		{"postgres", "mysql", "text[]", "longtext"},
+		{"generic", "postgres", "varchar(1); DROP TABLE x; --", "varchar(1)"},
+		{"postgres", "mysql", "numeric(10, 2)", "decimal(10,2)"},
 		{"postgres", "mssql", "_int4", "nvarchar(max)"},
 		{"clickhouse", "postgres", "Array(String)", "text"},
 		{"postgres", "mysql", "character varying(40)", "varchar(40)"},
@@ -108,5 +113,17 @@ func TestCreateTableSQL(t *testing.T) {
 	want := "CREATE TABLE `db`.`t` (\n  `id` Int64,\n  `n` Nullable(String)\n) ENGINE = MergeTree ORDER BY (`id`)"
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestTransferSamePoolOfOne(t *testing.T) {
+	m := NewManager(store.Limits{MaxOpen: 1}, time.Minute)
+	defer m.Close()
+
+	c := &store.Connection{ID: "x", DBType: "postgres"}
+
+	err := m.Transfer(context.Background(), c, "", c, "", TransferRequest{Tables: []string{"t"}, Data: true}, func(TransferProgress) {})
+	if err == nil || !strings.Contains(err.Error(), "at least two") {
+		t.Fatalf("got %v", err)
 	}
 }

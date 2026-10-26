@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/rakunlabs/dataport/internal/store"
 )
@@ -109,10 +110,34 @@ ORDER BY 2, 1, 3`, schema)
 
 func (postgresDriver) Definition(ctx context.Context, db Querier, schema string, r Routine) (string, error) {
 	if r.Kind == "sequence" {
-		return queryString(ctx, db, `SELECT 'CREATE SEQUENCE ' || quote_ident(schemaname) || '.' || quote_ident(sequencename)
-|| ' AS ' || data_type || ' INCREMENT BY ' || increment_by || ' MINVALUE ' || min_value || ' MAXVALUE ' || max_value
-|| ' START WITH ' || start_value || ' CACHE ' || cache_size || CASE WHEN cycle THEN ' CYCLE' ELSE '' END || ';'
-FROM pg_catalog.pg_sequences WHERE schemaname = $1 AND sequencename = $2`, schema, r.Name)
+		// Like pg_dump: the sequence, its owner and the column that owns it,
+		// whose table drops the sequence with it.
+		stmts, err := queryStrings(ctx, db, `WITH s AS (
+  SELECT c.oid, quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name, pg_catalog.pg_get_userbyid(c.relowner) AS owner
+  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'S')
+SELECT stmt FROM (
+SELECT 0 AS part, 'CREATE SEQUENCE ' || s.name || E'\n    AS ' || format_type(q.seqtypid, NULL) || E'\n    INCREMENT BY ' || q.seqincrement
+  || E'\n    MINVALUE ' || q.seqmin || E'\n    MAXVALUE ' || q.seqmax || E'\n    START WITH ' || q.seqstart
+  || E'\n    CACHE ' || q.seqcache || CASE WHEN q.seqcycle THEN E'\n    CYCLE' ELSE '' END || ';' AS stmt
+FROM s JOIN pg_catalog.pg_sequence q ON q.seqrelid = s.oid
+UNION ALL
+SELECT 1, 'ALTER SEQUENCE ' || s.name || ' OWNER TO ' || quote_ident(s.owner) || ';' FROM s
+UNION ALL
+SELECT 2, 'ALTER SEQUENCE ' || s.name || ' OWNED BY ' || quote_ident(tn.nspname) || '.' || quote_ident(t.relname) || '.' || quote_ident(a.attname) || ';'
+FROM s
+JOIN pg_catalog.pg_depend d ON d.objid = s.oid AND d.classid = 'pg_catalog.pg_class'::regclass AND d.refclassid = 'pg_catalog.pg_class'::regclass AND d.deptype = 'a'
+JOIN pg_catalog.pg_class t ON t.oid = d.refobjid JOIN pg_catalog.pg_namespace tn ON tn.oid = t.relnamespace
+JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+UNION ALL
+SELECT 3, 'COMMENT ON SEQUENCE ' || s.name || ' IS ' || quote_literal(obj_description(s.oid, 'pg_class')) || ';' FROM s
+WHERE obj_description(s.oid, 'pg_class') IS NOT NULL
+) x ORDER BY part`, schema, r.Name)
+		if err != nil {
+			return "", err
+		}
+
+		return strings.Join(stmts, "\n\n") + "\n", nil
 	}
 
 	return queryString(ctx, db, `SELECT pg_catalog.pg_get_functiondef(p.oid)

@@ -290,7 +290,7 @@ func (d postgresDriver) DDL(ctx context.Context, db Querier, schema, table strin
 			create = "CREATE MATERIALIZED VIEW "
 		}
 
-		return create + qualified + " AS\n" + strings.TrimSpace(def) + "\n", nil
+		return create + qualified + " AS\n" + strings.TrimSuffix(strings.TrimSpace(def), ";") + ";\n" + pgExtras(ctx, db, rel, qualified, kind, schema, table), nil
 	}
 
 	constraints, err := queryStrings(ctx, db, `SELECT 'CONSTRAINT ' || quote_ident(conname) || ' ' || pg_catalog.pg_get_constraintdef(oid, true)
@@ -335,7 +335,43 @@ ORDER BY 1`, schema, table)
 		return "", err
 	}
 
-	return buildDDL(d, qualified, t.Columns, special, constraints, indexes), nil
+	return buildDDL(d, qualified, t.Columns, special, constraints, indexes) + pgExtras(ctx, db, rel, qualified, kind, schema, table), nil
+}
+
+// pgExtras writes what pg_dump puts after a table or view: its owner, its
+// comments and its triggers. They are extras: an error leaves them out.
+func pgExtras(ctx context.Context, db Querier, rel, qualified, kind, schema, table string) string {
+	object := map[string]string{"v": "VIEW", "m": "MATERIALIZED VIEW"}[kind]
+	if object == "" {
+		object = "TABLE"
+	}
+
+	alter := "ALTER " + object + " "
+	if kind == "p" || kind == "f" {
+		alter = "ALTER TABLE "
+	}
+
+	// UNION ALL keeps no order on its own, so each part carries its rank.
+	stmts, err := queryStrings(ctx, db, `SELECT stmt FROM (
+SELECT 0 AS part, 0::int AS n, '' AS name, $3 || $4 || ' OWNER TO ' || quote_ident(pg_catalog.pg_get_userbyid(relowner)) || ';' AS stmt
+FROM pg_catalog.pg_class WHERE oid = `+rel+`
+UNION ALL
+SELECT 1, 0, '', 'COMMENT ON ' || $5 || ' ' || $4 || ' IS ' || quote_literal(d) || ';'
+FROM obj_description(`+rel+`, 'pg_class') d WHERE d IS NOT NULL
+UNION ALL
+SELECT 2, a.attnum, '', 'COMMENT ON COLUMN ' || $4 || '.' || quote_ident(a.attname) || ' IS ' || quote_literal(d.description) || ';'
+FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_description d ON d.objoid = a.attrelid AND d.objsubid = a.attnum
+  AND d.classoid = 'pg_catalog.pg_class'::regclass
+WHERE a.attrelid = `+rel+` AND a.attnum > 0 AND NOT a.attisdropped
+UNION ALL
+SELECT 3, 0, tgname::text, pg_catalog.pg_get_triggerdef(oid, true) || ';'
+FROM pg_catalog.pg_trigger WHERE tgrelid = `+rel+` AND NOT tgisinternal
+) x ORDER BY part, n, name`, schema, table, alter, qualified, object)
+	if err != nil || len(stmts) == 0 {
+		return ""
+	}
+
+	return "\n" + strings.Join(stmts, "\n\n") + "\n"
 }
 
 func queryStrings(ctx context.Context, db Querier, query string, args ...any) ([]string, error) {

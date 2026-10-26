@@ -46,6 +46,11 @@ export function sqlLiteral(v: unknown, type: string, dbType: string): string {
   }
   const s = text(v);
   if ((typeof v === 'number' || isNumericType(type)) && /^-?\d+(\.\d+)?(e[+-]?\d+)?$/i.test(s)) return s;
+  return stringLiteral(dbType, s);
+}
+
+// stringLiteral quotes text as a string of the database's SQL.
+export function stringLiteral(dbType: string, s: string): string {
   let escaped = s.replaceAll("'", "''");
   // MySQL and ClickHouse treat backslash as an escape inside strings.
   if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'clickhouse') escaped = escaped.replaceAll('\\', '\\\\');

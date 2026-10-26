@@ -58,6 +58,8 @@ export interface ColumnInfo {
   nullable: boolean;
   default: string;
   primary_key: boolean;
+  // What the column keeps beyond type and default, such as AUTO_INCREMENT.
+  extra?: string;
 }
 
 export interface IndexInfo {

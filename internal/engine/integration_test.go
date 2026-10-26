@@ -472,6 +472,39 @@ func TestIntegrationPostgresRoutines(t *testing.T) {
 			t.Fatalf("definition of %+v: %v", r, err)
 		}
 	}
+
+	// A serial's sequence shows its owner and the column that owns it, and
+	// the table DDL its owner, comments and triggers; all of it runs again.
+	run(t, m, c, "pw", "CREATE TABLE dp_r.t (id serial PRIMARY KEY, v text); COMMENT ON TABLE dp_r.t IS 'it''s t'; "+
+		"COMMENT ON COLUMN dp_r.t.v IS 'value'; CREATE FUNCTION dp_r.trg() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$; "+
+		"CREATE TRIGGER t_ins BEFORE INSERT ON dp_r.t FOR EACH ROW EXECUTE FUNCTION dp_r.trg()", false)
+
+	def, err := m.Definition(context.Background(), c, "pw", "dp_r", Routine{Name: "t_id_seq", Kind: "sequence"})
+	if err != nil || !strings.HasPrefix(def, "CREATE SEQUENCE dp_r.t_id_seq") ||
+		!strings.Contains(def, "ALTER SEQUENCE dp_r.t_id_seq OWNER TO postgres;") || !strings.Contains(def, "OWNED BY dp_r.t.id;") {
+		t.Fatalf("sequence: %v\n%s", err, def)
+	}
+
+	st, err := m.Structure(context.Background(), c, "pw", "dp_r", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{`ALTER TABLE "dp_r"."t" OWNER TO postgres;`, `COMMENT ON TABLE "dp_r"."t" IS 'it''s t';`, `COMMENT ON COLUMN "dp_r"."t".v IS 'value';`, "CREATE TRIGGER t_ins"} {
+		if !strings.Contains(st.DDL, want) {
+			t.Fatalf("ddl misses %q:\n%s", want, st.DDL)
+		}
+	}
+
+	if e := run(t, m, c, "pw", "DROP TABLE dp_r.t;\n"+st.DDL, false).FirstError(); e != "" {
+		t.Fatalf("ddl does not run: %s\n%s", e, st.DDL)
+	}
+
+	if strings.Contains(withoutOwner(st.DDL), "OWNER TO") || !strings.Contains(withoutOwner(st.DDL), "COMMENT ON TABLE") {
+		t.Fatalf("withoutOwner:\n%s", withoutOwner(st.DDL))
+	}
+
+	t.Logf("%s\n%s", def, st.DDL)
 }
 
 func TestIntegrationNoTimeoutCancel(t *testing.T) {

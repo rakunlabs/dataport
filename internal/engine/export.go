@@ -344,10 +344,30 @@ func tableDDL(ctx context.Context, d Driver, conn *sql.Conn, schema, table strin
 			return "", err
 		}
 
-		return s.DDL(ctx, conn, schema, table, t)
+		ddl, err := s.DDL(ctx, conn, schema, table, t)
+
+		return withoutOwner(ddl), err
 	}
 
 	return CreateTableSQL(d.Type(), d, schema, table, cols), nil
+}
+
+// withoutOwner drops the OWNER TO statements of a DDL, as pg_dump
+// --no-owner does: the role may not exist where the file is loaded.
+func withoutOwner(ddl string) string {
+	parts := strings.Split(ddl, "\n\n")
+	kept := parts[:0]
+
+	for _, p := range parts {
+		line := strings.TrimSpace(p)
+		if strings.HasPrefix(line, "ALTER ") && !strings.Contains(line, "\n") && strings.Contains(line, " OWNER TO ") {
+			continue
+		}
+
+		kept = append(kept, p)
+	}
+
+	return strings.TrimRight(strings.Join(kept, "\n\n"), "\n") + "\n"
 }
 
 func orDefault(s, def string) string {

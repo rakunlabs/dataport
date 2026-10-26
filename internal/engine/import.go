@@ -298,6 +298,12 @@ func (m *Manager) Transfer(ctx context.Context, src *store.Connection, srcPasswo
 		return errors.New("choose to create the tables, copy the rows or both")
 	}
 
+	// The copy holds a session on each side at once; with one pool of a
+	// single connection the second would wait forever.
+	if poolKey(src) == poolKey(dst) && m.Limits(src).MaxOpen == 1 {
+		return errors.New("copying within a connection needs a pool of at least two connections")
+	}
+
 	return m.Session(ctx, src, srcPassword, req.Timeout, func(ctx context.Context, sd Driver, sconn *sql.Conn) error {
 		return m.Session(ctx, dst, dstPassword, req.Timeout, func(ctx context.Context, dd Driver, dconn *sql.Conn) error {
 			existing := map[string]bool{}

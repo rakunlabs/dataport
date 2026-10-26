@@ -25,7 +25,11 @@ interface Span {
 
 // codeSpans returns the parts of the script outside strings, quoted
 // identifiers and comments.
-function codeSpans(sql: string): Span[] {
+// Backslash escapes a quote only in MySQL, MariaDB and ClickHouse strings,
+// and in PostgreSQL E'…' strings; elsewhere 'C:\' is a whole string.
+const backslashDbs = new Set(['mysql', 'mariadb', 'clickhouse']);
+
+function codeSpans(sql: string, dbType = ''): Span[] {
   const out: Span[] = [];
   let start = 0;
   let i = 0;
@@ -41,6 +45,7 @@ function codeSpans(sql: string): Span[] {
     const c = sql[i];
     const d = sql[i + 1];
     if (c === "'" || c === '"' || c === '`') {
+      const escapes = c === "'" && (backslashDbs.has(dbType) || (/[eE]/.test(sql[i - 1] ?? '') && !/\w/.test(sql[i - 2] ?? '')));
       let j = i + 1;
       while (j < n) {
         if (sql[j] === c) {
@@ -50,7 +55,7 @@ function codeSpans(sql: string): Span[] {
           }
           break;
         }
-        if (sql[j] === '\\' && c !== '"') j++;
+        if (sql[j] === '\\' && escapes) j++;
         j++;
       }
       skip(Math.min(n, j + 1));
@@ -143,8 +148,8 @@ function occurrences(sql: string, spans: Span[], syntaxes: VariableSyntaxes, dec
 
 // placeholders lists what a run would fill in, in order of first use. Those
 // with a declared value need no input.
-export function placeholders(sql: string, syntaxes: VariableSyntaxes): Placeholder[] {
-  const spans = codeSpans(sql);
+export function placeholders(sql: string, syntaxes: VariableSyntaxes, dbType = ''): Placeholder[] {
+  const spans = codeSpans(sql, dbType);
   const decls = syntaxes.atSet ? declarations(sql, spans) : [];
   const values = new Map(decls.map((d) => [d.name, d.value]));
   const seen = new Map<string, Placeholder>();
@@ -157,8 +162,8 @@ export function placeholders(sql: string, syntaxes: VariableSyntaxes): Placehold
 
 // substitute fills in the placeholders and drops @set declarations. Values
 // are put in verbatim: write 'text' with its quotes. Unknown names stay.
-export function substitute(sql: string, syntaxes: VariableSyntaxes, given: Record<string, string> = {}): string {
-  const spans = codeSpans(sql);
+export function substitute(sql: string, syntaxes: VariableSyntaxes, given: Record<string, string> = {}, dbType = ''): string {
+  const spans = codeSpans(sql, dbType);
   const decls = syntaxes.atSet ? declarations(sql, spans) : [];
   const values = new Map<string, string>(decls.map((d) => [d.name, d.value]));
   for (const [k, v] of Object.entries(given)) values.set(k.toLowerCase(), v);
@@ -179,4 +184,12 @@ export function substitute(sql: string, syntaxes: VariableSyntaxes, given: Recor
   let out = sql;
   for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return out.trim();
+}
+
+// declarationLines returns the @set declarations of a script, outside
+// comments and strings, so running one statement still sees the values
+// declared for the whole script.
+export function declarationLines(sql: string, dbType = ''): string {
+  const found = declarations(sql, codeSpans(sql, dbType)).map((d) => sql.slice(d.start, d.end));
+  return found.length ? found.join('\n') + '\n' : '';
 }

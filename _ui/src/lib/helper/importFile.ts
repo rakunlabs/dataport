@@ -75,10 +75,22 @@ export function parseCSV(text: string, delimiter: string): string[][] {
   return out;
 }
 
+// unique numbers repeated column names (a, a → a, a_2): a table cannot
+// hold the same column twice.
+function unique(names: string[]): string[] {
+  const seen = new Set<string>();
+  return names.map((n) => {
+    let name = n;
+    for (let i = 2; seen.has(name.toLowerCase()); i++) name = `${n}_${i}`;
+    seen.add(name.toLowerCase());
+    return name;
+  });
+}
+
 export function fromCSV(text: string, delimiter: string, header: boolean): ParsedFile {
   const all = parseCSV(text, delimiter);
   const width = Math.max(0, ...all.map((r) => r.length));
-  const columns = header && all.length ? all[0].map((c, i) => c.trim() || `column${i + 1}`) : Array.from({ length: width }, (_, i) => `column${i + 1}`);
+  const columns = header && all.length ? unique(all[0].map((c, i) => c.trim() || `column${i + 1}`)) : Array.from({ length: width }, (_, i) => `column${i + 1}`);
   while (columns.length < width) columns.push(`column${columns.length + 1}`);
   const rows = (header ? all.slice(1) : all).map((r) => columns.map((_, i) => r[i] ?? ''));
   return { columns, rows };
@@ -96,12 +108,12 @@ export function fromJSON(text: string): ParsedFile {
   if (!data.length) return { columns: [], rows: [] };
   if (Array.isArray(data[0])) {
     const [head, ...rest] = data as unknown[][];
-    const columns = head.map((c, i) => String(c ?? `column${i + 1}`));
+    const columns = unique(head.map((c, i) => String(c ?? `column${i + 1}`)));
     return { columns, rows: rest.map((r) => columns.map((_, i) => r[i] ?? null)) };
   }
   const columns: string[] = [];
   const seen = new Set<string>();
-  for (const o of data.slice(0, 1000)) {
+  for (const o of data) {
     for (const k of Object.keys(o ?? {})) {
       if (!seen.has(k)) {
         seen.add(k);

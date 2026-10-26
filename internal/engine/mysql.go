@@ -173,15 +173,88 @@ FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, sche
 	return scanObjects(rows)
 }
 
-func (mysqlDriver) Columns(ctx context.Context, db Querier, schema, table string) ([]ColumnInfo, error) {
-	rows, err := db.QueryContext(ctx, `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE = 'YES', COALESCE(COLUMN_DEFAULT, ''), COLUMN_KEY = 'PRI'
+// Columns reads the default as an SQL expression, as CREATE TABLE writes
+// it, and the column's extras (AUTO_INCREMENT, ON UPDATE …), which MODIFY
+// COLUMN must restate to keep them.
+func (d mysqlDriver) Columns(ctx context.Context, db Querier, schema, table string) ([]ColumnInfo, error) {
+	rows, err := db.QueryContext(ctx, `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE = 'YES', COLUMN_DEFAULT, COLUMN_KEY = 'PRI', DATA_TYPE, EXTRA
 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION`, schema, table)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 
-	return scanColumns(rows)
+	list := []ColumnInfo{}
+
+	for rows.Next() {
+		var (
+			c                ColumnInfo
+			def              sql.NullString
+			dataType, extras string
+		)
+
+		if err := rows.Scan(&c.Name, &c.Type, &c.Nullable, &def, &c.PrimaryKey, &dataType, &extras); err != nil {
+			return nil, err
+		}
+
+		c.Default = d.defaultExpr(def, dataType, extras)
+		c.Extra = mysqlExtra(extras)
+		list = append(list, c)
+	}
+
+	return list, rows.Err()
+}
+
+// defaultExpr turns COLUMN_DEFAULT into SQL. MySQL keeps literals bare
+// ('x' as x) and marks expressions DEFAULT_GENERATED; MariaDB already
+// stores the SQL, quotes included.
+func (d mysqlDriver) defaultExpr(def sql.NullString, dataType, extras string) string {
+	if !def.Valid {
+		return ""
+	}
+
+	v := def.String
+
+	if d.kind == "mariadb" {
+		if v == "NULL" {
+			return ""
+		}
+
+		return v
+	}
+
+	switch {
+	case strings.Contains(strings.ToLower(extras), "default_generated"):
+		if strings.HasPrefix(strings.ToUpper(v), "CURRENT_TIMESTAMP") {
+			return v
+		}
+
+		// Expression defaults come escaped as stored; they are written in
+		// parentheses.
+		return "(" + strings.ReplaceAll(v, `\'`, "'") + ")"
+	case dataType == "bit" || strings.HasPrefix(v, "b'") || strings.HasPrefix(v, "0x"):
+		return v
+	case mysqlNumeric[dataType]:
+		return v
+	}
+
+	return "'" + strings.ReplaceAll(strings.ReplaceAll(v, `\`, `\\`), "'", "''") + "'"
+}
+
+var mysqlNumeric = map[string]bool{
+	"tinyint": true, "smallint": true, "mediumint": true, "int": true, "integer": true, "bigint": true,
+	"decimal": true, "numeric": true, "float": true, "double": true, "real": true, "year": true,
+}
+
+// mysqlExtra keeps what MODIFY COLUMN must repeat from EXTRA, such as
+// auto_increment or on update CURRENT_TIMESTAMP.
+func mysqlExtra(extras string) string {
+	e := strings.TrimSpace(strings.ReplaceAll(strings.ToLower(extras), "default_generated", ""))
+	if e == "" || strings.Contains(e, "virtual generated") || strings.Contains(e, "stored generated") {
+		return ""
+	}
+
+	return strings.ToUpper(e)
 }
 
 // ////////////////////////////////////////////

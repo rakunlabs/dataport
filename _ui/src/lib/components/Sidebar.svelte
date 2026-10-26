@@ -303,8 +303,11 @@
 
   async function showDefinition(c: ConnectionView, schema: string, r: Routine) {
     try {
-      const def = await loadDefinition(c.id, schema, r);
-      openQueryTab(c.id, def || `-- ${t('tree.noDefinition')}`, r.name);
+      const def = (await loadDefinition(c.id, schema, r)) || `-- ${t('tree.noDefinition')}`;
+      // A second click returns to the tab it opened, while left unchanged.
+      const open = ws.tabs.find((x) => x.kind === 'query' && x.connectionId === c.id && x.title === r.name && x.sql === def);
+      if (open) ws.activeId = open.id;
+      else openQueryTab(c.id, def, r.name);
     } catch (err) {
       toast(errorMessage(err), 'error');
     }
@@ -553,7 +556,7 @@
                       <button
                         class="{row} pl-[52px]"
                         title={r.signature ? r.name + r.signature : r.name}
-                        ondblclick={() => showDefinition(c, schema, r)}
+                        onclick={() => showDefinition(c, schema, r)}
                         oncontextmenu={(e) => routineMenu(e, c, schema, r)}
                         role="treeitem"
                         aria-selected={false}

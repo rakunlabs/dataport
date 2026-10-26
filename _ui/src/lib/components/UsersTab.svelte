@@ -86,8 +86,8 @@
   // review shows the SQL and runs it here, without a query tab: passwords
   // would otherwise be kept with the saved tabs. The server masks them in
   // the query log.
-  async function review(title: string, sql: string, danger = false, input?: { label: string; value: string; build: (v: string) => string }) {
-    const r = await reviewSQL({ title, connection: conn?.name ?? '', sql, danger, input });
+  async function review(title: string, sql: string, danger = false, input?: { label: string; value: string; build: (v: string) => string }, secret = false) {
+    const r = await reviewSQL({ title, connection: conn?.name ?? '', sql, danger, input, noEdit: secret || !!input });
     if (r.answer === 'edit') openQueryTab(tab.connectionId, r.sql, title);
     if (r.answer !== 'run') return false;
     try {
@@ -110,7 +110,14 @@
   async function create(e: SubmitEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
-    if (await review(t('users.create'), usql.createUserSQL(db, newName.trim(), newPassword, newHost.trim() || '%'))) {
+    let sql: string;
+    try {
+      sql = usql.createUserSQL(db, newName.trim(), newPassword, newHost.trim() || '%');
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+      return;
+    }
+    if (await review(t('users.create'), sql, false, undefined, true)) {
       form = '';
       newName = '';
       newPassword = '';

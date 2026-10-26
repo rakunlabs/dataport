@@ -67,7 +67,7 @@
 
   // Sorting from the grid header writes ORDER BY for a single column.
   const sort = $derived.by(() => {
-    const m = tab.orderBy.trim().match(/^([`"\\[])((?:[^`"\\]]|``|"")+)[`"\\]](?:\s+(asc|desc))?$/i);
+    const m = tab.orderBy.trim().match(/^([`"[])((?:[^`"\]]|``|"")+)[`"\]](?:\s+(asc|desc))?$/i);
     if (!m) return { column: '', desc: false };
     return { column: m[2].replaceAll('``', '`').replaceAll('""', '"'), desc: (m[3] ?? '').toLowerCase() === 'desc' };
   });
@@ -195,7 +195,8 @@
       if (tab.view === 'data') apply();
       return;
     }
-    if (!writable) return;
+    // The structure view has its own Ctrl+S, for its ALTER statements.
+    if (!writable || tab.view !== 'data') return;
     if (mod && e.key === 's') {
       e.preventDefault();
       void save();

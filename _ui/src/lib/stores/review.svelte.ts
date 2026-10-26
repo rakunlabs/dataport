@@ -9,6 +9,9 @@ export interface Review {
   danger: boolean;
   // Asks the user for a value placed in the SQL, such as a new name.
   input?: { label: string; value: string; build: (v: string) => string };
+  // noEdit hides "open in editor", for SQL holding a password: the tab
+  // would keep it in the browser.
+  noEdit?: boolean;
   resolve: (answer: 'run' | 'edit' | 'cancel', sql: string) => void;
 }
 

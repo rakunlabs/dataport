@@ -115,9 +115,11 @@
     const out: unknown[][][] = [];
     let cur: unknown[][] = [];
     let size = 0;
+    const enc = new TextEncoder();
     for (const r of rows) {
       const row = pick.map((i) => r[i] ?? null);
-      const len = JSON.stringify(row).length;
+      // Bytes, not characters: the server limits the body in bytes.
+      const len = enc.encode(JSON.stringify(row)).length;
       if (cur.length && (cur.length >= 2000 || size + len > 2_500_000)) {
         out.push(cur);
         cur = [];

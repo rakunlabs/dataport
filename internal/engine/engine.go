@@ -276,6 +276,9 @@ type ColumnInfo struct {
 	Nullable   bool   `json:"nullable"`
 	Default    string `json:"default"`
 	PrimaryKey bool   `json:"primary_key"`
+	// Extra holds what the type and default leave out but the column keeps,
+	// such as MySQL's AUTO_INCREMENT.
+	Extra string `json:"extra,omitempty"`
 }
 
 type ExecRequest struct {

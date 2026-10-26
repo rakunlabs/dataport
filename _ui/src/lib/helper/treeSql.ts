@@ -3,6 +3,7 @@
 // apply to it like to anything typed in the editor.
 
 import { qualified, quoteIdent } from '@/lib/stores/workspace.svelte';
+import { stringLiteral } from '@/lib/helper/copy';
 
 export function selectSQL(dbType: string, schema: string, table: string, limit = 100): string {
   const from = qualified(dbType, schema, table);
@@ -64,7 +65,7 @@ export function truncateSQL(dbType: string, schema: string, table: string): stri
 
 export function renameTableSQL(dbType: string, schema: string, table: string, to: string): string {
   const from = qualified(dbType, schema, table);
-  if (dbType === 'mssql') return `EXEC sp_rename '${(schema ? schema + '.' : '') + table}', '${to.replaceAll("'", "''")}';`;
+  if (dbType === 'mssql') return `EXEC sp_rename ${stringLiteral(dbType, from)}, ${stringLiteral(dbType, to)};`;
   if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'clickhouse') return `RENAME TABLE ${from} TO ${qualified(dbType, schema, to)};`;
   return `ALTER TABLE ${from} RENAME TO ${quoteIdent(dbType, to)};`;
 }
@@ -87,7 +88,7 @@ export function callSQL(dbType: string, schema: string, name: string, kind: stri
   if (kind === 'sequence') {
     if (dbType === 'oracle') return `SELECT ${q}.NEXTVAL FROM dual;`;
     if (dbType === 'mssql') return `SELECT NEXT VALUE FOR ${q};`;
-    return `SELECT nextval('${(schema ? schema + '.' : '') + name}');`;
+    return `SELECT nextval(${stringLiteral(dbType, q)});`;
   }
   if (kind === 'procedure') {
     if (dbType === 'mssql') return `EXEC ${q};`;

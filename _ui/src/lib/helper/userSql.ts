@@ -3,12 +3,11 @@
 
 import { quoteIdent } from '@/lib/stores/workspace.svelte';
 import type { DbUser } from '@/lib/api/types';
-
-const str = (s: string) => `'${s.replaceAll("'", "''")}'`;
+import { stringLiteral } from '@/lib/helper/copy';
 const mysqlish = (db: string) => db === 'mysql' || db === 'mariadb';
 
 export function account(db: string, u: Pick<DbUser, 'name' | 'host'>): string {
-  if (mysqlish(db)) return `${str(u.name)}@${str(u.host || '%')}`;
+  if (mysqlish(db)) return `${stringLiteral(db, u.name)}@${stringLiteral(db, u.host || '%')}`;
   return quoteIdent(db, u.name);
 }
 
@@ -25,20 +24,27 @@ export function supportsUsers(db: string): boolean {
   return ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'clickhouse'].includes(db);
 }
 
+// oraclePassword quotes a password for IDENTIFIED BY, where a double quote
+// cannot be written at all.
+function oraclePassword(password: string): string {
+  if (password.includes('"')) throw new Error('Oracle passwords cannot contain a double quote (").');
+  return `"${password}"`;
+}
+
 export function createUserSQL(db: string, name: string, password: string, host = '%'): string {
-  const pw = str(password || 'change-me');
+  const pw = stringLiteral(db, password || 'change-me');
   if (mysqlish(db)) return `CREATE USER ${account(db, { name, host })} IDENTIFIED BY ${pw};`;
   if (db === 'mssql') return `CREATE LOGIN ${quoteIdent(db, name)} WITH PASSWORD = ${pw};\nCREATE USER ${quoteIdent(db, name)} FOR LOGIN ${quoteIdent(db, name)};`;
-  if (db === 'oracle') return `CREATE USER ${quoteIdent(db, name)} IDENTIFIED BY "${(password || 'change-me').replaceAll('"', '')}";\nGRANT CREATE SESSION TO ${quoteIdent(db, name)};`;
+  if (db === 'oracle') return `CREATE USER ${quoteIdent(db, name)} IDENTIFIED BY ${oraclePassword(password || 'change-me')};\nGRANT CREATE SESSION TO ${quoteIdent(db, name)};`;
   if (db === 'clickhouse') return `CREATE USER ${quoteIdent(db, name)} IDENTIFIED WITH sha256_password BY ${pw};`;
   return `CREATE ROLE ${quoteIdent(db, name)} WITH LOGIN PASSWORD ${pw};`;
 }
 
 export function passwordSQL(db: string, u: DbUser, password: string): string {
-  const pw = str(password || 'change-me');
+  const pw = stringLiteral(db, password || 'change-me');
   if (mysqlish(db)) return `ALTER USER ${account(db, u)} IDENTIFIED BY ${pw};`;
   if (db === 'mssql') return `ALTER LOGIN ${quoteIdent(db, u.name)} WITH PASSWORD = ${pw};`;
-  if (db === 'oracle') return `ALTER USER ${quoteIdent(db, u.name)} IDENTIFIED BY "${(password || 'change-me').replaceAll('"', '')}";`;
+  if (db === 'oracle') return `ALTER USER ${quoteIdent(db, u.name)} IDENTIFIED BY ${oraclePassword(password || 'change-me')};`;
   if (db === 'clickhouse') return `ALTER USER ${quoteIdent(db, u.name)} IDENTIFIED WITH sha256_password BY ${pw};`;
   return `ALTER ROLE ${quoteIdent(db, u.name)} WITH PASSWORD ${pw};`;
 }
