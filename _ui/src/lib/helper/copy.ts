@@ -32,6 +32,7 @@ function text(v: unknown): string {
 }
 
 function isNumericType(type: string) {
+  if (type.endsWith('[]')) return false;
   return /^(nullable\()?(u?int|integer|bigint|smallint|tinyint|mediumint|numeric|decimal|real|double|float|money|int[248]|float[48])/i.test(type);
 }
 
@@ -40,7 +41,7 @@ function isNumericType(type: string) {
 export function sqlLiteral(v: unknown, type: string, dbType: string): string {
   if (v === null || v === undefined) return 'NULL';
   if (typeof v === 'boolean') {
-    if (dbType === 'mssql') return v ? '1' : '0';
+    if (dbType === 'mssql' || dbType === 'oracle') return v ? '1' : '0';
     return v ? 'TRUE' : 'FALSE';
   }
   const s = text(v);

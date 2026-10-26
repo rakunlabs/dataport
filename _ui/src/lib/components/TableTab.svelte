@@ -19,6 +19,7 @@
     Table2,
     ListTree,
     FileCode,
+    PanelRight,
   } from 'lucide-svelte';
   import TableStructure from '@/lib/components/TableStructure.svelte';
   import ConditionInput from '@/lib/components/ConditionInput.svelte';
@@ -32,6 +33,7 @@
     openQueryTab,
     persist,
     quoteIdent,
+    qualified,
     runTable,
     tableKey,
     tableSQL,
@@ -43,6 +45,7 @@
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import { fmtNumber, t } from '@/lib/i18n/index.svelte';
   import { formatDuration } from '@/lib/helper/format';
+  import { setValuePanel, valuePanel } from '@/lib/stores/valuePanel.svelte';
 
   let { tab }: { tab: Tab } = $props();
 
@@ -55,7 +58,7 @@
   const rowCount = $derived(current?.rows?.length ?? 0);
   const meta = $derived(ws.columns[tableKey(tab)]?.items ?? []);
   const hasKey = $derived(meta.some((c) => c.primary_key));
-  const writable = $derived(!!conn && !conn.read_only && conn.db_type !== 'clickhouse' && current?.kind === 'rows');
+  const writable = $derived(!!conn && !conn.read_only && conn.editable !== false && current?.kind === 'rows');
   const pending = $derived(tab.edit.count);
 
   $effect(() => {
@@ -184,8 +187,15 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (!writable) return;
     const mod = e.metaKey || e.ctrlKey;
+    // Ctrl+Enter and F5 reload the table, with the filter typed so far.
+    if ((mod && e.key === 'Enter' && !e.shiftKey) || e.key === 'F5') {
+      if ((e.target as HTMLElement)?.closest?.('.cm-editor') && tab.view !== 'data') return;
+      e.preventDefault();
+      if (tab.view === 'data') apply();
+      return;
+    }
+    if (!writable) return;
     if (mod && e.key === 's') {
       e.preventDefault();
       void save();
@@ -218,15 +228,8 @@
       <span class="pill-ro" title={t('conn.readOnlyHint')}><Lock size={10} /> {t('conn.readOnlyShort')}</span>
     {/if}
 
-    {#if writable && tab.view === 'data'}
-      <div class="toolbar-sep"></div>
-      <button class="btn" onclick={addRow} title={t('edit.addRowHint')}><Plus size={14} /> {t('edit.addRow')}</button>
-      <button class="icon-btn" onclick={cloneRows} title={t('edit.cloneHint')} aria-label={t('edit.clone')}><Copy size={14} /></button>
-      <button class="icon-btn" onclick={deleteRows} disabled={!hasKey} title={t('edit.deleteHint')} aria-label={t('edit.deleteToggle')}><Trash2 size={14} /></button>
-      <button class="icon-btn" onclick={() => panel?.grid()?.setNull()} title={t('edit.setNull')} aria-label={t('edit.setNull')}><Ban size={14} /></button>
-      {#if !hasKey && meta.length}
-        <span class="pill-rw" title={t('edit.noKeyHint')}><KeyRound size={10} /> {t('edit.noKey')}</span>
-      {/if}
+    {#if writable && tab.view === 'data' && !hasKey && meta.length}
+      <span class="pill-rw" title={t('edit.noKeyHint')}><KeyRound size={10} /> {t('edit.noKey')}</span>
     {/if}
 
     <div class="flex-1"></div>
@@ -236,7 +239,16 @@
     {/if}
 
     {#if tab.view === 'data'}
+      {#if writable}
+        <button class="icon-btn" onclick={() => panel?.grid()?.setNull()} title={t('edit.setNull')} aria-label={t('edit.setNull')}><Ban size={14} /></button>
+        <button class="icon-btn" onclick={cloneRows} title={t('edit.cloneHint')} aria-label={t('edit.clone')}><Copy size={14} /></button>
+        <button class="icon-btn hover:text-danger" onclick={deleteRows} disabled={!hasKey} title={t('edit.deleteHint')} aria-label={t('edit.deleteToggle')}><Trash2 size={14} /></button>
+        <button class="btn" onclick={addRow} title={t('edit.addRowHint')}><Plus size={14} /> {t('edit.addRow')}</button>
+      {/if}
       <div class="toolbar-sep"></div>
+      <button class="icon-btn" aria-pressed={valuePanel.open} onclick={() => setValuePanel(!valuePanel.open)} title={t('valuePanel.toggle')} aria-label={t('valuePanel.toggle')}>
+        <PanelRight size={14} />
+      </button>
       <button class="btn" onclick={() => openQueryTab(tab.connectionId, tableSQL(tab, false) + ';', `${tab.table} query`)} title={t('table.openSql')}>
         <Code size={14} /> SQL
       </button>
@@ -245,9 +257,9 @@
       </button>
       {#if pending}
         <div class="toolbar-sep"></div>
-        <span class="mr-1 flex items-center gap-1.5 text-xs font-medium text-row-dirty-fg"><span class="size-2 rounded-full bg-warn"></span>{t('edit.pending', { count: pending })}</span>
-        <button class="btn" onclick={showPreview}><Eye size={14} /> {t('edit.preview')}</button>
-        <button class="btn" onclick={discard}><Undo2 size={14} /> {t('edit.discard')}</button>
+        <span class="mr-1 flex shrink-0 items-center gap-1.5 text-xs font-medium whitespace-nowrap text-row-dirty-fg" title={t('edit.pending', { count: pending })}><span class="size-2 rounded-full bg-warn"></span>{pending}</span>
+        <button class="icon-btn" onclick={showPreview} title={t('edit.preview')} aria-label={t('edit.preview')}><Eye size={14} /></button>
+        <button class="icon-btn" onclick={discard} title={t('edit.discard')} aria-label={t('edit.discard')}><Undo2 size={14} /></button>
         <button class={conn?.production ? 'btn-danger' : 'btn-primary'} onclick={() => save()} disabled={saving} title="Ctrl+S">
           {#if saving}<LoaderCircle size={13} class="animate-spin" />{:else}<Save size={13} />{/if}
           {t('edit.save', { count: pending })}
@@ -327,10 +339,10 @@
           {t('table.noRows')}
         {/if}
       </span>
-      {#if tab.result}<span class="tabular-nums">{formatDuration(tab.result.duration_ms)}{#if conn}<span class="ml-1 text-faint">/ {Math.round(conn.timeout_ms / 1000)} {t('table.seconds')}</span>{/if}</span>{/if}
+      {#if tab.result}<span class="tabular-nums">{formatDuration(tab.result.duration_ms)}{#if conn?.timeout_ms}<span class="ml-1 text-faint">/ {Math.round(conn.timeout_ms / 1000)} {t('table.seconds')}</span>{/if}</span>{/if}
       <span class="min-w-0 flex-1 truncate font-mono text-faint" title={tab.result?.results?.[0]?.statement}>{tab.result?.results?.[0]?.statement ?? ''}</span>
       {#if current?.kind === 'rows' && rowCount}
-        <ExportMenu columns={current.columns ?? []} rows={current.rows ?? []} name={tab.table} />
+        <ExportMenu columns={current.columns ?? []} rows={current.rows ?? []} name={tab.table} dbType={conn?.db_type} table={qualified(conn?.db_type ?? 'postgres', tab.schema, tab.table)} />
       {/if}
       <select class="input h-[22px] w-auto py-0 pl-1.5 text-xs" bind:value={tab.limit} onchange={() => apply()} aria-label={t('table.pageSize')}>
         {#each [50, 100, 500, 1000] as n (n)}<option value={n}>{t('table.perPage', { count: n })}</option>{/each}

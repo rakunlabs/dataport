@@ -25,6 +25,12 @@ export interface ConnectionView {
   // user's overrides.
   limits?: Limits;
   my_limits?: Limits;
+  // Rows can be edited in the grid; needs transactions.
+  editable?: boolean;
+  // Most rows one statement may return; 0 means no limit.
+  max_rows_limit?: number;
+  // Longest time limit a run may have; 0 means runs may have none.
+  max_timeout_ms?: number;
 }
 
 // Pool settings; 0 or a missing field means "use the default".
@@ -38,6 +44,12 @@ export interface Limits {
 export interface DbObject {
   name: string;
   kind: 'table' | 'view' | 'materialized_view' | 'foreign_table';
+}
+
+export interface Routine {
+  name: string;
+  kind: 'procedure' | 'function' | 'package' | 'sequence';
+  signature?: string;
 }
 
 export interface ColumnInfo {
@@ -66,11 +78,34 @@ export interface ForeignKey {
   on_delete?: string;
 }
 
+export interface TriggerInfo {
+  name: string;
+  timing: string;
+  event: string;
+  enabled: boolean;
+  definition: string;
+}
+
 export interface TableStructure {
   columns: ColumnInfo[];
   indexes: IndexInfo[];
   foreign_keys: ForeignKey[];
   ddl: string;
+  comment: string;
+  comments: Record<string, string>;
+  triggers: TriggerInfo[];
+}
+
+export interface DiagramTable {
+  name: string;
+  kind: string;
+  columns: ColumnInfo[];
+  foreign_keys: ForeignKey[];
+}
+
+export interface Diagram {
+  tables: DiagramTable[];
+  truncated: boolean;
 }
 
 export interface Column {
@@ -87,6 +122,11 @@ export interface ResultSet {
   truncated: boolean;
   duration_ms: number;
   error?: string;
+  // Set in the browser: the run the result came from, and how that run
+  // ended, so results of several runs can sit side by side.
+  run?: number;
+  committed?: boolean;
+  transactional?: boolean;
 }
 
 export interface ExecResult {
@@ -108,6 +148,7 @@ export interface QueryLog {
   error: string;
   row_count: number;
   duration_ms: number;
+  source?: 'web' | 'mcp';
   created_at: number;
 }
 
@@ -172,9 +213,39 @@ export interface Connection {
   access: Access[];
 }
 
+export type DriverTarget = 'network' | 'file' | 'dsn';
+
 export interface DriverInfo {
   type: string;
   default_port: number;
+  target: DriverTarget;
+  transactional: boolean;
+  // False when this dataport build lacks the driver (ODBC, DuckDB need cgo).
+  available: boolean;
+}
+
+export interface DriverList {
+  drivers: DriverInfo[];
+  files_enabled: boolean;
+  odbc_dialects: string[];
+}
+
+export interface AccessToken {
+  id: string;
+  name: string;
+  read_only: boolean;
+  created_at: number;
+  expires_at: number;
+  last_used_at: number;
+}
+
+export interface TokenList {
+  tokens: AccessToken[];
+  mcp_enabled: boolean;
+  mcp_path: string;
+  max_ttl_days: number;
+  default_rows: number;
+  external_base: string;
 }
 
 export interface SsoProvider {
@@ -203,4 +274,46 @@ export interface SsoProvider {
 export interface AuthInfo {
   password: boolean;
   providers: { name: string; label: string }[];
+}
+
+export interface BuildInfo {
+  version: string;
+  commit: string;
+  date: string;
+  go_version: string;
+  os: string;
+  arch: string;
+  cgo: boolean;
+  repository: string;
+}
+
+export interface ProcessList {
+  result: ResultSet;
+  self: string;
+  can_cancel: boolean;
+}
+
+export interface DbUser {
+  name: string;
+  host?: string;
+  attributes: string;
+  login: boolean;
+  locked: boolean;
+}
+
+export interface ImportResult {
+  inserted: number;
+  statements: string[];
+  duration_ms: number;
+}
+
+export interface TransferProgress {
+  table?: string;
+  rows?: number;
+  created?: boolean;
+  done?: boolean;
+  error?: string;
+  finished?: boolean;
+  tables?: number;
+  failed?: number;
 }

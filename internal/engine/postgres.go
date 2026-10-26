@@ -79,7 +79,7 @@ func (postgresDriver) Kill(ctx context.Context, db *sql.DB, backendID string) er
 	return err
 }
 
-func (postgresDriver) Prepare(ctx context.Context, tx *sql.Tx, timeout time.Duration) error {
+func (postgresDriver) Prepare(ctx context.Context, tx Runner, timeout time.Duration) error {
 	ms := timeout.Milliseconds()
 	if ms <= 0 {
 		return nil
@@ -91,7 +91,7 @@ func (postgresDriver) Prepare(ctx context.Context, tx *sql.Tx, timeout time.Dura
 	return err
 }
 
-func (postgresDriver) Query(ctx context.Context, tx *sql.Tx, stmt string, maxRows int) (*ResultSet, error) {
+func (postgresDriver) Query(ctx context.Context, tx Runner, stmt string, maxRows int) (*ResultSet, error) {
 	rows, err := tx.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err

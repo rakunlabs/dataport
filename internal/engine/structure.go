@@ -36,6 +36,31 @@ type TableStructure struct {
 	Indexes     []IndexInfo  `json:"indexes"`
 	ForeignKeys []ForeignKey `json:"foreign_keys"`
 	DDL         string       `json:"ddl"`
+	// Comment is the table's comment, and Comments those of its columns,
+	// by name, where the database keeps them.
+	Comment  string            `json:"comment"`
+	Comments map[string]string `json:"comments"`
+	Triggers []TriggerInfo     `json:"triggers"`
+}
+
+// TriggerInfo is a trigger of a table; Definition is its full source where
+// the database gives it.
+type TriggerInfo struct {
+	Name       string `json:"name"`
+	Timing     string `json:"timing"`
+	Event      string `json:"event"`
+	Enabled    bool   `json:"enabled"`
+	Definition string `json:"definition"`
+}
+
+// Commenter is implemented by drivers that read table and column comments.
+type Commenter interface {
+	Comments(ctx context.Context, q Querier, schema, table string) (string, map[string]string, error)
+}
+
+// Triggerer is implemented by drivers that list the triggers of a table.
+type Triggerer interface {
+	Triggers(ctx context.Context, q Querier, schema, table string) ([]TriggerInfo, error)
 }
 
 // Structurer reads indexes, foreign keys and the DDL of a table or view.
@@ -68,9 +93,27 @@ func (m *Manager) Structure(ctx context.Context, c *store.Connection, password, 
 			return err
 		}
 
-		out.DDL, err = s.DDL(ctx, conn, schema, table, out)
+		if out.DDL, err = s.DDL(ctx, conn, schema, table, out); err != nil {
+			return err
+		}
 
-		return err
+		// Comments and triggers are extras: a database that refuses to show
+		// them still shows the rest of the structure.
+		out.Comments, out.Triggers = map[string]string{}, []TriggerInfo{}
+
+		if cm, ok := d.(Commenter); ok {
+			if tc, cc, err := cm.Comments(ctx, conn, schema, table); err == nil {
+				out.Comment, out.Comments = tc, cc
+			}
+		}
+
+		if tg, ok := d.(Triggerer); ok {
+			if list, err := tg.Triggers(ctx, conn, schema, table); err == nil {
+				out.Triggers = list
+			}
+		}
+
+		return nil
 	})
 	if err != nil {
 		return nil, err

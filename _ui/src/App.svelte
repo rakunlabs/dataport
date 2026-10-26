@@ -5,6 +5,9 @@
   import Toasts from '@/lib/components/Toasts.svelte';
   import ConfirmDialog from '@/lib/components/ConfirmDialog.svelte';
   import CredentialDialog from '@/lib/components/CredentialDialog.svelte';
+  import ReviewDialog from '@/lib/components/ReviewDialog.svelte';
+  import VariablesDialog from '@/lib/components/VariablesDialog.svelte';
+  import ToolDialogs from '@/lib/components/ToolDialogs.svelte';
   import { t } from '@/lib/i18n/index.svelte';
 
   const ready = loadSession();
@@ -21,3 +24,6 @@
 <Toasts />
 <ConfirmDialog />
 <CredentialDialog />
+<ReviewDialog />
+<VariablesDialog />
+<ToolDialogs />

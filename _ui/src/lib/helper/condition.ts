@@ -110,7 +110,10 @@ function valueSnippets(type: string, dbType: string): string[] {
   if (/date|time/.test(ty)) {
     if (dbType === 'mssql') return ['GETDATE()', 'CAST(GETDATE() AS date)'];
     if (dbType === 'clickhouse') return ['now()', 'today()', 'today() - 7'];
-    if (dbType === 'postgres') return ['now()', 'CURRENT_DATE', "now() - interval '7 days'"];
+    if (dbType === 'postgres' || dbType === 'duckdb') return ['now()', 'CURRENT_DATE', "now() - interval '7 days'"];
+    if (dbType === 'oracle') return ['SYSDATE', 'TRUNC(SYSDATE)', 'SYSDATE - 7'];
+    if (dbType === 'sqlite') return ["datetime('now')", "date('now')", "datetime('now', '-7 days')"];
+    if (dbType === 'trino' || dbType === 'odbc') return ['CURRENT_TIMESTAMP', 'CURRENT_DATE', "CURRENT_DATE - INTERVAL '7' DAY"];
     return ['NOW()', 'CURDATE()', 'NOW() - INTERVAL 7 DAY'];
   }
   return [];
@@ -138,7 +141,7 @@ export function complete(
 
   if (kind === 'order') {
     if (!prefix || prefix.endsWith(',')) return done(matchColumns(columns, token, quote), !!token);
-    return done(keywords(['ASC', 'DESC', 'NULLS FIRST', 'NULLS LAST'].filter((k) => dbType === 'postgres' || !k.startsWith('NULLS')), token));
+    return done(keywords(['ASC', 'DESC', 'NULLS FIRST', 'NULLS LAST'].filter((k) => ['postgres', 'oracle', 'duckdb', 'trino', 'sqlite'].includes(dbType) || !k.startsWith('NULLS')), token));
   }
 
   if (insideInList(before)) return null;
@@ -167,7 +170,7 @@ export function complete(
     const left = prefix.slice(0, id.index).trimEnd();
     if (!left || /(?:^|\s)(?:AND|OR|NOT)$/i.test(left) || /[(,]$/.test(left)) {
       return done(
-        operators.filter((o) => o.label !== 'ILIKE' || dbType === 'postgres' || dbType === 'clickhouse').map((o) => ({ ...o, kind: 'operator' })),
+        operators.filter((o) => o.label !== 'ILIKE' || dbType === 'postgres' || dbType === 'clickhouse' || dbType === 'duckdb').map((o) => ({ ...o, kind: 'operator' })),
       );
     }
   }

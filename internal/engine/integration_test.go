@@ -390,3 +390,114 @@ func TestIntegrationPoolLimits(t *testing.T) {
 		t.Fatal("changed limits must reopen the pool")
 	}
 }
+
+func TestIntegrationOracle(t *testing.T) {
+	m := NewManager(store.Limits{MaxOpen: 2}, time.Minute)
+	defer m.Close()
+
+	c := &store.Connection{ID: "ora", DBType: "oracle", Host: "127.0.0.1", Port: 51521, Database: "FREEPDB1", Username: "app", UpdatedAt: 1}
+	pw := env("ORACLE_PASSWORD", "pw")
+
+	if err := m.Test(context.Background(), c, pw); err != nil {
+		t.Skip("oracle is not reachable:", err)
+	}
+
+	run(t, m, c, pw, "BEGIN EXECUTE IMMEDIATE 'DROP TABLE dp_items'; EXCEPTION WHEN OTHERS THEN NULL; END;\n/\n"+
+		"CREATE TABLE dp_items (id NUMBER PRIMARY KEY, name VARCHAR2(50) NOT NULL);\n"+
+		"INSERT INTO dp_items VALUES (1, 'a');\nINSERT INTO dp_items VALUES (2, 'b')", false)
+
+	res := run(t, m, c, pw, "SELECT id, name FROM dp_items ORDER BY id", true)
+	if rs := res.Results[0]; rs.Error != "" || len(rs.Rows) != 2 {
+		t.Fatalf("select: %+v", rs)
+	}
+
+	res = run(t, m, c, pw, "SELECT id FROM dp_items FOR UPDATE", true)
+	if res.FirstError() == "" {
+		t.Fatal("read-only transaction allowed FOR UPDATE")
+	}
+
+	st, err := m.Structure(context.Background(), c, pw, "APP", "DP_ITEMS")
+	if err != nil || len(st.Columns) != 2 || !st.Columns[0].PrimaryKey || st.DDL == "" {
+		t.Fatalf("structure: %v %+v", err, st)
+	}
+}
+
+func TestIntegrationTrino(t *testing.T) {
+	m := NewManager(store.Limits{MaxOpen: 2}, time.Minute)
+	defer m.Close()
+
+	c := &store.Connection{ID: "tr", DBType: "trino", Host: "127.0.0.1", Port: 58080, Database: "memory", Username: "dataport", UpdatedAt: 1}
+
+	if err := m.Test(context.Background(), c, ""); err != nil {
+		t.Skip("trino is not reachable:", err)
+	}
+
+	run(t, m, c, "", "CREATE SCHEMA IF NOT EXISTS memory.dp; DROP TABLE IF EXISTS memory.dp.items; "+
+		"CREATE TABLE memory.dp.items (id integer, name varchar); INSERT INTO memory.dp.items VALUES (1, 'a'), (2, 'b')", false)
+
+	res := run(t, m, c, "", "SELECT id, name FROM memory.dp.items ORDER BY id", true)
+	if rs := res.Results[0]; rs.Error != "" || len(rs.Rows) != 2 {
+		t.Fatalf("select: %+v", rs)
+	}
+
+	schemas, err := m.Schemas(context.Background(), c, "")
+	if err != nil || !strings.Contains(strings.Join(schemas, ","), "dp") {
+		t.Fatalf("schemas: %v %v", schemas, err)
+	}
+}
+
+func TestIntegrationPostgresRoutines(t *testing.T) {
+	m := NewManager(store.Limits{MaxOpen: 2}, time.Minute)
+	defer m.Close()
+
+	c := &store.Connection{ID: "pgr", DBType: "postgres", Host: "127.0.0.1", Port: 55432, Database: "postgres", Username: "postgres",
+		Options: map[string]string{"sslmode": "disable"}, UpdatedAt: 1}
+
+	if err := m.Test(context.Background(), c, "pw"); err != nil {
+		t.Skip("postgres is not reachable:", err)
+	}
+
+	run(t, m, c, "pw", "DROP SCHEMA IF EXISTS dp_r CASCADE; CREATE SCHEMA dp_r; CREATE SEQUENCE dp_r.s1; "+
+		"CREATE FUNCTION dp_r.add(a int, b int) RETURNS int LANGUAGE sql AS $$ SELECT a + b $$; "+
+		"CREATE PROCEDURE dp_r.noop() LANGUAGE sql AS $$ SELECT 1 $$", false)
+
+	list, err := m.Routines(context.Background(), c, "pw", "dp_r")
+	if err != nil || len(list) != 3 {
+		t.Fatalf("routines: %v %+v", err, list)
+	}
+
+	for _, r := range list {
+		def, err := m.Definition(context.Background(), c, "pw", "dp_r", r)
+		if err != nil || def == "" {
+			t.Fatalf("definition of %+v: %v", r, err)
+		}
+	}
+}
+
+func TestIntegrationNoTimeoutCancel(t *testing.T) {
+	m := NewManager(store.Limits{MaxOpen: 2}, time.Minute)
+	defer m.Close()
+
+	c := &store.Connection{ID: "pgt", DBType: "postgres", Host: "127.0.0.1", Port: 55432, Database: "postgres", Username: "postgres",
+		Options: map[string]string{"sslmode": "disable"}, UpdatedAt: 1}
+
+	if err := m.Test(context.Background(), c, "pw"); err != nil {
+		t.Skip("postgres is not reachable:", err)
+	}
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		m.Cancel("u", "q1")
+	}()
+
+	start := time.Now()
+
+	res, err := m.Execute(context.Background(), c, "pw", ExecRequest{QueryID: "q1", UserID: "u", SQL: "SELECT pg_sleep(10)", ReadOnly: true, MaxRows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.FirstError() != "query cancelled" || time.Since(start) > 5*time.Second {
+		t.Fatalf("not cancelled: %q after %v", res.FirstError(), time.Since(start))
+	}
+}

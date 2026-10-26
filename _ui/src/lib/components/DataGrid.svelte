@@ -17,6 +17,7 @@
     edit,
     editable = false,
     oncontext,
+    onselect,
   }: {
     columns: Column[];
     rows: unknown[][];
@@ -29,6 +30,8 @@
     edit?: EditState;
     editable?: boolean;
     oncontext?: (e: MouseEvent, row: number, col: number) => void;
+    // Called when the selected cell changes, for the value panel.
+    onselect?: (row: number, col: number) => void;
   } = $props();
 
   const rowHeight = 26;
@@ -40,6 +43,26 @@
   let viewport = $state(400);
   let widths = $state<number[]>([]);
   let selected = $state<{ row: number; col: number } | null>(null);
+
+  $effect(() => {
+    if (selected) onselect?.(selected.row, selected.col);
+  });
+
+  // cellAt is what a cell shows, pending edits included.
+  export function cellAt(r: number, c: number): unknown {
+    return cellValue(r, c);
+  }
+
+  // setCell changes a cell as typing in it would.
+  export function setCell(r: number, c: number, v: unknown) {
+    if (!edit || !canEdit(r)) return;
+    if (isNew(r)) edit.setNew(r - rows.length, c, v);
+    else edit.set(r, c, v, rows[r][c]);
+  }
+
+  export function canEditCell(r: number): boolean {
+    return !!canEdit(r);
+  }
   // Selected rows for delete and clone, by display index.
   let selectedRows = $state(new Set<number>());
   let anchor = -1;
@@ -89,11 +112,13 @@
   }
 
   function isNumeric(type: string) {
+    if (type.endsWith('[]')) return false;
     return /^(u?int|integer|bigint|smallint|tinyint|mediumint|numeric|decimal|real|double|float|serial|bigserial|money|int2|int4|int8|float4|float8|nullable\((u?int|decimal|float))/i.test(type);
   }
 
   function typeColor(type: string): string {
     const ty = type.toLowerCase();
+    if (ty.endsWith('[]')) return 'var(--color-type-struct)';
     if (/(int|serial)/.test(ty)) return 'var(--color-type-int)';
     if (/(numeric|decimal|real|double|float|money)/.test(ty)) return 'var(--color-type-num)';
     if (/(bool|bit)/.test(ty)) return 'var(--color-type-bool)';

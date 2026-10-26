@@ -3,7 +3,12 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/rakunlabs/dataport/internal/config"
+	"github.com/rakunlabs/dataport/internal/store"
 )
 
 func TestSameOrigin(t *testing.T) {
@@ -48,5 +53,49 @@ func TestSameOrigin(t *testing.T) {
 				t.Fatalf("status = %d, want %d", w.Code, tt.want)
 			}
 		})
+	}
+}
+
+func TestTimeouts(t *testing.T) {
+	s := &Server{cfg: &config.Config{}}
+	none, ten := 0, 10
+	c := &store.Connection{}
+
+	if got := s.timeout(c); got != 0 {
+		t.Fatalf("no limit by default, got %v", got)
+	}
+
+	c.TimeoutMS = 30000
+	if got := s.timeout(c); got != 30*time.Second {
+		t.Fatalf("connection limit: %v", got)
+	}
+
+	if got := s.runTimeout(c, &none); got != 0 {
+		t.Fatalf("user asked for none: %v", got)
+	}
+
+	if got := s.runTimeout(c, nil); got != 30*time.Second {
+		t.Fatalf("connection limit kept: %v", got)
+	}
+
+	s.cfg.Query.MaxTimeout = 5 * time.Second
+	if got := s.runTimeout(c, &none); got != 5*time.Second {
+		t.Fatalf("cap applies to no limit: %v", got)
+	}
+
+	if got := s.runTimeout(c, &ten); got != 5*time.Second {
+		t.Fatalf("cap applies: %v", got)
+	}
+}
+
+func TestAbout(t *testing.T) {
+	config.Build = config.BuildInfo{Version: "v1.2.3", OS: "linux", Arch: "amd64", Repository: config.Repository}
+
+	w := httptest.NewRecorder()
+	(&Server{}).about(w, httptest.NewRequest(http.MethodGet, "/api/v1/about", nil))
+
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"version":"v1.2.3"`) ||
+		!strings.Contains(w.Body.String(), `"repository":"https://github.com/rakunlabs/dataport"`) {
+		t.Fatalf("about: %d %s", w.Code, w.Body.String())
 	}
 }

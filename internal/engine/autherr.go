@@ -46,8 +46,14 @@ func isAuthError(err error) bool {
 		return false
 	}
 
+	if auth, ok := oracleAuthError(err); ok {
+		return auth
+	}
+
 	// Some drivers flatten the error during the handshake.
 	msg := strings.ToLower(err.Error())
 
-	return strings.Contains(msg, "login failed for user") || strings.Contains(msg, "authentication failed")
+	return strings.Contains(msg, "login failed for user") || strings.Contains(msg, "authentication failed") ||
+		strings.Contains(msg, "401 unauthorized") || strings.Contains(msg, "invalid authorization specification") ||
+		strings.Contains(msg, "{28000}")
 }

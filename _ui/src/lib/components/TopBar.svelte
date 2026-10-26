@@ -1,14 +1,12 @@
 <script lang="ts">
   import { link } from 'svelte-spa-router';
-  import { FilePlus2, History, Bookmark, Moon, Sun, Monitor, Settings2, LogOut, KeyRound, ArrowLeft, ChevronDown, Check } from 'lucide-svelte';
+  import { FilePlus2, History, Bookmark, Moon, Sun, Monitor, Settings, LogOut, KeyRound, ChevronDown, Check, Bot } from 'lucide-svelte';
   import Logo from '@/lib/components/Logo.svelte';
   import { logout, session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
-  import { activeTab, openQueryTab, ws } from '@/lib/stores/workspace.svelte';
+  import { activeTab, openQueryTab, openSettings, ws } from '@/lib/stores/workspace.svelte';
   import { i18n, locales, setLocale, t } from '@/lib/i18n/index.svelte';
   import PasswordDialog from '@/lib/components/PasswordDialog.svelte';
-
-  let { admin = false }: { admin?: boolean } = $props();
 
   let menuOpen = $state(false);
   let passwordOpen = $state(false);
@@ -20,15 +18,14 @@
   ];
 
   const name = $derived(session.user?.display_name || session.user?.username || '');
-  const initials = $derived(
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((p) => p[0])
-      .join('')
-      .toUpperCase() || '?',
-  );
+
+  // One click moves to the next theme: system, light, dark.
+  const current = $derived(themes.find((th) => th.mode === theme.mode) ?? themes[0]);
+
+  function nextTheme() {
+    const i = themes.findIndex((th) => th.mode === theme.mode);
+    setTheme(themes[(i + 1) % themes.length].mode);
+  }
 
   function newQuery() {
     const conn = activeTab()?.connectionId ?? ws.connections[0]?.id;
@@ -48,33 +45,51 @@
     dataport
   </a>
 
-  {#if admin}
-    <a href="/" use:link class="btn"><ArrowLeft size={14} /> {t('app.backToWorkspace')}</a>
-  {:else}
-    <button class="btn" onclick={newQuery} disabled={ws.connections.length === 0}>
-      <FilePlus2 size={14} /> {t('app.newQuery')}
-    </button>
-  {/if}
+  <button class="btn" onclick={newQuery} disabled={ws.connections.length === 0}>
+    <FilePlus2 size={14} /> {t('app.newQuery')}
+  </button>
 
   <div class="flex-1"></div>
 
-  {#if !admin}
-    <button class="btn" aria-pressed={ws.rightPanel === 'history'} class:bg-active={ws.rightPanel === 'history'} onclick={() => togglePanel('history')}>
-      <History size={14} /> {t('app.history')}
-    </button>
-    <button class="btn" aria-pressed={ws.rightPanel === 'saved'} class:bg-active={ws.rightPanel === 'saved'} onclick={() => togglePanel('saved')}>
-      <Bookmark size={14} /> {t('app.savedShort')}
-    </button>
-    {#if session.user?.role === 'admin'}
-      <a href="/admin" use:link class="btn"><Settings2 size={14} /> {t('app.admin')}</a>
-    {/if}
-  {/if}
+  <button
+    class="icon-btn"
+    aria-pressed={ws.rightPanel === 'history'}
+    class:bg-active={ws.rightPanel === 'history'}
+    onclick={() => togglePanel('history')}
+    title={t('app.history')}
+    aria-label={t('app.history')}
+  >
+    <History size={15} />
+  </button>
+  <button
+    class="icon-btn"
+    aria-pressed={ws.rightPanel === 'saved'}
+    class:bg-active={ws.rightPanel === 'saved'}
+    onclick={() => togglePanel('saved')}
+    title={t('app.saved')}
+    aria-label={t('app.saved')}
+  >
+    <Bookmark size={15} />
+  </button>
+  <button class="icon-btn" onclick={nextTheme} title="{t('app.theme')}: {t(current.key)}" aria-label="{t('app.theme')}: {t(current.key)}">
+    <current.icon size={15} />
+  </button>
+  <button
+    class="icon-btn"
+    aria-pressed={activeTab()?.kind === 'settings'}
+    class:bg-active={activeTab()?.kind === 'settings'}
+    onclick={() => openSettings()}
+    title={t('settings.title')}
+    aria-label={t('settings.title')}
+  >
+    <Settings size={15} />
+  </button>
 
   <div class="toolbar-sep"></div>
 
   <div class="relative">
     <button
-      class="flex h-[26px] items-center gap-1.5 rounded-md pr-1 pl-0.5 text-sm text-fg-2 hover:bg-hover hover:text-fg"
+      class="flex h-[26px] items-center gap-1 rounded-md pr-1 pl-2 text-sm text-fg-2 hover:bg-hover hover:text-fg"
       aria-haspopup="menu"
       aria-expanded={menuOpen}
       onclick={(e) => {
@@ -82,7 +97,6 @@
         menuOpen = !menuOpen;
       }}
     >
-      <span class="flex size-[22px] items-center justify-center rounded-full bg-accent text-[10px] font-semibold text-accent-fg">{initials}</span>
       <span class="max-w-40 truncate">{name}</span>
       <ChevronDown size={13} class="text-faint" />
     </button>
@@ -97,18 +111,6 @@
           </div>
         </div>
         <div class="menu-sep"></div>
-
-        <div class="px-3 py-1.5">
-          <div class="mb-1.5 text-xs text-muted">{t('app.theme')}</div>
-          <div class="segmented w-full">
-            {#each themes as th (th.mode)}
-              <button class="flex-1 justify-center" aria-pressed={theme.mode === th.mode} title={t(th.key)} onclick={() => setTheme(th.mode)}>
-                <th.icon size={13} />
-                {t(th.key + 'Short')}
-              </button>
-            {/each}
-          </div>
-        </div>
 
         <div class="px-3 py-1.5">
           <div class="mb-1.5 text-xs text-muted">{t('app.language')}</div>
@@ -133,6 +135,16 @@
         >
           <KeyRound size={14} /> {t('app.changePassword')}
         </button>
+        <button
+          class="menu-item"
+          role="menuitem"
+          onclick={() => {
+            openSettings('mcp');
+            menuOpen = false;
+          }}
+        >
+          <Bot size={14} /> {t('app.mcpAccess')}
+        </button>
         <button class="menu-item" role="menuitem" onclick={logout}>
           <LogOut size={14} /> {t('app.signOut')}
         </button>
@@ -144,3 +156,4 @@
 {#if passwordOpen}
   <PasswordDialog onclose={() => (passwordOpen = false)} />
 {/if}
+

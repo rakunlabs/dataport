@@ -118,6 +118,15 @@ type ConnectionView struct {
 	// connections, MyLimits are the user's overrides.
 	Limits   *Limits `json:"limits,omitempty"`
 	MyLimits *Limits `json:"my_limits,omitempty"`
+	// Editable is set when rows can be edited in the grid, which needs
+	// transactions.
+	Editable bool `json:"editable"`
+	// MaxRowsLimit is the most rows a user may ask one statement for; zero
+	// means no limit.
+	MaxRowsLimit int `json:"max_rows_limit"`
+	// MaxTimeoutMS is the longest time limit a user may choose; zero means
+	// runs may have none.
+	MaxTimeoutMS int `json:"max_timeout_ms"`
 }
 
 const connectionColumns = "id, name, description, db_type, host, port, database_name, username, password_enc, options, color, read_only, production, user_credentials, max_rows, timeout_ms, limits, created_at, updated_at"

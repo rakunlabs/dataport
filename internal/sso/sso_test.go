@@ -19,7 +19,7 @@ import (
 func setup(t *testing.T) (*Manager, *store.Store) {
 	t.Helper()
 
-	st, err := store.New(context.Background(), config.Store{Type: "sqlite", TablePrefix: "dp_",
+	st, err := store.New(context.Background(), config.Store{Type: "sqlite", TablePrefix: "dataport_",
 		DSN: "file:" + filepath.Join(t.TempDir(), "t.db")}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)

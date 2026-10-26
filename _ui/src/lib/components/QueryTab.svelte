@@ -1,17 +1,23 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { Play, Square, Save, Lock, LoaderCircle } from 'lucide-svelte';
+  import { Play, Square, Save, Lock, LoaderCircle, SquareArrowOutUpRight, CopyPlus } from 'lucide-svelte';
   import type { SQLNamespace } from '@codemirror/lang-sql';
   import SqlEditor from '@/lib/components/SqlEditor.svelte';
   import ResultPanel from '@/lib/components/ResultPanel.svelte';
   import DbIcon from '@/lib/components/DbIcon.svelte';
-  import { cancel, connection, persist, run, saveTab, ws, type Tab } from '@/lib/stores/workspace.svelte';
+  import { cancel, connection, persist, run, runInNewTab, saveTab, ws, type Tab } from '@/lib/stores/workspace.svelte';
+  import { prefs } from '@/lib/stores/prefs.svelte';
+  import { editorOptions } from '@/lib/helper/editorOptions';
+  import TreeMenu, { type MenuItem } from '@/lib/components/TreeMenu.svelte';
+  import { fmtNumber } from '@/lib/i18n/index.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
 
   let { tab }: { tab: Tab } = $props();
 
   let editor: SqlEditor | undefined = $state();
   let split = $state(45);
+  // Results show once something ran; closing them gives the editor the room.
+  const showResults = $derived(!!tab.result || !!tab.error || tab.running);
   let container: HTMLDivElement;
 
   const conn = $derived(connection(tab.connectionId));
@@ -67,6 +73,59 @@
     window.addEventListener('pointerup', up);
   }
 
+  // A statement's run button runs it here or in a new tab, as the settings
+  // say; a right click (or Alt-click) offers both.
+  let stmtMenu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
+
+  function runStatement(sql: string, e: MouseEvent) {
+    const here = () => run(tab.id, sql);
+    const beside = () => run(tab.id, sql, 'append');
+    const elsewhere = () => runInNewTab(tab.connectionId, sql, '', tab.maxRows);
+
+    if (e.button === 2 || e.altKey) {
+      stmtMenu = {
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          { label: t('editor.runHere'), icon: Play, action: here },
+          { label: t('editor.runNewResult'), icon: CopyPlus, hidden: !tab.result, action: beside },
+          { label: t('editor.runNewTab'), icon: SquareArrowOutUpRight, action: elsewhere },
+        ],
+      };
+      return;
+    }
+
+    if (prefs.resultInNewTab) elsewhere();
+    else void here();
+  }
+
+  // Row choices for a run: the connection default, fixed sizes, or as
+  // many as the server allows.
+  const rowChoices = $derived.by(() => {
+    const limit = conn?.max_rows_limit ?? 0;
+    return [100, 1000, 10000, 100000].filter((n) => !limit || n <= limit);
+  });
+
+  // Time limits a run may have; with a server cap, longer ones are dropped.
+  const timeoutChoices = $derived.by(() => {
+    const cap = (conn?.max_timeout_ms ?? 0) / 1000;
+    return [30, 60, 300, 900, 3600].filter((n) => !cap || n <= cap);
+  });
+
+  function seconds(n: number) {
+    return n >= 60 ? t('editor.minutes', { n: n / 60 }) : t('editor.seconds', { n });
+  }
+
+  function changeTimeout(e: Event) {
+    tab.timeoutSec = Number((e.target as HTMLSelectElement).value);
+    persist();
+  }
+
+  function changeRows(e: Event) {
+    tab.maxRows = Number((e.target as HTMLSelectElement).value);
+    persist();
+  }
+
   function changeConnection(e: Event) {
     tab.connectionId = (e.target as HTMLSelectElement).value;
     tab.result = null;
@@ -79,9 +138,20 @@
     {#if tab.running}
       <button class="btn-danger" onclick={() => cancel(tab.id)}><Square size={12} fill="currentColor" /> {t('query.stop')}</button>
     {:else}
-      <button class="btn-primary" onclick={() => run(tab.id, editor?.currentSQL())} disabled={!tab.sql.trim()} title="{t('query.run')} (Ctrl+Enter)">
-        <Play size={12} fill="currentColor" /> {t('query.run')}
-      </button>
+      <div class="flex">
+        <button class="btn-primary rounded-r-none" onclick={() => run(tab.id, editor?.currentSQL())} disabled={!tab.sql.trim()} title="{t('query.run')} (Ctrl+Enter)">
+          <Play size={12} fill="currentColor" /> {t('query.run')}
+        </button>
+        <button
+          class="btn-primary rounded-l-none border-l border-white/25 px-1.5"
+          onclick={() => run(tab.id, editor?.currentSQL(), 'append')}
+          disabled={!tab.sql.trim() || !tab.result}
+          title="{t('query.runNewResult')} (Ctrl+\)"
+          aria-label={t('query.runNewResult')}
+        >
+          <CopyPlus size={13} />
+        </button>
+      </div>
     {/if}
     <button class="btn" onclick={save} title="Ctrl+S"><Save size={14} /> {tab.savedId ? t('query.save') : t('query.saveAs')}</button>
 
@@ -105,32 +175,59 @@
     <div class="flex-1"></div>
     {#if tab.running}<span class="flex items-center gap-1.5 text-xs text-muted"><LoaderCircle size={13} class="animate-spin" /> {t('result.running')}</span>{/if}
     {#if conn}
-      <span class="text-xs text-muted tabular-nums" title={t('conn.limitsHint')}>{t('conn.limits', { rows: conn.max_rows, seconds: Math.round(conn.timeout_ms / 1000) })}</span>
+      <label class="flex items-center gap-1.5 text-xs text-muted" title={t('conn.limitsHint')}>
+        {t('editor.rows')}
+        <select class="input h-[24px] w-auto py-0 pr-6 text-xs tabular-nums" value={tab.maxRows} onchange={changeRows}>
+          <option value={0}>{t('editor.rowsDefault', { n: fmtNumber(conn.max_rows) })}</option>
+          {#each rowChoices.filter((n) => n !== conn.max_rows) as n (n)}<option value={n}>{fmtNumber(n)}</option>{/each}
+          <option value={-1}>{conn.max_rows_limit ? t('editor.rowsMax', { n: fmtNumber(conn.max_rows_limit) }) : t('editor.rowsAll')}</option>
+        </select>
+      </label>
+      <label class="flex items-center gap-1.5 text-xs text-muted" title={t('editor.timeoutHint')}>
+        {t('editor.timeout')}
+        <select class="input h-[24px] w-auto py-0 pr-6 text-xs tabular-nums" value={tab.timeoutSec} onchange={changeTimeout}>
+          <option value={-1}>{conn.timeout_ms ? t('editor.rowsDefault', { n: seconds(conn.timeout_ms / 1000) }) : t('editor.noLimitDefault')}</option>
+          {#if !conn.max_timeout_ms}<option value={0}>{t('editor.noLimit')}</option>{/if}
+          {#each timeoutChoices.filter((n) => n * 1000 !== conn.timeout_ms) as n (n)}<option value={n}>{seconds(n)}</option>{/each}
+        </select>
+      </label>
     {/if}
   </div>
 
-  <div class="min-h-0" style="height:{split}%">
+  <div class="min-h-0 {showResults ? '' : 'flex-1'}" style={showResults ? `height:${split}%` : ''}>
     <SqlEditor
       bind:this={editor}
       value={tab.sql}
       dbType={conn?.db_type ?? 'postgres'}
       {schema}
       {onchange}
-      onrun={(sql) => run(tab.id, sql)}
+      onrun={(sql, append) => run(tab.id, sql, append ? 'append' : 'replace')}
+      onrunstatement={prefs.statementRun ? runStatement : undefined}
       onsave={save}
+      options={editorOptions(prefs)}
     />
   </div>
 
-  <div
-    class="group relative h-px shrink-0 cursor-row-resize bg-line"
-    onpointerdown={startDrag}
-    role="separator"
-    aria-orientation="horizontal"
-  >
-    <span class="absolute inset-x-0 -top-[3px] h-[7px] transition-colors group-hover:bg-accent/40"></span>
-  </div>
+  {#if showResults}
+    <div
+      class="group relative h-px shrink-0 cursor-row-resize bg-line"
+      onpointerdown={startDrag}
+      role="separator"
+      aria-orientation="horizontal"
+    >
+      <span class="absolute inset-x-0 -top-[3px] h-[7px] transition-colors group-hover:bg-accent/40"></span>
+    </div>
 
-  <div class="min-h-0 flex-1">
-    <ResultPanel {tab} />
-  </div>
+    <div class="min-h-0 flex-1">
+      <ResultPanel {tab} />
+    </div>
+  {:else}
+    <div class="flex h-7 shrink-0 items-center gap-1.5 border-t border-line bg-panel px-3 text-xs text-faint">
+      {t('result.empty')} <span class="kbd">Ctrl</span><span class="kbd">Enter</span>
+    </div>
+  {/if}
 </div>
+
+{#if stmtMenu}
+  <TreeMenu x={stmtMenu.x} y={stmtMenu.y} items={stmtMenu.items} onclose={() => (stmtMenu = null)} />
+{/if}

@@ -83,7 +83,7 @@ func (mysqlDriver) Kill(ctx context.Context, db *sql.DB, backendID string) error
 	return err
 }
 
-func (d mysqlDriver) Prepare(ctx context.Context, tx *sql.Tx, timeout time.Duration) error {
+func (d mysqlDriver) Prepare(ctx context.Context, tx Runner, timeout time.Duration) error {
 	ms := timeout.Milliseconds()
 	if ms <= 0 {
 		return nil
@@ -104,7 +104,7 @@ func (d mysqlDriver) Prepare(ctx context.Context, tx *sql.Tx, timeout time.Durat
 	return nil
 }
 
-func (mysqlDriver) Query(ctx context.Context, tx *sql.Tx, stmt string, maxRows int) (*ResultSet, error) {
+func (mysqlDriver) Query(ctx context.Context, tx Runner, stmt string, maxRows int) (*ResultSet, error) {
 	rows, err := tx.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err

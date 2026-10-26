@@ -28,14 +28,18 @@ jobs:
         with:
           go-version: stable
           check-latest: true
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unixodbc-dev
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          args: --timeout 10m --new-from-rev=HEAD~1 --issues-exit-code=0
+          args: --timeout 10m --new-from-rev=HEAD~1 --issues-exit-code=0 --build-tags odbc,duckdb
       - name: Run tests
         run: |
-          GOPATH="$(dirname ${PWD})" golangci-lint run --issues-exit-code=0 --output.checkstyle.path=golangci-lint-report.out ./...
-          go test -coverprofile=coverage.out -json ./... > test-report.out
+          GOPATH="$(dirname ${PWD})" golangci-lint run --build-tags odbc,duckdb --issues-exit-code=0 --output.checkstyle.path=golangci-lint-report.out ./...
+          go test -tags odbc,duckdb -coverprofile=coverage.out -json ./... > test-report.out
         env:
           DATAPORT_TEST_POSTGRES_DSN: postgres://postgres:pw@127.0.0.1:5432/postgres?sslmode=disable
       - name: SonarCloud Scan

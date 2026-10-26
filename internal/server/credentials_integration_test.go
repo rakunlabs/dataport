@@ -75,7 +75,7 @@ GRANT SELECT ON dp_cred_t TO dp_alice`})
 		t.Fatalf("setup: %v %s", err, res.FirstError())
 	}
 
-	st, err := store.New(ctx, config.Store{Type: "sqlite", TablePrefix: "dp_", DSN: "file:" + filepath.Join(t.TempDir(), "t.db")}, t.TempDir())
+	st, err := store.New(ctx, config.Store{Type: "sqlite", TablePrefix: "dataport_", DSN: "file:" + filepath.Join(t.TempDir(), "t.db")}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

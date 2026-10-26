@@ -320,3 +320,55 @@ func (l *limiter) cleanup() {
 		}
 	}
 }
+
+// ////////////////////////////////////////////
+// access tokens
+
+// TokenPrefix marks dataport access tokens, so secret scanners and users
+// can tell them apart.
+const TokenPrefix = "dpt_"
+
+// NewAccessToken returns a new raw token and the hash to store.
+func NewAccessToken() (string, string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", err
+	}
+
+	token := TokenPrefix + base64.RawURLEncoding.EncodeToString(raw)
+
+	return token, hashToken(token), nil
+}
+
+// AuthenticateToken resolves an access token to its user. The token's
+// ReadOnly flag narrows what the user may do with it.
+func (a *Auth) AuthenticateToken(ctx context.Context, token string) (*store.User, *store.AccessToken, error) {
+	if !strings.HasPrefix(token, TokenPrefix) {
+		return nil, nil, store.ErrNotFound
+	}
+
+	t, err := a.store.GetAccessTokenByHash(ctx, hashToken(token))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ts := time.Now().UnixMilli()
+	if t.ExpiresAt > 0 && ts > t.ExpiresAt {
+		return nil, nil, store.ErrNotFound
+	}
+
+	user, err := a.store.GetUser(ctx, t.UserID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if user.Disabled {
+		return nil, nil, store.ErrNotFound
+	}
+
+	if ts-t.LastUsedAt > time.Minute.Milliseconds() {
+		_ = a.store.TouchAccessToken(ctx, t.ID, ts)
+	}
+
+	return user, t, nil
+}

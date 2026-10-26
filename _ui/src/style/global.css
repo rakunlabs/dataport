@@ -60,6 +60,12 @@
   --color-type-id: #8a5a00;
   --color-type-bin: #b0262f;
 
+  /* JSON values in the value panel. */
+  --color-json-key: #2b5c8a;
+  --color-json-str: #2d7d4f;
+  --color-json-num: #a8650c;
+  --color-json-kw: #8a3ffc;
+
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
@@ -85,6 +91,10 @@
 
 @layer base {
   .dark {
+    --color-json-key: #8cc4f0;
+    --color-json-str: #67c792;
+    --color-json-num: #e3b05c;
+    --color-json-kw: #c49bff;
     --color-bg: #1e1f22;
     --color-panel: #2b2d30;
     --color-raised: #2b2d30;

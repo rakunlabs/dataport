@@ -1,5 +1,5 @@
 import { api } from '@/lib/api/client';
-import type { Connection, DriverInfo, Group, Limits, User } from '@/lib/api/types';
+import type { Connection, DriverInfo, DriverList, Group, Limits, User } from '@/lib/api/types';
 import { loadConnections as reloadWorkspace } from '@/lib/stores/workspace.svelte';
 
 export const admin = $state({
@@ -7,6 +7,8 @@ export const admin = $state({
   groups: [] as Group[],
   connections: [] as Connection[],
   drivers: [] as DriverInfo[],
+  filesEnabled: false,
+  odbcDialects: [] as string[],
   poolDefaults: {} as Limits,
 });
 
@@ -27,8 +29,10 @@ export async function loadConnections() {
 
 export async function loadDrivers() {
   if (admin.drivers.length) return;
-  const [drivers, defaults] = await Promise.all([api.get<DriverInfo[]>('/admin/drivers'), api.get<Limits>('/admin/pool-defaults')]);
-  admin.drivers = drivers.sort((a, b) => a.type.localeCompare(b.type));
+  const [list, defaults] = await Promise.all([api.get<DriverList>('/admin/drivers'), api.get<Limits>('/admin/pool-defaults')]);
+  admin.drivers = list.drivers.sort((a, b) => a.type.localeCompare(b.type));
+  admin.filesEnabled = list.files_enabled;
+  admin.odbcDialects = list.odbc_dialects;
   admin.poolDefaults = defaults;
 }
 

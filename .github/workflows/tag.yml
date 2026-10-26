@@ -47,6 +47,12 @@ jobs:
         working-directory: _ui
         run: pnpm build
 
+      # The cgo build links unixODBC and DuckDB.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unixodbc-dev
+
       - name: Create release
         uses: goreleaser/goreleaser-action@v7
         with:

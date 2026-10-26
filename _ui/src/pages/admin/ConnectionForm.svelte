@@ -1,7 +1,10 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { PlugZap, LoaderCircle, CircleCheck, CircleX, X, Users, UsersRound, ChevronRight } from 'lucide-svelte';
+  import { PlugZap, LoaderCircle, CircleCheck, CircleX, X, Users, UsersRound, ChevronRight, ChevronLeft } from 'lucide-svelte';
   import Modal from '@/lib/components/Modal.svelte';
+  import DbPicker from '@/lib/components/DbPicker.svelte';
+  import DbIcon from '@/lib/components/DbIcon.svelte';
+  import { dbLabel } from '@/lib/helper/databases';
   import { api } from '@/lib/api/client';
   import type { Access, Connection, Limits } from '@/lib/api/types';
   import LimitsFields from '@/lib/components/LimitsFields.svelte';
@@ -37,6 +40,8 @@
     access: (c?.access ?? []).map((a) => ({ ...a })) as Access[],
   });
 
+  // A new connection starts by choosing the database.
+  let step = $state<'pick' | 'details'>(c ? 'details' : 'pick');
   let changePassword = $state(!c);
   let busy = $state(false);
   let testing = $state(false);
@@ -45,6 +50,25 @@
   let pick = $state('');
 
   const driver = $derived(admin.drivers.find((d) => d.type === form.db_type));
+  const target = $derived(driver?.target ?? 'network');
+  // Trino, Oracle and the file databases call the database field differently.
+  const databaseLabel = $derived(
+    target === 'file'
+      ? t('admin.conn.filePath')
+      : form.db_type === 'trino'
+        ? t('admin.conn.catalog')
+        : form.db_type === 'oracle'
+          ? t('admin.conn.serviceName')
+          : t('admin.conn.database'),
+  );
+  const canTest = $derived(target === 'file' ? !!form.database : target === 'dsn' ? !!form.options.dsn : !!form.host);
+
+  function choose() {
+    // Options of another database type do not apply.
+    if (form.db_type !== (c?.db_type ?? '')) form.options = {};
+    if (target === 'file') form.user_credentials = false;
+    step = 'details';
+  }
   const colors = ['', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899'];
 
   function body() {
@@ -112,7 +136,14 @@
   });
 </script>
 
-<Modal title={c ? t('admin.conn.edit', { name: c.name }) : t('admin.conn.new')} {onclose} width="max-w-2xl">
+<Modal
+  title={c ? t('admin.conn.edit', { name: c.name }) : step === 'pick' ? t('picker.title') : t('admin.conn.newOf', { type: dbLabel(form.db_type) })}
+  {onclose}
+  width={step === 'pick' ? 'max-w-3xl' : 'max-w-2xl'}
+>
+  {#if step === 'pick'}
+    <DbPicker drivers={admin.drivers} filesEnabled={admin.filesEnabled} bind:selected={form.db_type} onnext={choose} />
+  {:else}
   <form id="conn-form" onsubmit={submit} class="space-y-5">
     <section class="grid grid-cols-6 gap-3">
       <div class="col-span-4">
@@ -120,27 +151,58 @@
         <input id="c-name" class="input" bind:value={form.name} required maxlength="100" placeholder={t('admin.conn.namePlaceholder')} />
       </div>
       <div class="col-span-2">
-        <label class="label" for="c-type">{t('admin.conn.type')}</label>
-        <select id="c-type" class="input" bind:value={form.db_type}>
-          {#each admin.drivers as d (d.type)}<option value={d.type}>{d.type}</option>{/each}
-        </select>
+        <span class="label">{t('admin.conn.type')}</span>
+        {#if c}
+          <span class="input flex items-center gap-2 bg-sunken"><DbIcon type={form.db_type} /> {dbLabel(form.db_type)}</span>
+        {:else}
+          <button type="button" class="input flex items-center gap-2 text-left hover:bg-hover" onclick={() => (step = 'pick')} title={t('picker.change')}>
+            <DbIcon type={form.db_type} /> <span class="flex-1">{dbLabel(form.db_type)}</span> <ChevronLeft size={13} class="text-faint" />
+          </button>
+        {/if}
       </div>
       <div class="col-span-6">
         <label class="label" for="c-desc">{t('admin.conn.descriptionLabel')} <span class="font-normal text-faint">{t('admin.conn.visibleToUsers')}</span></label>
         <input id="c-desc" class="input" bind:value={form.description} />
       </div>
-      <div class="col-span-4">
-        <label class="label" for="c-host">{t('admin.conn.host')}</label>
-        <input id="c-host" class="input font-mono" bind:value={form.host} required placeholder="db.internal" />
-      </div>
-      <div class="col-span-2">
-        <label class="label" for="c-port">{t('admin.conn.port')}</label>
-        <input id="c-port" class="input font-mono" type="number" min="0" max="65535" bind:value={form.port} placeholder={String(driver?.default_port ?? '')} />
-      </div>
-      <div class="col-span-2">
-        <label class="label" for="c-db">{t('admin.conn.database')}</label>
-        <input id="c-db" class="input font-mono" bind:value={form.database} />
-      </div>
+      {#if target === 'network'}
+        <div class="col-span-4">
+          <label class="label" for="c-host">{t('admin.conn.host')}</label>
+          <input id="c-host" class="input font-mono" bind:value={form.host} required placeholder="db.internal" />
+        </div>
+        <div class="col-span-2">
+          <label class="label" for="c-port">{t('admin.conn.port')}</label>
+          <input id="c-port" class="input font-mono" type="number" min="0" max="65535" bind:value={form.port} placeholder={String(driver?.default_port ?? '')} />
+        </div>
+        <div class="col-span-2">
+          <label class="label" for="c-db">{databaseLabel}</label>
+          <input id="c-db" class="input font-mono" bind:value={form.database} required={form.db_type === 'trino'} />
+        </div>
+        {#if form.db_type === 'oracle'}
+          <div class="col-span-2">
+            <label class="label" for="c-sid">SID <span class="font-normal text-faint">{t('admin.conn.sidHint')}</span></label>
+            <input id="c-sid" class="input font-mono" bind:value={form.options.sid} />
+          </div>
+        {/if}
+      {:else if target === 'file'}
+        <div class="col-span-6">
+          <label class="label" for="c-file">{databaseLabel}</label>
+          <input id="c-file" class="input font-mono" bind:value={form.database} required placeholder={form.db_type === 'duckdb' ? 'analytics.duckdb' : 'app.db'} />
+          <p class="hint mt-1">{t('admin.conn.filePathHint')}</p>
+        </div>
+      {:else}
+        <div class="col-span-6">
+          <label class="label" for="c-dsn">{t('admin.conn.connString')}</label>
+          <input id="c-dsn" class="input font-mono" bind:value={form.options.dsn} required placeholder="DSN=warehouse  ·  Driver={'{'}Ingres{'}'};Server=@db,tcp_ip,II;Database=app" />
+          <p class="hint mt-1">{t('admin.conn.connStringHint')}</p>
+        </div>
+        <div class="col-span-3">
+          <label class="label" for="c-dialect">{t('admin.conn.dialect')}</label>
+          <select id="c-dialect" class="input" bind:value={form.options.dialect}>
+            {#each admin.odbcDialects as d (d)}<option value={d}>{d || t('admin.conn.dialectStandard')}</option>{/each}
+          </select>
+        </div>
+      {/if}
+      {#if target !== 'file'}
       <div class="col-span-6">
         <span class="label">{t('admin.conn.auth')}</span>
         <div class="grid grid-cols-2 gap-2">
@@ -162,6 +224,8 @@
           <p class="mt-1.5 text-xs text-muted">{t('admin.conn.testAccountHint')}</p>
         {/if}
       </div>
+      {/if}
+      {#if target !== 'file'}
       <div class="col-span-2">
         <label class="label" for="c-user">{form.user_credentials ? t('admin.conn.testUsername') : t('admin.conn.username')}</label>
         <input id="c-user" class="input font-mono" bind:value={form.username} autocomplete="off" />
@@ -176,8 +240,12 @@
           </button>
         {/if}
       </div>
+      {/if}
       <div class="col-span-3">
-        {#if form.db_type === 'postgres'}
+        {#if target !== 'network'}
+          <span class="label">{t('admin.conn.location')}</span>
+          <p class="flex h-7 items-center text-xs text-muted">{target === 'file' ? t('admin.conn.onServer') : t('admin.conn.viaOdbc')}</p>
+        {:else if form.db_type === 'postgres'}
           <label class="label" for="c-ssl">{t('admin.conn.sslMode')}</label>
           <select id="c-ssl" class="input" bind:value={form.options.sslmode}>
             <option value="">{t('admin.conn.default', { value: 'prefer' })}</option>
@@ -198,6 +266,13 @@
               {t('admin.conn.trustCert')}
             </label>
           </div>
+        {:else if form.db_type === 'oracle' || form.db_type === 'trino'}
+          <label class="label" for="c-ossl">{t('admin.conn.tls')}</label>
+          <select id="c-ossl" class="input" bind:value={form.options.ssl}>
+            <option value="">{t('admin.conn.tlsOff')}</option>
+            <option value="true">{t('admin.conn.tlsOn')}</option>
+            <option value="skip-verify">{t('admin.conn.chSkip')}</option>
+          </select>
         {:else if form.db_type === 'clickhouse'}
           <label class="label" for="c-sec">{t('admin.conn.tlsNative')}</label>
           <select id="c-sec" class="input" bind:value={form.options.secure}>
@@ -230,7 +305,7 @@
     </section>
 
     <section class="flex items-center gap-3">
-      <button type="button" class="btn-outline" onclick={runTest} disabled={testing || !form.host}>
+      <button type="button" class="btn-outline" onclick={runTest} disabled={testing || !canTest}>
         {#if testing}<LoaderCircle size={14} class="animate-spin" />{:else}<PlugZap size={14} />{/if}
         {t('admin.conn.test')}
       </button>
@@ -317,9 +392,17 @@
 
     {#if error}<p class="rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{error}</p>{/if}
   </form>
+  {/if}
 
   {#snippet footer()}
-    <button class="btn-outline" onclick={onclose}>{t('common.cancel')}</button>
-    <button class="btn-primary" form="conn-form" disabled={busy}>{c ? t('admin.conn.saveChanges') : t('admin.conn.create')}</button>
+    {#if step === 'pick'}
+      <span class="mr-auto flex items-center gap-2 text-xs text-muted"><DbIcon type={form.db_type} size={12} /> {dbLabel(form.db_type)}</span>
+      <button class="btn-outline" onclick={onclose}>{t('common.cancel')}</button>
+      <button class="btn-primary" onclick={choose}>{t('picker.next')} <ChevronRight size={14} /></button>
+    {:else}
+      {#if !c}<button class="btn-outline mr-auto" onclick={() => (step = 'pick')}><ChevronLeft size={14} /> {t('picker.back')}</button>{/if}
+      <button class="btn-outline" onclick={onclose}>{t('common.cancel')}</button>
+      <button class="btn-primary" form="conn-form" disabled={busy}>{c ? t('admin.conn.saveChanges') : t('admin.conn.create')}</button>
+    {/if}
   {/snippet}
 </Modal>

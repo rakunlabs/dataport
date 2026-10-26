@@ -58,7 +58,7 @@
           <tr>
             <td>
               <div class="flex items-center gap-2">
-                <DbIcon type={c.db_type} />
+                <DbIcon type={c.db_type} dialect={c.options?.dialect ?? ''} />
                 <span class="font-medium">{c.name}</span>
                 {#if c.color && !c.production}<span class="size-2 rounded-full" style="background:{c.color}"></span>{/if}
               </div>

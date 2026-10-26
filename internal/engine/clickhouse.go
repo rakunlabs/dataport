@@ -79,7 +79,7 @@ func (clickhouseDriver) Kill(context.Context, *sql.DB, string) error {
 	return nil
 }
 
-func (clickhouseDriver) Prepare(context.Context, *sql.Tx, time.Duration) error {
+func (clickhouseDriver) Prepare(context.Context, Runner, time.Duration) error {
 	return nil
 }
 
@@ -96,7 +96,7 @@ func (clickhouseDriver) PrepareContext(ctx context.Context, timeout time.Duratio
 	return clickhouse.Context(ctx, clickhouse.WithSettings(s))
 }
 
-func (clickhouseDriver) Query(ctx context.Context, tx *sql.Tx, stmt string, maxRows int) (*ResultSet, error) {
+func (clickhouseDriver) Query(ctx context.Context, tx Runner, stmt string, maxRows int) (*ResultSet, error) {
 	rows, err := tx.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err

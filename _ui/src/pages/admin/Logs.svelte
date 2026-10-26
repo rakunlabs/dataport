@@ -11,7 +11,7 @@
   const pageSize = 100;
 
   let logs = $state<QueryLog[]>([]);
-  let filter = $state({ user_id: '', connection_id: '', search: '' });
+  let filter = $state({ user_id: '', connection_id: '', source: '', search: '' });
   let loading = $state(false);
   let more = $state(false);
   let expanded = $state<string | null>(null);
@@ -55,6 +55,11 @@
       <option value="">{t('admin.log.allConnections')}</option>
       {#each admin.connections as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
     </select>
+    <select class="input w-36" bind:value={filter.source} onchange={changed} aria-label={t('admin.log.source')}>
+      <option value="">{t('admin.log.allSources')}</option>
+      <option value="web">{t('admin.log.sourceWeb')}</option>
+      <option value="mcp">MCP</option>
+    </select>
     <input class="input flex-1" placeholder={t('admin.log.search')} bind:value={filter.search} oninput={changed} />
   </div>
 
@@ -80,7 +85,7 @@
               {:else}<CircleX size={14} class="text-danger" />{/if}
             </td>
             <td class="py-2 text-xs text-muted tabular-nums">{formatTime(l.created_at)}</td>
-            <td class="truncate py-2">{l.username}</td>
+            <td class="truncate py-2">{l.username}{#if l.source === 'mcp'} <span class="chip ml-1" title={t('admin.log.viaMcp')}>MCP</span>{/if}</td>
             <td class="truncate py-2 text-fg-2">{l.connection_name}</td>
             <td class="py-2">
               <pre class="font-mono text-xs {expanded === l.id ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'truncate'}">{l.sql}</pre>

@@ -21,7 +21,7 @@ var ddlKeywords = map[string]bool{
 func Classify(d Driver, script string) Risk {
 	risk := RiskRead
 
-	for _, stmt := range Split(script, d.Dialect()) {
+	for _, stmt := range SplitScript(d, script) {
 		kw := FirstKeyword(stmt, d.Dialect())
 
 		switch {

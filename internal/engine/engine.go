@@ -41,6 +41,16 @@ type ConnError struct {
 func (e *ConnError) Error() string { return e.Err.Error() }
 func (e *ConnError) Unwrap() error { return e.Err }
 
+// openErr reports a failure to open a pool. A driver missing from the build
+// is a setup problem the user may read; anything else may name the host.
+func openErr(c *store.Connection, err error) error {
+	if errors.Is(err, ErrUnsupported) || errors.Is(err, ErrFilesDisabled) || errors.Is(err, ErrFilePath) {
+		return err
+	}
+
+	return connErr("open "+c.DBType+"; %w", err)
+}
+
 func connErr(format string, err error) error {
 	return &ConnError{Err: fmt.Errorf(format, err), Auth: isAuthError(err)}
 }
@@ -57,10 +67,10 @@ type Driver interface {
 	BackendID(ctx context.Context, conn *sql.Conn) (string, error)
 	Kill(ctx context.Context, db *sql.DB, backendID string) error
 	// Prepare applies per-transaction settings such as the statement timeout.
-	Prepare(ctx context.Context, tx *sql.Tx, timeout time.Duration) error
+	Prepare(ctx context.Context, tx Runner, timeout time.Duration) error
 	// Query runs a statement that returns rows and reads at most maxRows+1 of
 	// them, so the caller can tell whether the result was truncated.
-	Query(ctx context.Context, tx *sql.Tx, stmt string, maxRows int) (*ResultSet, error)
+	Query(ctx context.Context, tx Runner, stmt string, maxRows int) (*ResultSet, error)
 	// CheckReadOnly rejects dialect-specific constructs that could escape a
 	// read-only transaction.
 	CheckReadOnly(stmt string) error
@@ -80,6 +90,13 @@ type Querier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
+// Runner runs the statements of a request: a transaction, or the connection
+// itself for drivers that run every statement on its own.
+type Runner interface {
+	Querier
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 var drivers = map[string]Driver{}
 
 func register(d Driver) {
@@ -95,18 +112,139 @@ func GetDriver(dbType string) (Driver, error) {
 	return d, nil
 }
 
+// Specializer is implemented by drivers whose behaviour depends on the
+// connection, such as ODBC, where an option names the catalog dialect.
+type Specializer interface {
+	ForConnection(c *store.Connection) Driver
+}
+
+// DriverFor returns the driver that serves a connection.
+func DriverFor(c *store.Connection) (Driver, error) {
+	d, err := GetDriver(c.DBType)
+	if err != nil {
+		return nil, err
+	}
+
+	if s, ok := d.(Specializer); ok {
+		return s.ForConnection(c), nil
+	}
+
+	return d, nil
+}
+
+// Targets name what a connection points at, which decides the fields the
+// admin fills in.
+const (
+	// TargetNetwork is a server reached by host and port.
+	TargetNetwork = "network"
+	// TargetFile is a database file on the dataport server, in Database.
+	TargetFile = "file"
+	// TargetDSN is an ODBC connection string in the "dsn" option.
+	TargetDSN = "dsn"
+)
+
+// Targeter is implemented by drivers that do not connect by host and port.
+type Targeter interface {
+	Target() string
+}
+
+func target(d Driver) string {
+	if t, ok := d.(Targeter); ok {
+		return t.Target()
+	}
+
+	return TargetNetwork
+}
+
+// ConnectionChecker is implemented by drivers with requirements beyond the
+// fields every target needs.
+type ConnectionChecker interface {
+	CheckConnection(c *store.Connection) error
+}
+
+// CheckConnection reports the first setting the driver of c cannot work
+// without.
+func CheckConnection(c *store.Connection) error {
+	d, err := DriverFor(c)
+	if err != nil {
+		return err
+	}
+
+	switch target(d) {
+	case TargetFile:
+		if strings.TrimSpace(c.Database) == "" {
+			return errors.New("database file path is required")
+		}
+
+		if c.UserCredentials {
+			return errors.New("a database file has no accounts to sign in with")
+		}
+
+		if _, err := resolveFile(c.Database, false); err != nil {
+			return err
+		}
+	case TargetDSN:
+		if strings.TrimSpace(c.Options["dsn"]) == "" {
+			return errors.New("connection string is required")
+		}
+	default:
+		if strings.TrimSpace(c.Host) == "" {
+			return errors.New("host is required")
+		}
+	}
+
+	if cc, ok := d.(ConnectionChecker); ok {
+		return cc.CheckConnection(c)
+	}
+
+	return nil
+}
+
 type DriverInfo struct {
 	Type        string `json:"type"`
 	DefaultPort int    `json:"default_port"`
+	Target      string `json:"target"`
+	// Transactional is false when every statement takes effect on its own;
+	// such databases cannot be edited in the grid.
+	Transactional bool `json:"transactional"`
+	// Available is false when this build of dataport lacks the driver, such
+	// as ODBC and DuckDB, which need cgo.
+	Available bool `json:"available"`
+}
+
+// Availability is implemented by drivers that may be missing from a build.
+type Availability interface {
+	Available() bool
+}
+
+func available(d Driver) bool {
+	a, ok := d.(Availability)
+
+	return !ok || a.Available()
+}
+
+func errNotBuilt(name string) error {
+	return fmt.Errorf("%w: this dataport build has no %s driver; use the cgo build (dataport-cgo or the container image)", ErrUnsupported, name)
 }
 
 func Drivers() []DriverInfo {
 	list := make([]DriverInfo, 0, len(drivers))
 	for _, d := range drivers {
-		list = append(list, DriverInfo{Type: d.Type(), DefaultPort: d.DefaultPort()})
+		list = append(list, Info(d))
 	}
 
 	return list
+}
+
+func Info(d Driver) DriverInfo {
+	return DriverInfo{Type: d.Type(), DefaultPort: d.DefaultPort(), Target: target(d), Transactional: transactional(d), Available: available(d)}
+}
+
+// Editable reports whether rows of the database can be edited in the grid.
+func Editable(dbType string) bool {
+	d, err := GetDriver(dbType)
+
+	return err == nil && transactional(d)
 }
 
 // ////////////////////////////////////////////
@@ -259,14 +397,14 @@ func (m *Manager) pool(c *store.Connection, password string) (*pool, error) {
 		delete(m.pools, key)
 	}
 
-	d, err := GetDriver(c.DBType)
+	d, err := DriverFor(c)
 	if err != nil {
 		return nil, err
 	}
 
 	db, err := d.Open(c, password)
 	if err != nil {
-		return nil, connErr("open "+c.DBType+"; %w", err)
+		return nil, openErr(c, err)
 	}
 
 	applyLimits(db, limits)
@@ -349,14 +487,14 @@ func (m *Manager) Janitor(ctx context.Context) {
 
 // Test opens a fresh connection with the given settings and pings it.
 func (m *Manager) Test(ctx context.Context, c *store.Connection, password string) error {
-	d, err := GetDriver(c.DBType)
+	d, err := DriverFor(c)
 	if err != nil {
 		return err
 	}
 
 	db, err := d.Open(c, password)
 	if err != nil {
-		return connErr("open; %w", err)
+		return openErr(c, err)
 	}
 	defer func() { _ = db.Close() }()
 
@@ -407,19 +545,42 @@ func (m *Manager) track(req ExecRequest, cancel context.CancelFunc) func() {
 	}
 }
 
+// Splitter is implemented by drivers whose scripts need more than the
+// generic splitter, such as Oracle with its PL/SQL blocks.
+type Splitter interface {
+	Split(script string) []string
+}
+
+// SplitScript cuts a script into the statements the driver runs one by one.
+func SplitScript(d Driver, script string) []string {
+	if s, ok := d.(Splitter); ok {
+		return s.Split(script)
+	}
+
+	return Split(script, d.Dialect())
+}
+
 // Validate splits the script and checks it against the grant without
 // running anything.
 func Validate(d Driver, script string, readOnly bool) ([]string, error) {
-	stmts := Split(script, d.Dialect())
+	stmts := SplitScript(d, script)
 	if len(stmts) == 0 {
 		return nil, errors.New("no statement to run")
 	}
 
+	checker, _ := d.(StatementChecker)
+
 	for _, stmt := range stmts {
 		kw := FirstKeyword(stmt, d.Dialect())
 
-		if transactionKeywords[kw] {
+		if transactionKeywords[kw] && !isBlock(d, stmt) {
 			return nil, fmt.Errorf("%s is not allowed; each run is a single transaction managed by dataport", kw)
+		}
+
+		if checker != nil {
+			if err := checker.CheckStatement(stmt); err != nil {
+				return nil, err
+			}
 		}
 
 		if !readOnly {
@@ -438,6 +599,18 @@ func Validate(d Driver, script string, readOnly bool) ([]string, error) {
 	return stmts, nil
 }
 
+// BlockDetector is implemented by drivers where BEGIN opens a procedural
+// block rather than a transaction.
+type BlockDetector interface {
+	IsBlock(stmt string) bool
+}
+
+func isBlock(d Driver, stmt string) bool {
+	b, ok := d.(BlockDetector)
+
+	return ok && b.IsBlock(stmt)
+}
+
 func orUnknown(kw string) string {
 	if kw == "" {
 		return "these"
@@ -447,7 +620,7 @@ func orUnknown(kw string) string {
 }
 
 func (m *Manager) Execute(ctx context.Context, c *store.Connection, password string, req ExecRequest) (*ExecResult, error) {
-	d, err := GetDriver(c.DBType)
+	d, err := DriverFor(c)
 	if err != nil {
 		return nil, err
 	}
@@ -462,7 +635,7 @@ func (m *Manager) Execute(ctx context.Context, c *store.Connection, password str
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
+	ctx, cancel := withTimeout(ctx, req.Timeout)
 	defer cancel()
 
 	defer m.track(req, cancel)()
@@ -516,6 +689,33 @@ func (m *Manager) Execute(ctx context.Context, c *store.Connection, password str
 		release(d, conn, killed.Load())
 	}()
 
+	result := &ExecResult{Results: make([]*ResultSet, 0, len(stmts)), Transactional: transactional(d)}
+
+	// Without a transaction every statement takes effect on its own.
+	if !useTransaction(d, req.ReadOnly) {
+		if err := d.Prepare(ctx, conn, req.Timeout); err != nil {
+			return nil, fmt.Errorf("prepare session; %w", err)
+		}
+
+		failed := false
+
+		for _, stmt := range stmts {
+			rs := m.runStatement(ctx, d, conn, stmt, req.MaxRows)
+			result.Results = append(result.Results, rs)
+
+			if rs.Error != "" {
+				failed = true
+
+				break
+			}
+		}
+
+		result.Committed = !failed && !req.ReadOnly
+		result.DurationMS = time.Since(start).Milliseconds()
+
+		return result, nil
+	}
+
 	tx, err := beginTx(ctx, d, conn, req.ReadOnly)
 	if err != nil {
 		return nil, fmt.Errorf("begin; %w", err)
@@ -527,7 +727,6 @@ func (m *Manager) Execute(ctx context.Context, c *store.Connection, password str
 		return nil, fmt.Errorf("prepare session; %w", err)
 	}
 
-	result := &ExecResult{Results: make([]*ResultSet, 0, len(stmts)), Transactional: transactional(d)}
 	failed := false
 
 	for _, stmt := range stmts {
@@ -554,7 +753,7 @@ func (m *Manager) Execute(ctx context.Context, c *store.Connection, password str
 	return result, nil
 }
 
-func (m *Manager) runStatement(ctx context.Context, d Driver, tx *sql.Tx, stmt string, maxRows int) *ResultSet {
+func (m *Manager) runStatement(ctx context.Context, d Driver, tx Runner, stmt string, maxRows int) *ResultSet {
 	start := time.Now()
 	kw := FirstKeyword(stmt, d.Dialect())
 
@@ -608,6 +807,28 @@ type NonTransactional interface {
 	NonTransactional()
 }
 
+// TxPolicy is implemented by drivers that run some requests without a
+// transaction, such as Trino, whose connectors often accept writes only in
+// autocommit mode.
+type TxPolicy interface {
+	UseTransaction(readOnly bool) bool
+}
+
+func useTransaction(d Driver, readOnly bool) bool {
+	if p, ok := d.(TxPolicy); ok {
+		return p.UseTransaction(readOnly)
+	}
+
+	return true
+}
+
+// StatementChecker is implemented by drivers that refuse some statements
+// whatever the grant, such as ATTACH in SQLite, which reaches files on the
+// dataport server.
+type StatementChecker interface {
+	CheckStatement(stmt string) error
+}
+
 func beginTx(ctx context.Context, d Driver, conn *sql.Conn, readOnly bool) (*sql.Tx, error) {
 	if b, ok := d.(TxBeginner); ok {
 		return b.BeginTx(ctx, conn, readOnly)
@@ -639,6 +860,16 @@ func release(d Driver, conn *sql.Conn, killed bool) {
 	}
 
 	_ = conn.Close()
+}
+
+// withTimeout limits a run to d; zero or less means no time limit, and the
+// run can still be cancelled.
+func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if d <= 0 {
+		return context.WithCancel(ctx)
+	}
+
+	return context.WithTimeout(ctx, d)
 }
 
 func cleanError(ctx context.Context, err error) string {
@@ -735,7 +966,7 @@ func scanRowsWith(rows *sql.Rows, maxRows int, convert ValueConverter) (*ResultS
 	binary := make([]bool, len(types))
 
 	for i, t := range types {
-		name := strings.ToLower(t.DatabaseTypeName())
+		name := columnTypeName(t)
 		rs.Columns[i] = Column{Name: t.Name(), Type: name}
 		binary[i] = binaryTypes[name]
 	}
@@ -760,21 +991,7 @@ func scanRowsWith(rows *sql.Rows, maxRows int, convert ValueConverter) (*ResultS
 
 		row := make([]any, len(values))
 		for i, v := range values {
-			if convert != nil {
-				if out, ok := convert(rs.Columns[i].Type, v); ok {
-					row[i] = out
-
-					continue
-				}
-			}
-
-			if b, ok := v.([]byte); ok && binary[i] {
-				row[i] = "\\x" + hex.EncodeToString(b)
-
-				continue
-			}
-
-			row[i] = jsonValue(v)
+			row[i] = cellValue(rs.Columns[i].Type, binary[i], convert, v)
 		}
 
 		rs.Rows = append(rs.Rows, row)
@@ -787,6 +1004,45 @@ func scanRowsWith(rows *sql.Rows, maxRows int, convert ValueConverter) (*ResultS
 	}
 
 	return rs, nil
+}
+
+// cellValue turns a scanned value into what the grid and the exports show.
+func cellValue(typ string, binary bool, convert ValueConverter, v any) any {
+	if convert != nil {
+		if out, ok := convert(typ, v); ok {
+			return out
+		}
+	}
+
+	if b, ok := v.([]byte); ok && binary {
+		return "\\x" + hex.EncodeToString(b)
+	}
+
+	return jsonValue(v)
+}
+
+// converterFor returns the value converter of a driver's results.
+func converterFor(d Driver) ValueConverter {
+	switch d.Type() {
+	case "mssql":
+		return mssqlValue
+	case "odbc":
+		return trimChar
+	}
+
+	return nil
+}
+
+// columnTypeName is the lower-case type of a result column. PostgreSQL
+// reports arrays by their internal name, _text for text[]; they are written
+// the way they are declared.
+func columnTypeName(t *sql.ColumnType) string {
+	name := strings.ToLower(t.DatabaseTypeName())
+	if len(name) > 1 && name[0] == '_' {
+		return name[1:] + "[]"
+	}
+
+	return name
 }
 
 var binaryTypes = map[string]bool{

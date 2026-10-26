@@ -94,6 +94,8 @@
     }
     if (e.key === 'Enter') {
       e.preventDefault();
+      // The tab would reload on Ctrl+Enter too; this submit is the one.
+      e.stopPropagation();
       list = null;
       onsubmit();
     }

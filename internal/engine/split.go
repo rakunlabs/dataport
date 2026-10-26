@@ -13,6 +13,11 @@ const (
 	DialectMySQL
 	DialectMSSQL
 	DialectClickHouse
+	// DialectStandard has no backslash escapes and no nested comments:
+	// Trino and most ODBC targets.
+	DialectStandard
+	DialectSQLite
+	DialectOracle
 )
 
 // Split cuts a script into single statements. It understands quoted strings,
@@ -20,8 +25,25 @@ const (
 // quoting, so semicolons inside any of them do not end a statement. Empty
 // statements are dropped.
 func Split(script string, dialect Dialect) []string {
+	ranges := splitRanges(script, dialect)
+	out := make([]string, 0, len(ranges))
+
+	for _, r := range ranges {
+		out = append(out, strings.TrimSpace(script[r[0]:r[1]]))
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+// splitRanges returns the [start, end) offsets of each statement, without
+// its semicolon.
+func splitRanges(script string, dialect Dialect) [][2]int {
 	var (
-		out   []string
+		out   [][2]int
 		start int
 		i     int
 		n     = len(script)
@@ -30,7 +52,7 @@ func Split(script string, dialect Dialect) []string {
 	flush := func(end int) {
 		stmt := strings.TrimSpace(script[start:end])
 		if stmt != "" && !onlyComments(stmt, dialect) {
-			out = append(out, stmt)
+			out = append(out, [2]int{start, end})
 		}
 	}
 
@@ -38,9 +60,11 @@ func Split(script string, dialect Dialect) []string {
 		c := script[i]
 
 		switch {
-		case c == '\'' || c == '"' || (c == '`' && (dialect == DialectMySQL || dialect == DialectClickHouse)):
+		case (c == 'q' || c == 'Q') && dialect == DialectOracle && i+2 < n && script[i+1] == '\'' && (i == 0 || !isWordChar(rune(script[i-1]))):
+			i = skipOracleQuote(script, i)
+		case c == '\'' || c == '"' || (c == '`' && (dialect == DialectMySQL || dialect == DialectClickHouse || dialect == DialectSQLite)):
 			i = skipQuoted(script, i, c, backslashEscapes(script, i, c, dialect))
-		case c == '[' && dialect == DialectMSSQL:
+		case c == '[' && (dialect == DialectMSSQL || dialect == DialectSQLite):
 			i = skipBracket(script, i)
 		case c == '-' && i+1 < n && script[i+1] == '-':
 			i = skipLine(script, i)
@@ -80,7 +104,7 @@ func backslashEscapes(s string, i int, quote byte, dialect Dialect) bool {
 	switch dialect {
 	case DialectMySQL, DialectClickHouse:
 		return quote != '`'
-	case DialectMSSQL:
+	case DialectMSSQL, DialectStandard, DialectSQLite, DialectOracle:
 		return false
 	}
 
@@ -115,6 +139,31 @@ func skipQuoted(s string, i int, quote byte, backslash bool) int {
 	}
 
 	return len(s)
+}
+
+// skipOracleQuote skips an Oracle q'<delim>...<delim>' literal, where the
+// closing delimiter pairs with the opening one for brackets.
+func skipOracleQuote(s string, i int) int {
+	open := s[i+2]
+	closer := open
+
+	switch open {
+	case '[':
+		closer = ']'
+	case '(':
+		closer = ')'
+	case '{':
+		closer = '}'
+	case '<':
+		closer = '>'
+	}
+
+	end := strings.Index(s[i+3:], string(closer)+"'")
+	if end < 0 {
+		return len(s)
+	}
+
+	return i + 3 + end + 2
 }
 
 // skipBracket skips a [quoted] identifier; "]]" escapes a bracket.
@@ -302,4 +351,49 @@ func containsWord(s, word string) bool {
 
 func isWordChar(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
+// codeOnly returns the statement with string literals, quoted identifiers
+// and comments replaced by spaces, so word checks only see code.
+func codeOnly(s string, dialect Dialect) string {
+	b := []byte(s)
+	i, n := 0, len(s)
+
+	blank := func(from, to int) {
+		for k := from; k < to && k < n; k++ {
+			if b[k] != '\n' {
+				b[k] = ' '
+			}
+		}
+	}
+
+	for i < n {
+		c := s[i]
+
+		var end int
+
+		switch {
+		case (c == 'q' || c == 'Q') && dialect == DialectOracle && i+2 < n && s[i+1] == '\'' && (i == 0 || !isWordChar(rune(s[i-1]))):
+			end = skipOracleQuote(s, i)
+		case c == '\'' || c == '"' || (c == '`' && (dialect == DialectMySQL || dialect == DialectClickHouse || dialect == DialectSQLite)):
+			end = skipQuoted(s, i, c, backslashEscapes(s, i, c, dialect))
+		case c == '[' && (dialect == DialectMSSQL || dialect == DialectSQLite):
+			end = skipBracket(s, i)
+		case c == '-' && i+1 < n && s[i+1] == '-':
+			end = skipLine(s, i)
+		case c == '#' && dialect == DialectMySQL:
+			end = skipLine(s, i)
+		case c == '/' && i+1 < n && s[i+1] == '*':
+			end = skipBlock(s, i, nestedComments(dialect))
+		default:
+			i++
+
+			continue
+		}
+
+		blank(i, end)
+		i = end
+	}
+
+	return string(b)
 }

@@ -1,17 +1,32 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { FilePlus2, Lock } from 'lucide-svelte';
+  import { FilePlus2, Lock, ChevronsRight } from 'lucide-svelte';
   import TopBar from '@/lib/components/TopBar.svelte';
   import Sidebar from '@/lib/components/Sidebar.svelte';
   import TabBar from '@/lib/components/TabBar.svelte';
   import QueryTab from '@/lib/components/QueryTab.svelte';
   import TableTab from '@/lib/components/TableTab.svelte';
   import RightPanel from '@/lib/components/RightPanel.svelte';
+  import Settings from '@/pages/Settings.svelte';
+  import DiagramTab from '@/lib/components/DiagramTab.svelte';
+  import ProcessesTab from '@/lib/components/ProcessesTab.svelte';
+  import UsersTab from '@/lib/components/UsersTab.svelte';
   import DbIcon from '@/lib/components/DbIcon.svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { activeTab, openQueryTab, startWorkspace, ws } from '@/lib/stores/workspace.svelte';
 
   let sidebarWidth = $state(Number(localStorage.getItem('dataport.sidebar')) || 264);
+  // A collapsed sidebar leaves a thin strip with the button that opens it.
+  let collapsed = $state(localStorage.getItem('dataport.sidebar.collapsed') === '1');
+
+  function setCollapsed(v: boolean) {
+    collapsed = v;
+    try {
+      localStorage.setItem('dataport.sidebar.collapsed', v ? '1' : '0');
+    } catch {
+      // The choice then lasts for this page only.
+    }
+  }
 
   $effect(() => {
     if (session.user) void startWorkspace(session.user.id);
@@ -38,10 +53,18 @@
   <TopBar />
 
   <div class="flex min-h-0 flex-1">
-    <div class="shrink-0 border-r border-line" style="width:{sidebarWidth}px">
-      <Sidebar />
-    </div>
-    <div class="relative z-10 -ml-[3px] w-[5px] shrink-0 cursor-col-resize transition-colors hover:bg-accent/50" onpointerdown={resize} role="separator" aria-orientation="vertical"></div>
+    {#if collapsed}
+      <div class="flex w-9 shrink-0 flex-col items-center border-r border-line bg-panel pt-1.5">
+        <button class="icon-btn" onclick={() => setCollapsed(false)} title={t('sidebar.expand')} aria-label={t('sidebar.expand')} aria-expanded="false">
+          <ChevronsRight size={15} />
+        </button>
+      </div>
+    {:else}
+      <div class="shrink-0 border-r border-line" style="width:{sidebarWidth}px">
+        <Sidebar oncollapse={() => setCollapsed(true)} />
+      </div>
+      <div class="relative z-10 -ml-[3px] w-[5px] shrink-0 cursor-col-resize transition-colors hover:bg-accent/50" onpointerdown={resize} role="separator" aria-orientation="vertical"></div>
+    {/if}
 
     <main class="flex min-w-0 flex-1 flex-col bg-bg">
       {#if ws.tabs.length}
@@ -53,6 +76,14 @@
           {#key tab.id}
             {#if tab.kind === 'query'}
               <QueryTab {tab} />
+            {:else if tab.kind === 'settings'}
+              <Settings />
+            {:else if tab.kind === 'diagram'}
+              <DiagramTab {tab} />
+            {:else if tab.kind === 'processes'}
+              <ProcessesTab {tab} />
+            {:else if tab.kind === 'users'}
+              <UsersTab {tab} />
             {:else}
               <TableTab {tab} />
             {/if}
@@ -85,6 +116,10 @@
               <dl class="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs text-muted">
                 <dt><span class="kbd">Ctrl</span> <span class="kbd">Enter</span></dt>
                 <dd>{t('welcome.keyRun')}</dd>
+                <dt><span class="kbd">Ctrl</span> <span class="kbd">\</span></dt>
+                <dd>{t('welcome.keyRunNewResult')}</dd>
+                <dt><span class="kbd">Ctrl</span> <span class="kbd">Shift</span> <span class="kbd">Enter</span></dt>
+                <dd>{t('welcome.keyRunCurrent')}</dd>
                 <dt><span class="kbd">Ctrl</span> <span class="kbd">S</span></dt>
                 <dd>{t('welcome.keySave')}</dd>
                 <dt><span class="kbd">Enter</span> / <span class="kbd">F2</span></dt>

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"runtime"
+	"runtime/debug"
 
 	"github.com/rakunlabs/into"
 	"github.com/rakunlabs/logi"
@@ -27,6 +29,7 @@ var (
 
 func main() {
 	config.Service = name + "/" + version
+	config.Build = buildInfo()
 
 	into.Init(run,
 		into.WithLogger(logi.InitializeLog(logi.WithCaller(false))),
@@ -75,6 +78,10 @@ func run(ctx context.Context) error {
 
 	au := auth.New(st, cfg.Auth.SessionTTL)
 	go au.Janitor(ctx)
+
+	if err := engine.ConfigureFiles(cfg.Query.FileDir, cfg.DataDir); err != nil {
+		return err
+	}
 
 	en := engine.NewManager(store.Limits{
 		MaxOpen:        cfg.Query.PoolMaxOpen,
@@ -141,4 +148,51 @@ func bootstrapAdmin(ctx context.Context, st *store.Store, cfg config.Auth) error
 	}
 
 	return nil
+}
+
+// buildInfo reports the release values set at link time, or what Go
+// recorded for a local build such as go run.
+func buildInfo() config.BuildInfo {
+	b := config.BuildInfo{
+		Version:    version,
+		Commit:     commit,
+		Date:       date,
+		GoVersion:  runtime.Version(),
+		OS:         runtime.GOOS,
+		Arch:       runtime.GOARCH,
+		Repository: config.Repository,
+	}
+
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return b
+	}
+
+	// A release sets the commit at link time; only a local build reads it,
+	// and whether the tree had changes, from what Go recorded.
+	local := b.Commit == "" || b.Commit == "-"
+	dirty := false
+
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "CGO_ENABLED":
+			b.Cgo = s.Value == "1"
+		case "vcs.revision":
+			if local {
+				b.Commit = s.Value[:min(len(s.Value), 7)]
+			}
+		case "vcs.time":
+			if b.Date == "" || b.Date == "-" {
+				b.Date = s.Value
+			}
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+
+	if local && dirty && b.Commit != "-" {
+		b.Commit += "-dirty"
+	}
+
+	return b
 }

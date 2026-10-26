@@ -96,7 +96,7 @@ func (mssqlDriver) BeginTx(ctx context.Context, conn *sql.Conn, _ bool) (*sql.Tx
 	return conn.BeginTx(ctx, nil)
 }
 
-func (mssqlDriver) Prepare(ctx context.Context, tx *sql.Tx, timeout time.Duration) error {
+func (mssqlDriver) Prepare(ctx context.Context, tx Runner, timeout time.Duration) error {
 	ms := timeout.Milliseconds()
 	if ms <= 0 {
 		return nil
@@ -107,7 +107,7 @@ func (mssqlDriver) Prepare(ctx context.Context, tx *sql.Tx, timeout time.Duratio
 	return err
 }
 
-func (mssqlDriver) Query(ctx context.Context, tx *sql.Tx, stmt string, maxRows int) (*ResultSet, error) {
+func (mssqlDriver) Query(ctx context.Context, tx Runner, stmt string, maxRows int) (*ResultSet, error) {
 	rows, err := tx.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err

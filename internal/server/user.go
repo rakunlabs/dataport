@@ -1,14 +1,17 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/rakunlabs/dataport/internal/auth"
+	"github.com/rakunlabs/dataport/internal/config"
 	"github.com/rakunlabs/dataport/internal/engine"
 	"github.com/rakunlabs/dataport/internal/store"
 )
@@ -65,6 +68,11 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 
 	s.clearCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// about tells signed-in users which dataport build they are using.
+func (s *Server) about(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, config.Build)
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
@@ -162,6 +170,9 @@ func (s *Server) listMyConnections(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		v.Editable = engine.Editable(v.DBType)
+		v.MaxRowsLimit = s.cfg.Query.MaxRowsLimit
+		v.MaxTimeoutMS = int(s.cfg.Query.MaxTimeout.Milliseconds())
 		v.MaxRows = s.maxRows(g.Connection)
 		v.TimeoutMS = int(s.timeout(g.Connection).Milliseconds())
 		views = append(views, v)
@@ -173,25 +184,20 @@ func (s *Server) listMyConnections(w http.ResponseWriter, r *http.Request) {
 // grant loads the connection the request names and checks the user may use
 // it. It writes the response and returns nil on failure.
 func (s *Server) grant(w http.ResponseWriter, r *http.Request) (*store.Grant, string) {
-	g, err := s.store.GetGrant(r.Context(), currentUser(r), r.PathValue("id"))
+	g, password, err := s.resolveGrant(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		var credErr *credentialsError
+
+		switch {
+		case errors.Is(err, store.ErrNotFound):
 			writeError(w, http.StatusNotFound, "connection not found")
-		} else {
+		case errors.As(err, &credErr):
+			writeCredentialsRequired(w, credErr.msg)
+		case errors.Is(err, errSecret):
+			writeError(w, http.StatusInternalServerError, "connection secret cannot be read")
+		default:
 			writeStoreError(w, err)
 		}
-
-		return nil, ""
-	}
-
-	if g.Connection.UserCredentials {
-		return s.userCredential(w, r, g)
-	}
-
-	password, err := s.cipher.Decrypt(g.Connection.PasswordEnc)
-	if err != nil {
-		slog.Error("decrypt connection password", "connection", g.Connection.ID, "error", err)
-		writeError(w, http.StatusInternalServerError, "connection secret cannot be read")
 
 		return nil, ""
 	}
@@ -199,29 +205,55 @@ func (s *Server) grant(w http.ResponseWriter, r *http.Request) (*store.Grant, st
 	return g, password
 }
 
+// credentialsError means the user has to sign in to the database with their
+// own account first.
+type credentialsError struct{ msg string }
+
+func (e *credentialsError) Error() string { return e.msg }
+
+var errSecret = errors.New("connection secret cannot be read")
+
+// resolveGrant returns the user's grant on a connection with the password
+// to connect with. For own-account connections the connection carries the
+// user's account.
+func (s *Server) resolveGrant(ctx context.Context, user *store.User, id string) (*store.Grant, string, error) {
+	g, err := s.store.GetGrant(ctx, user, id)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if g.Connection.UserCredentials {
+		return s.userCredential(ctx, user, g)
+	}
+
+	password, err := s.cipher.Decrypt(g.Connection.PasswordEnc)
+	if err != nil {
+		slog.Error("decrypt connection password", "connection", g.Connection.ID, "error", err)
+
+		return nil, "", errSecret
+	}
+
+	return g, password, nil
+}
+
 // userCredential puts the user's own database account into a copy of the
 // connection. Without a saved account the request fails with
 // credentials_required, and the UI asks for one.
-func (s *Server) userCredential(w http.ResponseWriter, r *http.Request, g *store.Grant) (*store.Grant, string) {
-	user := currentUser(r)
-
-	cred, err := s.store.GetCredential(r.Context(), g.Connection.ID, user.ID)
+func (s *Server) userCredential(ctx context.Context, user *store.User, g *store.Grant) (*store.Grant, string, error) {
+	cred, err := s.store.GetCredential(ctx, g.Connection.ID, user.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeCredentialsRequired(w, "sign in to this database with your own account")
-		} else {
-			writeStoreError(w, err)
+			return nil, "", &credentialsError{msg: "sign in to this database with your own account"}
 		}
 
-		return nil, ""
+		return nil, "", err
 	}
 
 	password, err := s.cipher.Decrypt(cred.PasswordEnc)
 	if err != nil {
 		slog.Error("decrypt user credential", "connection", g.Connection.ID, "user", user.ID, "error", err)
-		writeCredentialsRequired(w, "your saved database password cannot be read; enter it again")
 
-		return nil, ""
+		return nil, "", &credentialsError{msg: "your saved database password cannot be read; enter it again"}
 	}
 
 	c := *g.Connection
@@ -229,7 +261,7 @@ func (s *Server) userCredential(w http.ResponseWriter, r *http.Request, g *store
 	c.Owner = user.ID
 	c.Limits = c.Limits.Merge(cred.Limits)
 
-	return &store.Grant{Connection: &c, ReadOnly: g.ReadOnly}, password
+	return &store.Grant{Connection: &c, ReadOnly: g.ReadOnly}, password, nil
 }
 
 // setCredential saves the user's own account for a connection after a
@@ -401,6 +433,58 @@ func (s *Server) columns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+func (s *Server) routines(w http.ResponseWriter, r *http.Request) {
+	g, password := s.grant(w, r)
+	if g == nil {
+		return
+	}
+
+	list, err := s.engine.Routines(r.Context(), g.Connection, password, r.URL.Query().Get("schema"))
+	if err != nil {
+		writeEngineError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) diagram(w http.ResponseWriter, r *http.Request) {
+	g, password := s.grant(w, r)
+	if g == nil {
+		return
+	}
+
+	out, err := s.engine.Diagram(r.Context(), g.Connection, password, r.URL.Query().Get("schema"))
+	if err != nil {
+		writeEngineError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) definition(w http.ResponseWriter, r *http.Request) {
+	g, password := s.grant(w, r)
+	if g == nil {
+		return
+	}
+
+	q := r.URL.Query()
+
+	def, err := s.engine.Definition(r.Context(), g.Connection, password, q.Get("schema"), engine.Routine{
+		Name: q.Get("name"), Kind: q.Get("kind"), Signature: q.Get("signature"),
+	})
+	if err != nil {
+		writeEngineError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"definition": def})
+}
+
 func (s *Server) structure(w http.ResponseWriter, r *http.Request) {
 	g, password := s.grant(w, r)
 	if g == nil {
@@ -432,6 +516,12 @@ func (s *Server) runQuery(w http.ResponseWriter, r *http.Request) {
 		QueryID string `json:"query_id"`
 		// Confirm acknowledges the production prompt for writes.
 		Confirm bool `json:"confirm"`
+		// MaxRows chooses the rows of this run: 0 keeps the connection's
+		// default, -1 asks for as many as the server allows.
+		MaxRows int `json:"max_rows"`
+		// TimeoutSec chooses the time limit of this run: nil keeps the
+		// connection's, 0 asks for none, within the server's cap.
+		TimeoutSec *int `json:"timeout_sec"`
 	}
 
 	if !readJSON(w, r, &req) {
@@ -455,30 +545,90 @@ func (s *Server) runQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := currentUser(r)
+	result, err := s.execute(r.Context(), currentUser(r), g, password, execInput{
+		SQL: req.SQL, QueryID: req.QueryID, Confirm: req.Confirm, Source: "web", Rows: req.MaxRows, TimeoutSec: req.TimeoutSec,
+	})
+	if err != nil {
+		var confirm *confirmationError
+		if errors.As(err, &confirm) {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"message":               "this is a production database; confirm to run the changes",
+				"confirmation_required": true,
+				"risk":                  confirm.risk,
+			})
+
+			return
+		}
+
+		writeEngineError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+type execInput struct {
+	SQL     string
+	QueryID string
+	// Confirm acknowledges the production prompt for writes.
+	Confirm bool
+	// ReadOnly narrows the grant, for read-only access tokens and the MCP
+	// query tool.
+	ReadOnly bool
+	// MaxRows lowers the connection's row cap when set.
+	MaxRows int
+	// Rows replaces the connection's default row count, up to the server
+	// ceiling; -1 asks for the ceiling itself.
+	Rows int
+	// TimeoutSec replaces the connection's time limit when set; 0 is none.
+	TimeoutSec *int
+	Source     string
+}
+
+// confirmationError means a production connection needs the user to confirm
+// the changes first.
+type confirmationError struct{ risk engine.Risk }
+
+func (e *confirmationError) Error() string {
+	return "this is a production database; confirm to run the changes"
+}
+
+// execute runs a script on a grant and writes it to the query log. Every
+// path that runs user SQL goes through here, so the production check and
+// the log cannot be skipped.
+func (s *Server) execute(ctx context.Context, user *store.User, g *store.Grant, password string, in execInput) (*engine.ExecResult, error) {
 	c := g.Connection
+	readOnly := g.ReadOnly || in.ReadOnly
 
-	if c.Production && !g.ReadOnly && !req.Confirm {
-		if d, err := engine.GetDriver(c.DBType); err == nil {
-			if risk := engine.Classify(d, req.SQL); risk != engine.RiskRead {
-				writeJSON(w, http.StatusConflict, map[string]any{
-					"message":               "this is a production database; confirm to run the changes",
-					"confirmation_required": true,
-					"risk":                  risk,
-				})
-
-				return
+	if c.Production && !readOnly && !in.Confirm {
+		if d, err := engine.DriverFor(c); err == nil {
+			if risk := engine.Classify(d, in.SQL); risk != engine.RiskRead {
+				return nil, &confirmationError{risk: risk}
 			}
 		}
 	}
 
-	result, err := s.engine.Execute(r.Context(), c, password, engine.ExecRequest{
-		QueryID:  req.QueryID,
+	maxRows := s.maxRows(c)
+
+	switch {
+	case in.Rows < 0:
+		maxRows = s.rowCeiling()
+	case in.Rows > 0:
+		maxRows = min(in.Rows, s.rowCeiling())
+	}
+
+	if in.MaxRows > 0 && in.MaxRows < maxRows {
+		maxRows = in.MaxRows
+	}
+
+	result, err := s.engine.Execute(ctx, c, password, engine.ExecRequest{
+		QueryID:  in.QueryID,
 		UserID:   user.ID,
-		SQL:      req.SQL,
-		ReadOnly: g.ReadOnly,
-		MaxRows:  s.maxRows(c),
-		Timeout:  s.timeout(c),
+		SQL:      in.SQL,
+		ReadOnly: readOnly,
+		MaxRows:  maxRows,
+		Timeout:  s.runTimeout(c, in.TimeoutSec),
 	})
 
 	entry := &store.QueryLog{
@@ -487,8 +637,10 @@ func (s *Server) runQuery(w http.ResponseWriter, r *http.Request) {
 		ConnectionID:   c.ID,
 		ConnectionName: c.Name,
 		Database:       c.Database,
-		SQL:            req.SQL,
-		Status:         "ok",
+		// Passwords of CREATE USER and the like stay out of the log.
+		SQL:    engine.Redact(in.SQL),
+		Status: "ok",
+		Source: in.Source,
 	}
 
 	if err != nil {
@@ -509,17 +661,11 @@ func (s *Server) runQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if logErr := s.store.AddQueryLog(r.Context(), entry); logErr != nil {
+	if logErr := s.store.AddQueryLog(ctx, entry); logErr != nil {
 		slog.Error("write query log", "error", logErr)
 	}
 
-	if err != nil {
-		writeEngineError(w, r, err)
-
-		return
-	}
-
-	writeJSON(w, http.StatusOK, result)
+	return result, err
 }
 
 // writeEngineError reports an engine failure. A failure to reach the target
@@ -575,12 +721,44 @@ func (s *Server) maxRows(c *store.Connection) int {
 	return n
 }
 
-func (s *Server) timeout(c *store.Connection) time.Duration {
-	if c.TimeoutMS > 0 {
-		return time.Duration(c.TimeoutMS) * time.Millisecond
+// rowCeiling is the most rows one statement may return to the workspace;
+// zero in the configuration means no ceiling.
+func (s *Server) rowCeiling() int {
+	if limit := s.cfg.Query.MaxRowsLimit; limit > 0 {
+		return limit
 	}
 
-	return s.cfg.Query.DefaultTimeout
+	return math.MaxInt32
+}
+
+// timeout is the time limit of a run on the connection; zero is none.
+func (s *Server) timeout(c *store.Connection) time.Duration {
+	d := s.cfg.Query.DefaultTimeout
+	if c.TimeoutMS > 0 {
+		d = time.Duration(c.TimeoutMS) * time.Millisecond
+	}
+
+	return s.capTimeout(d)
+}
+
+// runTimeout is the time limit the user chose for one run, or the
+// connection's when they chose none.
+func (s *Server) runTimeout(c *store.Connection, sec *int) time.Duration {
+	if sec == nil || *sec < 0 {
+		return s.timeout(c)
+	}
+
+	return s.capTimeout(time.Duration(*sec) * time.Second)
+}
+
+// capTimeout keeps a limit within the server's cap; with a cap, "no limit"
+// becomes the cap.
+func (s *Server) capTimeout(d time.Duration) time.Duration {
+	if max := s.cfg.Query.MaxTimeout; max > 0 && (d <= 0 || d > max) {
+		return max
+	}
+
+	return d
 }
 
 // ////////////////////////////////////////////

@@ -19,7 +19,11 @@ func (s *Server) poolDefaults(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) drivers(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, engine.Drivers())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"drivers":       engine.Drivers(),
+		"files_enabled": engine.FilesEnabled(),
+		"odbc_dialects": engine.OdbcDialects(),
+	})
 }
 
 // ////////////////////////////////////////////
@@ -320,15 +324,16 @@ func (req *connectionRequest) validate() string {
 	req.Name = strings.TrimSpace(req.Name)
 	req.Host = strings.TrimSpace(req.Host)
 
-	if _, err := engine.GetDriver(req.DBType); err != nil {
+	c := &store.Connection{}
+	req.apply(c)
+
+	if err := engine.CheckConnection(c); err != nil {
 		return err.Error()
 	}
 
 	switch {
 	case req.Name == "" || len(req.Name) > 100:
 		return "name must be 1-100 characters"
-	case req.Host == "":
-		return "host is required"
 	case req.Port < 0 || req.Port > 65535:
 		return "port is out of range"
 	case req.MaxRows < 0:
@@ -582,6 +587,7 @@ func (s *Server) adminLogs(w http.ResponseWriter, r *http.Request) {
 		UserID:       q.Get("user_id"),
 		ConnectionID: q.Get("connection_id"),
 		Search:       q.Get("search"),
+		Source:       q.Get("source"),
 		Before:       parseInt64(q.Get("before")),
 		Limit:        int(parseInt64(q.Get("limit"))),
 	})

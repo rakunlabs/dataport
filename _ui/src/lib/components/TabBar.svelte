@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t as tr } from '@/lib/i18n/index.svelte';
-  import { X, Table2, FileCode2 } from 'lucide-svelte';
+  import { X, Table2, FileCode2, Settings2, Network, Activity, UsersRound } from 'lucide-svelte';
   import { closeOthers, closeTab, connection, ws } from '@/lib/stores/workspace.svelte';
 
   let menu = $state<{ id: string; x: number; y: number } | null>(null);
@@ -36,13 +36,21 @@
       title={conn ? `${t.title} — ${conn.name}` : t.title}
     >
       {#if active}<span class="absolute right-0 bottom-0 left-0 h-0.5 {conn?.production ? 'bg-prod' : 'bg-accent'}"></span>{/if}
-      {#if t.kind === 'table'}
+      {#if t.kind === 'settings'}
+        <Settings2 size={14} class="shrink-0 {active ? 'text-accent' : ''}" />
+      {:else if t.kind === 'diagram'}
+        <Network size={14} class="shrink-0 {active ? 'text-accent' : ''}" />
+      {:else if t.kind === 'processes'}
+        <Activity size={14} class="shrink-0 {active ? 'text-accent' : ''}" />
+      {:else if t.kind === 'users'}
+        <UsersRound size={14} class="shrink-0 {active ? 'text-accent' : ''}" />
+      {:else if t.kind === 'table'}
         <Table2 size={14} class="shrink-0 {active ? 'text-accent' : ''}" />
       {:else}
         <FileCode2 size={14} class="shrink-0 {active ? 'text-type' : ''}" />
       {/if}
       <span class="min-w-0 flex-1 truncate text-sm">
-        {t.title}{#if conn}<span class="ml-1 text-faint">· {conn.name}</span>{/if}
+        {t.kind === 'settings' ? tr('settings.title') : t.title}{#if conn}<span class="ml-1 text-faint">· {conn.name}</span>{/if}
       </span>
       <span class="relative flex size-[18px] shrink-0 items-center justify-center">
         {#if unsaved}

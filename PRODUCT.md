@@ -38,7 +38,9 @@ with their own database account.
 - Table tabs: Data / Structure / DDL, WHERE and ORDER BY with suggestions,
   pending edits with SQL preview, copy rows as TSV/CSV/JSON/Markdown/SQL.
 - Admin: connections, users, groups, SSO providers, query log.
-- Databases: PostgreSQL, MySQL/MariaDB, SQL Server, ClickHouse.
+- Databases: PostgreSQL, MySQL/MariaDB, SQL Server, Oracle, ClickHouse, Trino,
+  SQLite and DuckDB files, and anything with an ODBC driver.
+- MCP endpoint: agents work as the user of a personal access token.
 - UI languages: English and Turkish; theme follows the system (light/dark).
 
 ## Capabilities and Constraints

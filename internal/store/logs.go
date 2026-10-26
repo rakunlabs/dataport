@@ -19,7 +19,9 @@ type QueryLog struct {
 	Error          string `json:"error"`
 	RowCount       int64  `json:"row_count"`
 	DurationMS     int64  `json:"duration_ms"`
-	CreatedAt      int64  `json:"created_at"`
+	// Source is where the statement came from: "web" or "mcp".
+	Source    string `json:"source"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 const maxLoggedSQL = 64 * 1024
@@ -30,15 +32,19 @@ func (s *Store) AddQueryLog(ctx context.Context, l *QueryLog) error {
 		l.CreatedAt = now()
 	}
 
+	if l.Source == "" {
+		l.Source = "web"
+	}
+
 	if len(l.SQL) > maxLoggedSQL {
 		l.SQL = l.SQL[:maxLoggedSQL]
 	}
 
 	_, err := s.exec(ctx, "INSERT INTO "+s.t("query_log")+
-		" (id, user_id, username, connection_id, connection_name, database_name, sql_text, status, error, row_count, duration_ms, created_at)"+
-		" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		" (id, user_id, username, connection_id, connection_name, database_name, sql_text, status, error, row_count, duration_ms, source, created_at)"+
+		" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		l.ID, l.UserID, l.Username, l.ConnectionID, l.ConnectionName, l.Database, l.SQL, l.Status, l.Error,
-		l.RowCount, l.DurationMS, l.CreatedAt)
+		l.RowCount, l.DurationMS, l.Source, l.CreatedAt)
 
 	return err
 }
@@ -47,6 +53,7 @@ type QueryLogFilter struct {
 	UserID       string
 	ConnectionID string
 	Search       string
+	Source       string
 	Before       int64
 	Limit        int
 }
@@ -72,6 +79,11 @@ func (s *Store) ListQueryLog(ctx context.Context, f QueryLogFilter) ([]*QueryLog
 		args = append(args, "%"+strings.ToLower(f.Search)+"%")
 	}
 
+	if f.Source != "" {
+		where = append(where, "source = ?")
+		args = append(args, f.Source)
+	}
+
 	if f.Before > 0 {
 		where = append(where, "created_at < ?")
 		args = append(args, f.Before)
@@ -81,7 +93,7 @@ func (s *Store) ListQueryLog(ctx context.Context, f QueryLogFilter) ([]*QueryLog
 		f.Limit = 100
 	}
 
-	query := "SELECT id, user_id, username, connection_id, connection_name, database_name, sql_text, status, error, row_count, duration_ms, created_at FROM " +
+	query := "SELECT id, user_id, username, connection_id, connection_name, database_name, sql_text, status, error, row_count, duration_ms, source, created_at FROM " +
 		s.t("query_log")
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
@@ -101,7 +113,7 @@ func (s *Store) ListQueryLog(ctx context.Context, f QueryLogFilter) ([]*QueryLog
 	for rows.Next() {
 		var l QueryLog
 		if err := rows.Scan(&l.ID, &l.UserID, &l.Username, &l.ConnectionID, &l.ConnectionName, &l.Database, &l.SQL,
-			&l.Status, &l.Error, &l.RowCount, &l.DurationMS, &l.CreatedAt); err != nil {
+			&l.Status, &l.Error, &l.RowCount, &l.DurationMS, &l.Source, &l.CreatedAt); err != nil {
 			return nil, err
 		}
 

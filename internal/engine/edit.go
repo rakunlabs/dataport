@@ -281,7 +281,7 @@ func (m *Manager) ApplyEdits(ctx context.Context, c *store.Connection, password 
 
 	p, d, stmts := plan.pool, plan.pool.driver, plan.stmts
 
-	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
+	ctx, cancel := withTimeout(ctx, req.Timeout)
 	defer cancel()
 
 	conn, err := p.db.Conn(ctx)

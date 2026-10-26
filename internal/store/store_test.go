@@ -23,7 +23,7 @@ func stores(t *testing.T) map[string]*Store {
 	ctx := context.Background()
 	out := map[string]*Store{}
 
-	lite, err := New(ctx, config.Store{Type: "sqlite", TablePrefix: "dp_", DSN: "file:" + filepath.Join(t.TempDir(), "t.db")}, t.TempDir())
+	lite, err := New(ctx, config.Store{Type: "sqlite", TablePrefix: "dataport_", DSN: "file:" + filepath.Join(t.TempDir(), "t.db")}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,4 +249,99 @@ func exercise(t *testing.T, s *Store) {
 
 	must(s.DeleteConnection(ctx, c.ID))
 	must(s.DeleteGroup(ctx, g.ID))
+}
+
+func TestSQLiteFile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	for name, dsn := range map[string]string{
+		"default": "",
+		"path":    filepath.Join(dir, "sub", "app.db"),
+		"uri":     "file:" + filepath.Join(dir, "uri", "app.db") + "?cache=shared",
+	} {
+		t.Run(name, func(t *testing.T) {
+			data := filepath.Join(dir, "data-"+name)
+
+			s, err := New(ctx, config.Store{Type: "sqlite", TablePrefix: "dataport_", DSN: dsn}, data)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_ = s.Close()
+
+			want := filepath.Join(data, "dataport.db")
+			if dsn != "" {
+				want = strings.TrimPrefix(strings.Split(dsn, "?")[0], "file:")
+			}
+
+			if _, err := os.Stat(want); err != nil {
+				t.Fatalf("database file not at %s: %v", want, err)
+			}
+		})
+	}
+}
+
+// TestMigrateDSN runs the migrations with a separate account that owns the
+// tables, while the application connects with one that may only use them.
+func TestMigrateDSN(t *testing.T) {
+	dsn := os.Getenv("DATAPORT_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("DATAPORT_TEST_POSTGRES_DSN is not set")
+	}
+
+	ctx := context.Background()
+
+	admin, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = admin.Close() }()
+
+	schema := "dpm" + strings.ToLower(NewID()[20:])
+
+	for _, q := range []string{
+		"DROP ROLE IF EXISTS " + schema + "_app",
+		"CREATE ROLE " + schema + "_app LOGIN PASSWORD 'app-pw'",
+		"CREATE SCHEMA " + schema,
+		"GRANT USAGE ON SCHEMA " + schema + " TO " + schema + "_app",
+		"ALTER DEFAULT PRIVILEGES IN SCHEMA " + schema + " GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO " + schema + "_app",
+	} {
+		if _, err := admin.ExecContext(ctx, q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+
+	t.Cleanup(func() {
+		_, _ = admin.ExecContext(ctx, "DROP SCHEMA "+schema+" CASCADE")
+		_, _ = admin.ExecContext(ctx, "DROP OWNED BY "+schema+"_app")
+		_, _ = admin.ExecContext(ctx, "DROP ROLE "+schema+"_app")
+	})
+
+	withSchema := func(d string) string {
+		sep := "?"
+		if strings.Contains(d, "?") {
+			sep = "&"
+		}
+
+		return d + sep + "search_path=" + schema
+	}
+
+	appDSN := strings.Replace(withSchema(dsn), "postgres:pw@", schema+"_app:app-pw@", 1)
+
+	// The application account cannot create tables, so this only works
+	// through the migration connection.
+	if _, err := New(ctx, config.Store{Type: "postgres", TablePrefix: "dataport_", DSN: appDSN}, ""); err == nil {
+		t.Fatal("the application account created the tables")
+	}
+
+	s, err := New(ctx, config.Store{Type: "postgres", TablePrefix: "dataport_", DSN: appDSN, MigrateDSN: withSchema(dsn)}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if err := s.CreateUser(ctx, &User{Username: "u1", PasswordHash: "x", Role: RoleUser}); err != nil {
+		t.Fatalf("the application account cannot use the tables: %v", err)
+	}
 }

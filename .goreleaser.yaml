@@ -11,7 +11,9 @@ before:
   hooks:
     - go mod tidy
 builds:
-  - env:
+  # Pure Go build: every database except ODBC and DuckDB, runs anywhere.
+  - id: dataport
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
@@ -25,8 +27,27 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
     flags:
       - -trimpath
+  # cgo build: adds ODBC (needs unixODBC/libodbc at run time) and DuckDB.
+  - id: dataport-cgo
+    binary: dataport-cgo
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    main: ./cmd/dataport
+    tags:
+      - odbc
+      - duckdb
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
+    flags:
+      - -trimpath
 archives:
-  - name_template: >-
+  - id: dataport
+    ids: [dataport]
+    name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
@@ -36,6 +57,13 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+  - id: dataport-cgo
+    ids: [dataport-cgo]
+    name_template: >-
+      {{ .ProjectName }}-cgo_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
 checksum:
   name_template: '{{ .ProjectName }}-{{ .Version }}-checksums.txt'
 changelog:
@@ -68,8 +96,12 @@ changelog:
       order: 9999
 
 # One multi-arch image (linux/amd64 and linux/arm64) built with buildx.
+# One image with the cgo build (ODBC and DuckDB), as dataport is always run
+# in a container with it. The base image provides unixODBC and the drivers.
 dockers_v2:
-  - images:
+  - id: dataport
+    ids: [dataport-cgo]
+    images:
       - ghcr.io/rakunlabs/dataport
     tags:
       - "{{ .Tag }}"
@@ -77,7 +109,8 @@ dockers_v2:
     dockerfile: ci/Dockerfile
     platforms:
       - linux/amd64
-      - linux/arm64
+    build_args:
+      DB_IMAGE: ghcr.io/rytsh/dock/db/multi:debian-13.6-slim
     labels:
       "io.artifacthub.package.readme-url": "https://raw.githubusercontent.com/rakunlabs/dataport/main/README.md"
       "io.artifacthub.package.maintainers": '[{"name":"Eray Ates","email":"eates23@gmail.com"}]'
