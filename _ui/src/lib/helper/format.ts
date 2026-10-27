@@ -1,15 +1,8 @@
 import type { Column } from '@/lib/api/types';
-
-function csvCell(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
-  return /[",\n\r]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
-}
+import { formatRows } from '@/lib/helper/copy';
 
 export function toCSV(columns: Column[], rows: unknown[][]): string {
-  const lines = [columns.map((c) => csvCell(c.name)).join(',')];
-  for (const r of rows) lines.push(r.map(csvCell).join(','));
-  return lines.join('\r\n');
+  return formatRows('csv', { columns, rows, dbType: '' });
 }
 
 export function toJSON(columns: Column[], rows: unknown[][]): string {
@@ -33,6 +26,15 @@ export function download(name: string, content: string, type: string) {
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms} ms`;
   return `${(ms / 1000).toFixed(2)} s`;
+}
+
+// formatElapsed shows a running time as a clock: 0:07, 3:41, 1:02:09.
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
 }
 
 export { fmtDateTime as formatTime } from '@/lib/i18n/index.svelte';

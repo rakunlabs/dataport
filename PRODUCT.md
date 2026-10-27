@@ -37,17 +37,30 @@ with their own database account.
   inline editing, history and saved queries.
 - Table tabs: Data / Structure / DDL, WHERE and ORDER BY with suggestions,
   pending edits with SQL preview, copy rows as TSV/CSV/JSON/Markdown/SQL.
+- Test data: fill a table with made-up rows (faker generators guessed per
+  column, foreign keys from existing rows, mugo templates, seeds).
 - Admin: connections, users, groups, SSO providers, query log.
 - Databases: PostgreSQL, MySQL/MariaDB, SQL Server, Oracle, ClickHouse, Trino,
   SQLite and DuckDB files, and anything with an ODBC driver.
-- MCP endpoint: agents work as the user of a personal access token.
-- UI languages: English and Turkish; theme follows the system (light/dark).
+- MCP endpoint: agents work as the user of a personal access token and can
+  read, run, save, publish and share the user's notebooks under the same rules.
+- Notebooks: server-saved SQL cells across connections, typed parameters,
+  read-only dependency graphs, separately published bearer-token endpoints,
+  user/group sharing, background run history and query-result transfers.
+- UI languages: twelve locales; notebook labels currently have English and
+  Turkish translations, with English fallback elsewhere. Theme follows the
+  system (light/dark).
 
 ## Capabilities and Constraints
 
 - Svelte 5 + Tailwind 4 SPA with hash routing, embedded in a Go binary.
-- Every run is one transaction; read-only grants are enforced server side.
+- Each ordinary query run is one transaction; read-only grants are enforced
+  server side. Notebook transactions are scoped to individual cells.
 - Production connections: the server refuses unconfirmed writes.
+- Notebook transactions are per cell, not per notebook or distributed across
+  databases. Published endpoints refuse production writes; notebook transfer
+  targets must be transactional and non-production. Background history stores
+  metadata, not downloadable result datasets.
 - No mobile-specific workflows.
 
 ## Brand Commitments

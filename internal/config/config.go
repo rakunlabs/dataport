@@ -49,7 +49,7 @@ var Build = BuildInfo{Version: "v0.0.0", Repository: Repository}
 type Config struct {
 	LogLevel string `cfg:"log_level,noprefix" default:"info"`
 
-	// DataDir holds the SQLite database and the generated secret key.
+	// DataDir holds the SQLite database.
 	DataDir string `cfg:"data_dir" default:"./data"`
 
 	Server    Server      `cfg:"server"`
@@ -57,7 +57,30 @@ type Config struct {
 	Auth      Auth        `cfg:"auth"`
 	Query     Query       `cfg:"query"`
 	MCP       MCP         `cfg:"mcp"`
+	Notebook  Notebook    `cfg:"notebook"`
 	Telemetry tell.Config `cfg:"telemetry,noprefix"`
+}
+
+type Notebook struct {
+	MaxConcurrent  int           `cfg:"max_concurrent" default:"8"`
+	MaxDuration    time.Duration `cfg:"max_duration" default:"30m"`
+	MaxOutputBytes int           `cfg:"max_output_bytes" default:"16777216"`
+}
+
+// Normalize replaces unset or invalid limits with their defaults, for
+// configurations built without the loader.
+func (n *Notebook) Normalize() {
+	if n.MaxConcurrent <= 0 {
+		n.MaxConcurrent = 8
+	}
+
+	if n.MaxDuration <= 0 {
+		n.MaxDuration = 30 * time.Minute
+	}
+
+	if n.MaxOutputBytes <= 0 {
+		n.MaxOutputBytes = 16 << 20
+	}
 }
 
 type Server struct {
@@ -83,8 +106,8 @@ type Store struct {
 }
 
 type Auth struct {
-	// SecretKey encrypts the stored connection passwords. When empty a key is
-	// generated once into <data_dir>/secret.key.
+	// SecretKey encrypts the stored connection passwords. Empty is used as
+	// an empty key.
 	SecretKey string `cfg:"secret_key" log:"-"`
 
 	// AdminUsername and AdminPassword create the first admin when the user
@@ -92,10 +115,6 @@ type Auth struct {
 	AdminUsername string `cfg:"admin_username" default:"admin"`
 	AdminPassword string `cfg:"admin_password" log:"-"`
 
-	SessionTTL time.Duration `cfg:"session_ttl" default:"12h"`
-	// RememberTTL is how long a session lasts when the user ticks "remember
-	// me" on sign-in; it also slides with use. Zero hides the option.
-	RememberTTL time.Duration `cfg:"remember_ttl" default:"720h"`
 	// DisablePasswordLogin hides the username and password form, leaving
 	// only SSO. Keep it off until an SSO admin can sign in.
 	DisablePasswordLogin bool `cfg:"disable_password_login"`

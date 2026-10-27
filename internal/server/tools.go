@@ -21,7 +21,7 @@ import (
 // connections. Each writes the query log like a run does.
 
 // log writes an entry of the query log; failures are only logged.
-func (s *Server) log(ctx context.Context, user *store.User, c *store.Connection, sql string, err error, rows, ms int64) {
+func (s *Server) log(ctx context.Context, user *store.User, c *store.Connection, sql string, err error, rows, ms int64, source ...string) {
 	entry := &store.QueryLog{
 		UserID:         user.ID,
 		Username:       user.Username,
@@ -34,6 +34,9 @@ func (s *Server) log(ctx context.Context, user *store.User, c *store.Connection,
 		RowCount:       rows,
 		DurationMS:     ms,
 	}
+	if len(source) > 0 {
+		entry.Source = source[0]
+	}
 
 	if err != nil {
 		entry.Status = "error"
@@ -45,8 +48,17 @@ func (s *Server) log(ctx context.Context, user *store.User, c *store.Connection,
 		}
 	}
 
-	if logErr := s.store.AddQueryLog(ctx, entry); logErr != nil {
-		slog.Error("write query log", "error", logErr)
+	s.audit(ctx, entry)
+}
+
+// audit writes an entry of the query log; failures are only logged. The
+// write outlives the request, so a cancelled run is still recorded.
+func (s *Server) audit(ctx context.Context, entry *store.QueryLog) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+
+	if err := s.store.AddQueryLog(ctx, entry); err != nil {
+		slog.Error("write query log", "error", err)
 	}
 }
 
@@ -60,11 +72,7 @@ func writable(w http.ResponseWriter, g *store.Grant, confirm bool, risk engine.R
 	}
 
 	if g.Connection.Production && !confirm {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"message":               "this is a production database; confirm to run the changes",
-			"confirmation_required": true,
-			"risk":                  risk,
-		})
+		writeConfirmationRequired(w, risk)
 
 		return false
 	}
@@ -76,11 +84,7 @@ func writable(w http.ResponseWriter, g *store.Grant, confirm bool, risk engine.R
 func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 	g, err := s.store.GetGrant(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "connection not found")
-		} else {
-			writeStoreError(w, err)
-		}
+		writeGrantError(w, err, "connection not found")
 
 		return
 	}
@@ -336,15 +340,13 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 
 	dst, dstPassword, err := s.resolveGrant(r.Context(), user, req.TargetID)
 	if err != nil {
+		// The prompt for credentials would open on the source, so the target
+		// only gets a message.
 		var credErr *credentialsError
-
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			writeError(w, http.StatusNotFound, "target connection not found")
-		case errors.As(err, &credErr):
+		if errors.As(err, &credErr) {
 			writeError(w, http.StatusPreconditionRequired, "sign in to the target database first: "+credErr.msg)
-		default:
-			writeStoreError(w, err)
+		} else {
+			writeGrantError(w, err, "target connection not found")
 		}
 
 		return

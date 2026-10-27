@@ -226,6 +226,11 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 			return err
 		}
 
+		if _, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("notebook_access")+" WHERE subject_type = ? AND subject_id = ?"),
+			SubjectUser, id); err != nil {
+			return err
+		}
+
 		res, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("users")+" WHERE id = ?"), id)
 		if err != nil {
 			return err

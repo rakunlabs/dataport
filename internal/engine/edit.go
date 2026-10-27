@@ -231,10 +231,7 @@ func (m *Manager) planEdits(ctx context.Context, c *store.Connection, password s
 		}
 	}
 
-	qualified := d.QuoteIdent(req.Table)
-	if req.Schema != "" {
-		qualified = d.QuoteIdent(req.Schema) + "." + qualified
-	}
+	qualified := qualify(d, req.Schema, req.Table)
 
 	plan := &editPlan{pool: p, stmts: make([]editStmt, 0, len(req.Edits))}
 
@@ -286,7 +283,7 @@ func (m *Manager) ApplyEdits(ctx context.Context, c *store.Connection, password 
 
 	conn, err := p.db.Conn(ctx)
 	if err != nil {
-		return nil, connErr("connect; %w", err)
+		return nil, connErrFor(c, "connect; %w", err)
 	}
 
 	defer release(d, conn, false)

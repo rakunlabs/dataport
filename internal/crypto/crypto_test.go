@@ -44,7 +44,18 @@ func TestAnyKey(t *testing.T) {
 		}
 	}
 
-	if _, err := New("  "); err == nil {
-		t.Fatal("blank key must be refused")
+	// An empty key is a key like any other, and differs from a set one.
+	empty, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	enc, _ := empty.Encrypt("pw")
+	if got, err := empty.Decrypt(enc); err != nil || got != "pw" {
+		t.Fatalf("empty key round trip: %q %v", got, err)
+	}
+
+	if other, _ := New("x"); func() bool { _, err := other.Decrypt(enc); return err == nil }() {
+		t.Fatal("decrypted with the wrong key")
 	}
 }

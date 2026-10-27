@@ -55,8 +55,8 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
 export const api = {
   get: <T>(path: string, signal?: AbortSignal) => request<T>('GET', path, undefined, signal),
   post: <T>(path: string, body?: unknown, signal?: AbortSignal) => request<T>('POST', path, body ?? {}, signal),
-  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
-  del: <T>(path: string) => request<T>('DELETE', path),
+  put: <T>(path: string, body?: unknown, signal?: AbortSignal) => request<T>('PUT', path, body ?? {}, signal),
+  del: <T>(path: string, signal?: AbortSignal) => request<T>('DELETE', path, undefined, signal),
 };
 
 export function qs(params: Record<string, string | number | undefined>): string {

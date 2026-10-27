@@ -1,0 +1,49 @@
+# Local settings for trying dataport. Read automatically from the current
+# folder by `make run`; environment variables (DATAPORT_...) override it.
+# Not committed (.gitignore): it holds passwords.
+
+log_level: info
+
+server:
+  port: "8080"
+
+# App database: users, connections, grants, query log.
+# SQLite needs nothing more. To use PostgreSQL instead, start the databases
+# with `make env`, create the database once:
+#   docker exec dataport-postgres-1 psql -U postgres -c 'CREATE DATABASE dataport'
+# and swap the two blocks below.
+store:
+  type: sqlite
+  # SQLite file; empty means <data_dir>/dataport.db (./data/dataport.db).
+  # dsn: ./data/dataport.db
+  # Prefix of dataport's tables, so they do not mix with others in a shared
+  # schema. The local data/ folder still has tables with the old dp_ prefix.
+  table_prefix: dataport_
+# store:
+#   type: postgres
+#   dsn: postgres://dataport_app:pw@127.0.0.1:55432/dataport?sslmode=disable
+#   # Optional: a separate account that creates and migrates the tables.
+#   migrate_dsn: postgres://postgres:pw@127.0.0.1:55432/dataport?sslmode=disable
+
+auth:
+  # Encrypts stored database passwords. Any text works; it is turned into
+  # an AES key with argon2id. Keep it: changing it makes saved passwords
+  # unreadable. Use the same value on every replica.
+  secret_key: dataport yerel deneme anahtari
+  # First admin, created only while there are no users.
+  admin_username: admin
+  admin_password: admin12345
+  # Needed for SSO redirect URIs. With `make run-ui` (vite on :3000) use
+  # http://localhost:3000 instead.
+  external_url: http://localhost:8080
+
+query:
+  # Rows per statement; users may ask for more per tab, up to max_rows_limit.
+  default_max_rows: 200
+  # 0s = no time limit; users can still stop a run or pick a limit per tab.
+  default_timeout: 0s
+  # Pool defaults for connections that leave a limit empty.
+  pool_max_open: 5
+  pool_max_idle: 5
+  pool_max_lifetime: 1h
+  pool_max_idle_time: 5m

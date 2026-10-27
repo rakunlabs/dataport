@@ -3,7 +3,7 @@
   import { Plus, Pencil, Trash2, Lock, LockOpen, Users, UsersRound, KeyRound } from 'lucide-svelte';
   import Page from '@/pages/admin/Page.svelte';
   import ConnectionForm from '@/pages/admin/ConnectionForm.svelte';
-  import DbIcon from '@/lib/components/DbIcon.svelte';
+  import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { api } from '@/lib/api/client';
   import type { Connection } from '@/lib/api/types';
   import { admin, groupName, loadConnections, loadDrivers, loadGroups, loadUsers, userName } from '@/pages/admin/admin.svelte';

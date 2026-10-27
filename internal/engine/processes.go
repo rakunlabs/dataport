@@ -276,6 +276,7 @@ func (m *Manager) Disconnect(c *store.Connection) {
 	}
 
 	if c.Owner != "" {
+		m.rollbackTxs(func(o *openTx) bool { return o.poolKey == key })
 		_ = p.db.Close()
 		delete(m.pools, key)
 

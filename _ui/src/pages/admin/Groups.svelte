@@ -2,7 +2,7 @@
   import { t } from '@/lib/i18n/index.svelte';
   import { Plus, Pencil, Trash2, UsersRound } from 'lucide-svelte';
   import Page from '@/pages/admin/Page.svelte';
-  import Modal from '@/lib/components/Modal.svelte';
+  import Modal from '@/lib/components/ui/Modal.svelte';
   import { api } from '@/lib/api/client';
   import type { Group } from '@/lib/api/types';
   import { admin, loadGroups, loadUsers, userName } from '@/pages/admin/admin.svelte';

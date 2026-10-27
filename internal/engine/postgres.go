@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -56,16 +57,41 @@ func (postgresDriver) Open(c *store.Connection, password string) (*sql.DB, error
 	// arbitrary user SQL would otherwise grow without bound.
 	cfg.DefaultQueryExecMode = pgx.QueryExecModeExec
 
-	return stdlib.OpenDB(*cfg), nil
+	// pgx pings every connection taken from the pool after one idle second,
+	// an extra round trip on most requests of a person clicking around.
+	// Pinging only after 30 idle seconds keeps the check where a connection
+	// may really have died (server or firewall timeouts) and drops it from
+	// quick successive requests. pgx still discards closed connections and
+	// those left in a transaction without a ping.
+	return stdlib.OpenDB(*cfg, stdlib.OptionShouldPing(func(_ context.Context, p stdlib.ShouldPingParams) bool {
+		return p.IdleDuration > 30*time.Second
+	})), nil
 }
 
+// BackendID reads the pid pgx learned at connect, without a round trip.
 func (postgresDriver) BackendID(ctx context.Context, conn *sql.Conn) (string, error) {
-	var pid int64
-	if err := conn.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
-		return "", err
+	var pid uint32
+
+	err := conn.Raw(func(dc any) error {
+		c, ok := dc.(*stdlib.Conn)
+		if !ok {
+			return errors.New("not a pgx connection")
+		}
+
+		pid = c.Conn().PgConn().PID()
+
+		return nil
+	})
+	if err != nil || pid == 0 {
+		var n int64
+		if err := conn.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&n); err != nil {
+			return "", err
+		}
+
+		return strconv.FormatInt(n, 10), nil
 	}
 
-	return strconv.FormatInt(pid, 10), nil
+	return strconv.FormatUint(uint64(pid), 10), nil
 }
 
 func (postgresDriver) Kill(ctx context.Context, db *sql.DB, backendID string) error {

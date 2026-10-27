@@ -2,11 +2,12 @@
   import { t } from '@/lib/i18n/index.svelte';
   import { Plus, Pencil, Trash2, Copy, KeyRound, TriangleAlert, X } from 'lucide-svelte';
   import Page from '@/pages/admin/Page.svelte';
-  import Modal from '@/lib/components/Modal.svelte';
+  import Modal from '@/lib/components/ui/Modal.svelte';
   import { api } from '@/lib/api/client';
   import type { SsoProvider } from '@/lib/api/types';
   import { admin, loadGroups } from '@/pages/admin/admin.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
+  import { copyText } from '@/lib/helper/clipboard';
 
   type Row = { provider: SsoProvider; status: string };
 
@@ -120,11 +121,6 @@
       toast(errorMessage(e), 'error');
     }
   }
-
-  async function copy(text: string) {
-    await navigator.clipboard.writeText(text).catch(() => {});
-    toast(t('grid.copied'), 'success', 1200);
-  }
 </script>
 
 <Page title={t('admin.sso')} description={t('admin.ssoPage.description')}>
@@ -190,7 +186,7 @@
           <span class="label">{t('admin.ssoPage.redirect')}</span>
           <div class="flex gap-2">
             <code class="input flex items-center overflow-x-auto bg-sunken font-mono text-xs whitespace-nowrap">{callback}</code>
-            <button type="button" class="btn-outline" onclick={() => copy(callback)}><Copy size={13} /></button>
+            <button type="button" class="btn-outline" onclick={() => copyText(callback)}><Copy size={13} /></button>
           </div>
         </div>
       </section>

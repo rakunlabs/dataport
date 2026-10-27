@@ -121,6 +121,9 @@ type ConnectionView struct {
 	// Editable is set when rows can be edited in the grid, which needs
 	// transactions.
 	Editable bool `json:"editable"`
+	// ManualTx is set when a query tab may keep a transaction open over
+	// several runs.
+	ManualTx bool `json:"manual_tx"`
 	// MaxRowsLimit is the most rows a user may ask one statement for; zero
 	// means no limit.
 	MaxRowsLimit int `json:"max_rows_limit"`

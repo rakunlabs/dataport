@@ -3,13 +3,8 @@ package engine
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
-	"math/big"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -98,7 +93,7 @@ func (m *Manager) Session(ctx context.Context, c *store.Connection, password str
 
 	conn, err := p.db.Conn(ctx)
 	if err != nil {
-		return connErr("connect; %w", err)
+		return connErrFor(c, "connect; %w", err)
 	}
 
 	killed := false
@@ -113,653 +108,226 @@ func (m *Manager) Session(ctx context.Context, c *store.Connection, password str
 	return err
 }
 
-// ////////////////////////////////////////////
-// SQL literals, for SQL exports
-
-// Literal writes a scanned value as a SQL literal of the dialect of d.
-func Literal(d Driver, typ string, v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "NULL"
-	case bool:
-		switch d.Type() {
-		case "postgres", "duckdb", "trino", "clickhouse":
-			return strconv.FormatBool(x)
+// inTransaction runs fn in a transaction, or on the connection itself for
+// databases without transactions, and commits when fn succeeds.
+func inTransaction(ctx context.Context, d Driver, conn *sql.Conn, timeout time.Duration, fn func(run Runner) error) error {
+	if !transactional(d) || !useTransaction(d, false) {
+		if err := d.Prepare(ctx, conn, timeout); err != nil {
+			return fmt.Errorf("prepare session; %w", err)
 		}
 
-		if x {
-			return "1"
-		}
-
-		return "0"
-	case int64:
-		return strconv.FormatInt(x, 10)
-	case int32, int16, int8, int, uint, uint8, uint16, uint32, uint64:
-		return fmt.Sprint(x)
-	case float64:
-		return floatLiteral(x)
-	case float32:
-		return floatLiteral(float64(x))
-	case time.Time:
-		return timeLiteral(d, typ, x)
-	case []byte:
-		if binaryTypes[typ] || !isText(x) {
-			return bytesLiteral(d, x)
-		}
-
-		return stringLiteral(d, string(x))
-	case string:
-		return stringLiteral(d, x)
-	case *big.Int:
-		return x.String()
-	case fmt.Stringer:
-		return stringLiteral(d, x.String())
+		return fn(conn)
 	}
 
-	if s, ok := jsonValue(v).(string); ok {
-		return stringLiteral(d, s)
+	tx, err := beginTx(ctx, d, conn, false)
+	if err != nil {
+		return fmt.Errorf("begin; %w", err)
 	}
 
-	return stringLiteral(d, fmt.Sprint(v))
-}
+	if err := d.Prepare(ctx, tx, timeout); err != nil {
+		_ = tx.Rollback()
 
-func isText(b []byte) bool {
-	s, ok := jsonValue(b).(string)
-
-	return ok && !strings.HasPrefix(s, "\\x")
-}
-
-func floatLiteral(f float64) string {
-	if math.IsNaN(f) || math.IsInf(f, 0) {
-		return "NULL"
+		return fmt.Errorf("prepare session; %w", err)
 	}
 
-	return strconv.FormatFloat(f, 'g', -1, 64)
-}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
 
-func stringLiteral(d Driver, s string) string {
-	s = strings.ReplaceAll(s, "'", "''")
-
-	switch d.Dialect() {
-	case DialectMySQL, DialectClickHouse:
-		s = strings.ReplaceAll(s, `\`, `\\`)
-	case DialectMSSQL:
-		return "N'" + s + "'"
+		return err
 	}
 
-	return "'" + s + "'"
-}
-
-func bytesLiteral(d Driver, b []byte) string {
-	h := hex.EncodeToString(b)
-
-	switch d.Type() {
-	case "postgres":
-		return `'\x` + h + `'::bytea`
-	case "mssql":
-		return "0x" + h
-	case "oracle":
-		return "HEXTORAW('" + h + "')"
-	case "clickhouse":
-		return "unhex('" + h + "')"
-	case "duckdb":
-		return "from_hex('" + h + "')"
-	case "trino":
-		return "X'" + h + "'"
-	}
-
-	return "X'" + h + "'"
-}
-
-func timeLiteral(d Driver, typ string, t time.Time) string {
-	switch {
-	case strings.Contains(typ, "date") && !strings.Contains(typ, "time"):
-		s := "'" + t.Format("2006-01-02") + "'"
-		if d.Type() == "oracle" {
-			return "DATE " + s
-		}
-
-		return s
-	case typ == "time" || strings.HasPrefix(typ, "time ") || strings.HasPrefix(typ, "time("):
-		return "'" + t.Format("15:04:05.999999") + "'"
-	}
-
-	switch d.Type() {
-	case "postgres", "duckdb":
-		if strings.Contains(typ, "tz") || strings.Contains(typ, "zone") {
-			return "'" + t.Format("2006-01-02 15:04:05.999999-07:00") + "'"
-		}
-	case "oracle":
-		return "TIMESTAMP '" + t.Format("2006-01-02 15:04:05.999999") + "'"
-	case "mssql":
-		if strings.Contains(typ, "offset") {
-			return "'" + t.Format("2006-01-02 15:04:05.9999999 -07:00") + "'"
-		}
-
-		return "'" + t.Format("2006-01-02T15:04:05.999") + "'"
-	}
-
-	return "'" + t.Format("2006-01-02 15:04:05.999999") + "'"
-}
-
-// ////////////////////////////////////////////
-// inserting rows
-
-// Inserter adds rows to one table in batches of bound parameters.
-type Inserter struct {
-	d         Driver
-	run       Runner
-	ctx       context.Context
-	head      string
-	cols      int
-	perStmt   int
-	batch     [][]any
-	convert   []func(any) any
-	Inserted  int64
-	statement string
-}
-
-// maxParams keeps a statement under the parameter limits of the drivers:
-// SQL Server allows 2100, PostgreSQL 65535.
-const maxParams = 2000
-
-// NewInserter prepares inserts into a table with the given columns.
-func NewInserter(ctx context.Context, d Driver, run Runner, schema, table string, columns []string) *Inserter {
-	quoted := make([]string, len(columns))
-	for i, c := range columns {
-		quoted[i] = d.QuoteIdent(c)
-	}
-
-	per := max(1, min(500, maxParams/max(1, len(columns))))
-	// Oracle has no multi-row VALUES.
-	if d.Type() == "oracle" {
-		per = 1
-	}
-
-	head := "INSERT INTO " + qualify(d, schema, table) + " (" + strings.Join(quoted, ", ") + ") VALUES "
-
-	return &Inserter{d: d, run: run, ctx: ctx, head: head, cols: len(columns), perStmt: per}
-}
-
-// Convert sets a conversion applied to the values of each column, such as
-// turning text into the column's type; nil entries keep the value.
-func (in *Inserter) Convert(fns []func(any) any) { in.convert = fns }
-
-// Add queues a row, copying it, and sends a full batch.
-func (in *Inserter) Add(row []any) error {
-	if len(row) != in.cols {
-		return fmt.Errorf("row has %d values, expected %d", len(row), in.cols)
-	}
-
-	cp := make([]any, len(row))
-	for i, v := range row {
-		if in.convert != nil && in.convert[i] != nil {
-			v = in.convert[i](v)
-		}
-
-		cp[i] = v
-	}
-
-	in.batch = append(in.batch, cp)
-	if len(in.batch) >= in.perStmt {
-		return in.Flush()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit; %s", cleanError(ctx, err))
 	}
 
 	return nil
 }
 
-// Flush sends the queued rows.
-func (in *Inserter) Flush() error {
-	if len(in.batch) == 0 {
-		return nil
-	}
-
-	var b strings.Builder
-
-	b.WriteString(in.head)
-
-	args := make([]any, 0, len(in.batch)*in.cols)
-
-	for r, row := range in.batch {
-		if r > 0 {
-			b.WriteString(", ")
-		}
-
-		b.WriteByte('(')
-
-		for i, v := range row {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-
-			args = append(args, v)
-			b.WriteString(placeholder(in.d, len(args)))
-		}
-
-		b.WriteByte(')')
-	}
-
-	in.statement = b.String()
-
-	if _, err := in.run.ExecContext(in.ctx, in.statement, args...); err != nil {
-		return errors.New(cleanError(in.ctx, err))
-	}
-
-	in.Inserted += int64(len(in.batch))
-	in.batch = in.batch[:0]
-
-	return nil
-}
-
 // ////////////////////////////////////////////
-// column types across databases
+// transfer between connections
 
-var (
-	typeArgs    = regexp.MustCompile(`\(([^)]*)\)`)
-	numericArgs = regexp.MustCompile(`^\s*(\d+|max)\s*(,\s*\d+\s*)?$`)
-)
-
-// MapType translates a column type of one database into one the target
-// understands. The same database keeps the type as it is.
-func MapType(from, to string, typ string) string {
-	if from == to {
-		return typ
-	}
-
-	t := strings.ToLower(strings.TrimSpace(typ))
-
-	// ClickHouse wraps types: Nullable(Int32), LowCardinality(String).
-	for _, w := range []string{"nullable(", "lowcardinality("} {
-		for strings.HasPrefix(t, w) && strings.HasSuffix(t, ")") {
-			t = strings.TrimSpace(t[len(w) : len(t)-1])
-		}
-	}
-
-	args := ""
-
-	// Only lengths and precisions carry over; anything else in the
-	// parentheses (an enum list, a time zone) does not fit the target.
-	if m := typeArgs.FindStringSubmatch(t); m != nil && numericArgs.MatchString(m[1]) {
-		args = strings.ReplaceAll(m[1], " ", "")
-	}
-
-	base := strings.TrimSpace(typeArgs.ReplaceAllString(t, ""))
-
-	// Arrays (text[], _int4) have no common form; their text goes over.
-	if strings.HasSuffix(base, "]") || strings.HasPrefix(base, "_") || strings.HasPrefix(t, "array(") {
-		return targetType(to, "text", "")
-	}
-
-	family := typeFamily(base)
-
-	return targetType(to, family, args)
+// TransferRequest copies tables of a schema of one connection into a
+// schema of another.
+type TransferRequest struct {
+	Schema       string
+	Tables       []string
+	TargetSchema string
+	// Create makes missing target tables from the source columns.
+	Create bool
+	// Truncate empties existing target tables first.
+	Truncate bool
+	// Data copies the rows; without it only the tables are made.
+	Data    bool
+	Timeout time.Duration
 }
 
-func typeFamily(t string) string {
-	switch {
-	case strings.Contains(t, "bigint") || t == "int8" || t == "int64" || t == "bigserial" || t == "uint32" || t == "uint64" || t == "long" || t == "hugeint":
-		return "bigint"
-	case t == "smallint" || t == "int2" || t == "int16" || t == "uint8" || t == "uint16" || t == "smallserial" || t == "tinyint" || t == "year":
-		return "smallint"
-	case strings.Contains(t, "int") || t == "serial" || t == "mediumint" || t == "integer":
-		return "int"
-	case strings.HasPrefix(t, "numeric") || strings.HasPrefix(t, "decimal") || t == "number" || t == "money" || t == "smallmoney":
-		return "decimal"
-	case t == "real" || t == "float4" || t == "float32" || t == "binary_float":
-		return "real"
-	case strings.Contains(t, "double") || t == "float" || t == "float8" || t == "float64" || t == "binary_double":
-		return "double"
-	case t == "bool" || t == "boolean" || t == "bit":
-		return "bool"
-	case strings.Contains(t, "timestamp") && (strings.Contains(t, "zone") || strings.Contains(t, "tz")) || t == "datetimeoffset" || t == "timestamptz":
-		return "timestamptz"
-	case strings.Contains(t, "timestamp") || strings.Contains(t, "datetime") || t == "smalldatetime":
-		return "timestamp"
-	case t == "date" || t == "date32":
-		return "date"
-	case strings.HasPrefix(t, "time"):
-		return "time"
-	case t == "uuid" || t == "uniqueidentifier":
-		return "uuid"
-	case t == "json" || t == "jsonb":
-		return "json"
-	case strings.Contains(t, "blob") || strings.Contains(t, "binary") || t == "bytea" || t == "raw" || t == "image" || t == "varbinary":
-		return "binary"
-	case strings.HasPrefix(t, "varchar") || strings.HasPrefix(t, "character varying") || t == "nvarchar" || t == "varchar2" || t == "nvarchar2":
-		return "varchar"
-	case t == "char" || t == "character" || t == "nchar" || t == "bpchar":
-		return "char"
-	}
-
-	return "text"
+// TransferProgress reports one table of a transfer.
+type TransferProgress struct {
+	Table   string `json:"table"`
+	Rows    int64  `json:"rows"`
+	Created bool   `json:"created,omitempty"`
+	Done    bool   `json:"done,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
-func targetType(db, family, args string) string {
-	n := strings.TrimSpace(strings.Split(args, ",")[0])
-	if n == "max" || n == "-1" {
-		n = ""
+// Transfer copies the tables one by one. Each table goes in one transaction
+// on the target where it has them, so a failed table leaves nothing behind;
+// tables done before it stay. progress is called as rows arrive.
+func (m *Manager) Transfer(ctx context.Context, src *store.Connection, srcPassword string, dst *store.Connection, dstPassword string,
+	req TransferRequest, progress func(TransferProgress),
+) error {
+	if len(req.Tables) == 0 {
+		return errors.New("no table chosen")
 	}
 
-	withArgs := func(t string) string {
-		if args == "" {
-			return t
-		}
-
-		return t + "(" + args + ")"
+	if len(req.Tables) > maxExportTables {
+		return fmt.Errorf("at most %d tables at once", maxExportTables)
 	}
 
-	switch db {
-	case "postgres", "duckdb":
-		switch family {
-		case "bigint", "smallint", "real", "date", "uuid", "time":
-			return family
-		case "int":
-			return "integer"
-		case "decimal":
-			return withArgs("numeric")
-		case "double":
-			return "double precision"
-		case "bool":
-			return "boolean"
-		case "timestamptz":
-			return "timestamptz"
-		case "timestamp":
-			return "timestamp"
-		case "json":
-			if db == "duckdb" {
-				return "json"
+	if !req.Create && !req.Data {
+		return errors.New("choose to create the tables, copy the rows or both")
+	}
+
+	// The copy holds a session on each side at once; with one pool of a
+	// single connection the second would wait forever.
+	if poolKey(src) == poolKey(dst) && m.Limits(src).MaxOpen == 1 {
+		return errors.New("copying within a connection needs a pool of at least two connections")
+	}
+
+	return m.Session(ctx, src, srcPassword, req.Timeout, func(ctx context.Context, sd Driver, sconn *sql.Conn) error {
+		return m.Session(ctx, dst, dstPassword, req.Timeout, func(ctx context.Context, dd Driver, dconn *sql.Conn) error {
+			existing := map[string]bool{}
+
+			objects, err := dd.Objects(ctx, dconn, req.TargetSchema)
+			if err != nil {
+				return fmt.Errorf("read target tables: %w", err)
 			}
 
-			return "jsonb"
-		case "binary":
-			if db == "duckdb" {
-				return "blob"
+			for _, o := range objects {
+				existing[strings.ToLower(o.Name)] = true
 			}
 
-			return "bytea"
-		case "varchar":
-			if n != "" {
-				return "varchar(" + n + ")"
-			}
+			for _, table := range req.Tables {
+				p := TransferProgress{Table: table}
 
-			return "text"
-		case "char":
-			if n != "" {
-				return "char(" + n + ")"
-			}
+				err := transferTable(ctx, sd, sconn, dd, dconn, req, table, existing[strings.ToLower(table)], &p, progress)
+				if err != nil {
+					p.Error = err.Error()
+					progress(p)
 
-			return "text"
-		}
+					if ctx.Err() != nil {
+						return errors.New(cleanError(ctx, ctx.Err()))
+					}
 
-		return "text"
-	case "mysql", "mariadb":
-		switch family {
-		case "bigint", "smallint", "int", "date", "time", "double":
-			return family
-		case "decimal":
-			if args == "" {
-				return "decimal(38,10)"
-			}
-
-			return withArgs("decimal")
-		case "real":
-			return "float"
-		case "bool":
-			return "tinyint(1)"
-		case "timestamptz", "timestamp":
-			return "datetime(6)"
-		case "uuid":
-			return "char(36)"
-		case "json":
-			return "json"
-		case "binary":
-			return "longblob"
-		case "varchar":
-			if n != "" {
-				return "varchar(" + n + ")"
-			}
-
-			return "longtext"
-		case "char":
-			if n != "" {
-				return "char(" + n + ")"
-			}
-
-			return "longtext"
-		}
-
-		return "longtext"
-	case "mssql":
-		switch family {
-		case "bigint", "smallint", "int", "date", "real":
-			return family
-		case "decimal":
-			if args == "" {
-				return "decimal(38,10)"
-			}
-
-			return withArgs("decimal")
-		case "double":
-			return "float"
-		case "bool":
-			return "bit"
-		case "timestamptz":
-			return "datetimeoffset"
-		case "timestamp":
-			return "datetime2"
-		case "time":
-			return "time"
-		case "uuid":
-			return "uniqueidentifier"
-		case "binary":
-			return "varbinary(max)"
-		case "varchar":
-			if n != "" {
-				if v, _ := strconv.Atoi(n); v > 4000 {
-					return "nvarchar(max)"
+					continue
 				}
 
-				return "nvarchar(" + n + ")"
+				p.Done = true
+				progress(p)
 			}
 
-			return "nvarchar(max)"
-		case "char":
-			if n != "" {
-				return "nchar(" + n + ")"
-			}
-
-			return "nvarchar(max)"
-		}
-
-		return "nvarchar(max)"
-	case "oracle":
-		switch family {
-		case "bigint":
-			return "NUMBER(19)"
-		case "int":
-			return "NUMBER(10)"
-		case "smallint":
-			return "NUMBER(5)"
-		case "decimal":
-			return withArgs("NUMBER")
-		case "real":
-			return "BINARY_FLOAT"
-		case "double":
-			return "BINARY_DOUBLE"
-		case "bool":
-			return "NUMBER(1)"
-		case "timestamptz":
-			return "TIMESTAMP WITH TIME ZONE"
-		case "timestamp":
-			return "TIMESTAMP"
-		case "date":
-			return "DATE"
-		case "time":
-			return "VARCHAR2(20)"
-		case "uuid":
-			return "VARCHAR2(36)"
-		case "binary":
-			return "BLOB"
-		case "varchar":
-			if v, _ := strconv.Atoi(n); v > 0 && v <= 4000 {
-				return "VARCHAR2(" + n + " CHAR)"
-			}
-
-			return "CLOB"
-		case "char":
-			if n != "" {
-				return "CHAR(" + n + ")"
-			}
-
-			return "CLOB"
-		}
-
-		return "CLOB"
-	case "sqlite":
-		switch family {
-		case "bigint", "smallint", "int", "bool":
-			return "INTEGER"
-		case "real", "double":
-			return "REAL"
-		case "decimal":
-			return "NUMERIC"
-		case "binary":
-			return "BLOB"
-		}
-
-		return "TEXT"
-	case "clickhouse":
-		switch family {
-		case "bigint":
-			return "Int64"
-		case "int":
-			return "Int32"
-		case "smallint":
-			return "Int16"
-		case "decimal":
-			if args == "" {
-				return "Decimal(38,10)"
-			}
-
-			return withArgs("Decimal")
-		case "real":
-			return "Float32"
-		case "double":
-			return "Float64"
-		case "bool":
-			return "Bool"
-		case "timestamptz", "timestamp":
-			return "DateTime64(6)"
-		case "date":
-			return "Date32"
-		case "uuid":
-			return "UUID"
-		}
-
-		return "String"
-	case "trino":
-		switch family {
-		case "bigint", "smallint", "real", "date", "uuid", "json":
-			return family
-		case "int":
-			return "integer"
-		case "decimal":
-			if args == "" {
-				return "decimal(38,10)"
-			}
-
-			return withArgs("decimal")
-		case "double":
-			return "double"
-		case "bool":
-			return "boolean"
-		case "timestamptz":
-			return "timestamp(6) with time zone"
-		case "timestamp":
-			return "timestamp(6)"
-		case "time":
-			return "time(6)"
-		case "binary":
-			return "varbinary"
-		}
-
-		return "varchar"
-	}
-
-	// ODBC and others: plain standard names.
-	switch family {
-	case "bigint", "smallint", "date", "time", "timestamp":
-		return strings.ToUpper(family)
-	case "int":
-		return "INTEGER"
-	case "decimal":
-		return withArgs("DECIMAL")
-	case "real", "double":
-		return "DOUBLE PRECISION"
-	case "timestamptz":
-		return "TIMESTAMP"
-	case "varchar":
-		if n != "" {
-			return "VARCHAR(" + n + ")"
-		}
-	}
-
-	return "VARCHAR(4000)"
+			return nil
+		})
+	})
 }
 
-// CreateTableSQL writes a CREATE TABLE of the target database for columns
-// read from the source, with the primary key when it has one.
-func CreateTableSQL(from string, to Driver, schema, table string, cols []ColumnInfo) string {
-	var b strings.Builder
+func transferTable(ctx context.Context, sd Driver, sconn *sql.Conn, dd Driver, dconn *sql.Conn, req TransferRequest,
+	table string, exists bool, p *TransferProgress, progress func(TransferProgress),
+) error {
+	cols, err := sd.Columns(ctx, sconn, req.Schema, table)
+	if err != nil {
+		return err
+	}
 
-	b.WriteString("CREATE TABLE " + qualify(to, schema, table) + " (\n")
+	if len(cols) == 0 {
+		return fmt.Errorf("table %q not found", table)
+	}
 
-	var pk []string
+	if !exists && !req.Create {
+		return errors.New("the target has no such table; choose to create missing tables")
+	}
 
-	for i, c := range cols {
-		if i > 0 {
-			b.WriteString(",\n")
-		}
-
-		typ := MapType(from, to.Type(), c.Type)
-		notNull := !c.Nullable || c.PrimaryKey
-
-		// ClickHouse columns hold no NULL unless wrapped in Nullable.
-		if to.Type() == "clickhouse" {
-			if !notNull {
-				typ = "Nullable(" + typ + ")"
+	return inTransaction(ctx, dd, dconn, req.Timeout, func(run Runner) error {
+		if !exists {
+			if _, err := run.ExecContext(ctx, CreateTableSQL(sd.Type(), dd, req.TargetSchema, table, cols)); err != nil {
+				return fmt.Errorf("create table: %s", cleanError(ctx, err))
 			}
 
-			notNull = false
+			p.Created = true
+		} else if req.Truncate && req.Data {
+			if _, err := run.ExecContext(ctx, "DELETE FROM "+qualify(dd, req.TargetSchema, table)); err != nil {
+				return fmt.Errorf("empty table: %s", cleanError(ctx, err))
+			}
 		}
 
-		b.WriteString("  " + to.QuoteIdent(c.Name) + " " + typ)
-
-		if notNull {
-			b.WriteString(" NOT NULL")
+		if !req.Data {
+			return nil
 		}
 
-		if c.PrimaryKey {
-			pk = append(pk, to.QuoteIdent(c.Name))
+		var (
+			ins     *Inserter
+			srcCols []Column
+			convert = converterFor(sd)
+			last    = time.Now()
+		)
+
+		err := StreamTable(ctx, sd, sconn, req.Schema, table, func(c []Column) error {
+			srcCols = c
+			names := make([]string, len(c))
+
+			for i, col := range c {
+				names[i] = col.Name
+			}
+
+			ins = NewInserter(ctx, dd, run, req.TargetSchema, table, names)
+
+			return nil
+		}, func(row []any) error {
+			for i, v := range row {
+				row[i] = transferValue(sd, dd, srcCols[i].Type, convert, v)
+			}
+
+			if err := ins.Add(row); err != nil {
+				return err
+			}
+
+			p.Rows++
+			if time.Since(last) > 500*time.Millisecond {
+				last = time.Now()
+				progress(*p)
+			}
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		return ins.Flush()
+	})
+}
+
+// transferValue keeps what the target can bind as it is and turns the
+// rest, such as driver-specific types, into text.
+func transferValue(sd, dd Driver, typ string, convert ValueConverter, v any) any {
+	switch x := v.(type) {
+	case nil, int64, float64, string, time.Time, int32, int, float32:
+		return x
+	case bool:
+		return boolFor(dd.Type(), x)
+	case []byte:
+		if binaryTypes[typ] {
+			return append([]byte(nil), x...)
+		}
+
+		return string(x)
+	}
+
+	if convert != nil {
+		if out, ok := convert(typ, v); ok {
+			return out
 		}
 	}
 
-	switch {
-	case to.Type() == "clickhouse":
-		b.WriteString("\n) ENGINE = MergeTree ORDER BY ")
-
-		if len(pk) > 0 {
-			b.WriteString("(" + strings.Join(pk, ", ") + ")")
-		} else {
-			b.WriteString("tuple()")
-		}
-
-		return b.String()
-	case len(pk) > 0 && to.Type() != "trino":
-		b.WriteString(",\n  PRIMARY KEY (" + strings.Join(pk, ", ") + ")")
-	}
-
-	b.WriteString("\n)")
-
-	return b.String()
+	return jsonValue(v)
 }

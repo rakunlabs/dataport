@@ -1,6 +1,6 @@
 # The image ships the cgo build (ODBC and DuckDB). DB_IMAGE provides unixODBC
 # and the ODBC drivers, registered in /etc/odbcinst.ini.
-ARG DB_IMAGE=ghcr.io/rytsh/dock/db/multi:debian-13.6-slim
+ARG DB_IMAGE=ghcr.io/rakunlabs/dock/db/multi:v0.2.0
 
 FROM ${DB_IMAGE}
 

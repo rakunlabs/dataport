@@ -82,7 +82,7 @@ GRANT SELECT ON dp_cred_t TO dp_alice`})
 	defer func() { _ = st.Close() }()
 
 	ci, _ := crypto.New("k")
-	au := auth.New(st, time.Hour)
+	au := auth.New(st)
 
 	srv, err := New(&config.Config{Query: config.Query{DefaultMaxRows: 100, DefaultTimeout: 10 * time.Second, MaxRowsLimit: 1000}}, st, au, ci, en, nil)
 	if err != nil {

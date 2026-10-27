@@ -124,9 +124,13 @@ func trimChar(dbType string, v any) (any, bool) {
 }
 
 // CheckReadOnly rejects procedure calls, which may change data out of reach
-// of the keyword check.
-func (odbcDriver) CheckReadOnly(stmt string) error {
-	upper := strings.ToUpper(stmt)
+// of the keyword check. With the mssql dialect it checks as SQL Server does.
+func (d odbcDriver) CheckReadOnly(stmt string) error {
+	if d.Dialect() == DialectMSSQL {
+		return mssqlDriver{}.CheckReadOnly(stmt)
+	}
+
+	upper := strings.ToUpper(codeOnly(stmt, d.Dialect()))
 
 	for _, w := range []string{"EXEC", "EXECUTE", "CALL"} {
 		if containsWord(upper, w) {

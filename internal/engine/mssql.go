@@ -133,22 +133,54 @@ func mssqlValue(dbType string, v any) (any, bool) {
 	return strings.ToLower(u.String()), true
 }
 
-// CheckReadOnly rejects SELECT ... INTO, which creates a table, and calls
-// that can run arbitrary code or reach other servers.
+// CheckReadOnly rejects any writing keyword in the statement. T-SQL needs no
+// semicolon between statements, so "SELECT 1 DELETE FROM t" is one batch
+// that deletes. It also rejects SELECT ... INTO, which creates a table, and
+// calls that can run arbitrary code or reach other servers.
 func (mssqlDriver) CheckReadOnly(stmt string) error {
-	upper := strings.ToUpper(stmt)
-
-	if containsWord(upper, "INTO") {
-		return fmt.Errorf("%w: INTO is not allowed", ErrReadOnly)
-	}
-
-	for _, w := range []string{"EXEC", "EXECUTE", "OPENROWSET", "OPENQUERY", "OPENDATASOURCE"} {
-		if containsWord(upper, w) {
-			return fmt.Errorf("%w: %s is not allowed", ErrReadOnly, w)
-		}
+	if w, _ := tsqlKeyword(stmt); w != "" {
+		return errReadOnlyWord(w)
 	}
 
 	return nil
+}
+
+// tsqlKeywords are the words that make a T-SQL batch more than a read,
+// with the risk they carry.
+var tsqlKeywords = map[string]Risk{
+	"CREATE": RiskDDL, "ALTER": RiskDDL, "DROP": RiskDDL, "TRUNCATE": RiskDDL,
+	"GRANT": RiskDDL, "REVOKE": RiskDDL, "DENY": RiskDDL, "RESTORE": RiskDDL,
+	"RECONFIGURE": RiskDDL, "SHUTDOWN": RiskDDL,
+
+	"INSERT": RiskWrite, "UPDATE": RiskWrite, "DELETE": RiskWrite, "MERGE": RiskWrite,
+	"COMMIT": RiskWrite, "ROLLBACK": RiskWrite, "BEGIN": RiskWrite, "SAVE": RiskWrite,
+	"USE": RiskWrite, "SET": RiskWrite, "DBCC": RiskWrite, "BACKUP": RiskWrite,
+	"KILL": RiskWrite, "BULK": RiskWrite, "EXEC": RiskWrite, "EXECUTE": RiskWrite,
+	"INTO": RiskWrite, "OPENROWSET": RiskWrite, "OPENQUERY": RiskWrite, "OPENDATASOURCE": RiskWrite,
+}
+
+// tsqlKeyword returns the riskiest writing keyword of a T-SQL statement,
+// ignoring literals, quoted identifiers, comments and variables, or "" and
+// RiskRead when there is none.
+func tsqlKeyword(stmt string) (string, Risk) {
+	words := strings.FieldsFunc(strings.ToUpper(codeOnly(stmt, DialectMSSQL)), func(r rune) bool {
+		return !isWordChar(r) && r != '@' && r != '#' && r != '$'
+	})
+
+	word, risk := "", RiskRead
+
+	for _, w := range words {
+		switch tsqlKeywords[w] {
+		case RiskDDL:
+			return w, RiskDDL
+		case RiskWrite:
+			if word == "" {
+				word, risk = w, RiskWrite
+			}
+		}
+	}
+
+	return word, risk
 }
 
 // Reset relies on the driver, which resets the session with

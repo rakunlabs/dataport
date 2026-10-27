@@ -3,15 +3,11 @@ package server
 import (
 	"context"
 	"embed"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +19,8 @@ import (
 	mrequestid "github.com/rakunlabs/ada/middleware/requestid"
 	mserver "github.com/rakunlabs/ada/middleware/server"
 	mtelemetry "github.com/rakunlabs/ada/middleware/telemetry"
+
+	"github.com/rakunlabs/hardloop"
 
 	"github.com/rakunlabs/dataport/internal/auth"
 	"github.com/rakunlabs/dataport/internal/config"
@@ -46,11 +44,37 @@ type Server struct {
 	sso    *sso.Manager
 	mux    *ada.Server
 	// Bound scheduled work per instance, including the startup catch-up.
-	docDispatch sync.Mutex
+	docDispatch        sync.Mutex
+	docJobsMu          sync.Mutex
+	docJobs            *hardloop.CronJob
+	docJobsSpec        string
+	docScheduleChanged chan struct{}
+	docRunMu           sync.Mutex
+	docRun             docRun
+	docRunAverage      int64
+	notebookMu         sync.Mutex
+	notebookRunning    int
+	notebookContext    context.Context
+	notebookStop       context.CancelFunc
+	notebookWorkers    sync.WaitGroup
+	// base is the configuration as loaded; cfg holds it with the settings
+	// admins saved over it. settingsMu guards cfg.Query, cfg.MCP and
+	// cfg.Notebook, which change while running.
+	base       config.Config
+	settingsMu sync.RWMutex
 }
 
 func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, en *engine.Manager, sm *sso.Manager) (*Server, error) {
-	s := &Server{cfg: cfg, store: st, auth: au, cipher: ci, engine: en, sso: sm}
+	s := &Server{cfg: cfg, base: *cfg, store: st, auth: au, cipher: ci, engine: en, sso: sm, docScheduleChanged: make(chan struct{}, 1)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := s.loadSettings(ctx, true); err != nil {
+		return nil, fmt.Errorf("load server settings; %w", err)
+	}
+
+	s.notebookContext, s.notebookStop = context.WithCancel(context.Background())
 
 	mux := ada.New()
 	mux.Use(
@@ -93,7 +117,7 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.GET("/connections/{id}/diagram", s.diagram)
 	user.GET("/connections/{id}/docs", s.serveDoc)
 	user.POST("/connections/{id}/docs/refresh", s.serveDoc)
-	user.PUT("/connections/{id}/docs/schedule", s.docSchedule)
+	user.GET("/docs", s.listDocs)
 	user.PUT("/connections/{id}/credentials", s.setCredential)
 	user.DELETE("/connections/{id}/credentials", s.deleteCredential)
 	user.POST("/connections/{id}/query", s.runQuery)
@@ -105,9 +129,15 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.GET("/connections/{id}/export", s.export)
 	user.POST("/connections/{id}/import", s.importRows)
 	user.POST("/connections/{id}/transfer", s.transfer)
+	user.POST("/connections/{id}/generate", s.generate)
+	user.POST("/connections/{id}/generate/preview", s.generatePreview)
 	user.POST("/connections/{id}/edits", s.applyEdits)
 	user.POST("/connections/{id}/edits/preview", s.previewEdits)
 	user.POST("/queries/{queryID}/cancel", s.cancelQuery)
+	user.POST("/connections/{id}/tx", s.endTx)
+	user.GET("/tx", s.listTxs)
+	user.GET("/mcp/access", s.getMCPAccess)
+	user.PUT("/mcp/access", s.setMCPAccess)
 	user.GET("/tokens", s.listTokens)
 	user.POST("/tokens", s.createToken)
 	user.DELETE("/tokens/{id}", s.deleteToken)
@@ -116,6 +146,23 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.POST("/saved", s.createSaved)
 	user.PUT("/saved/{id}", s.updateSaved)
 	user.DELETE("/saved/{id}", s.deleteSaved)
+	user.GET("/notebooks", s.listNotebooks)
+	user.POST("/notebooks", s.saveNotebook)
+	user.GET("/notebooks/{note}", s.getNotebook)
+	user.PUT("/notebooks/{note}", s.saveNotebook)
+	user.DELETE("/notebooks/{note}", s.deleteNotebook)
+	user.POST("/notebooks/{note}/publish", s.publishNotebook)
+	user.GET("/notebooks/{note}/access", s.notebookSharing)
+	user.PUT("/notebooks/{note}/access", s.notebookSharing)
+	user.GET("/notebooks/{note}/subjects", s.notebookSubjects)
+	user.POST("/notebooks/{note}/run", s.runNotebook)
+	user.GET("/notebooks/{note}/runs", s.notebookRuns)
+	user.GET("/notebooks/{note}/runs/{run}", s.notebookRunAction)
+	user.POST("/notebooks/{note}/runs/{run}/cancel", s.notebookRunAction)
+	api.GET("/run/{path}", s.publishedNotebook)
+	api.POST("/run/{path}", s.publishedNotebook)
+	api.GET("/run/{path}/{cell}", s.publishedNotebook)
+	api.POST("/run/{path}/{cell}", s.publishedNotebook)
 
 	admin := api.Group("/admin", s.requireUser, s.requireAdmin)
 	admin.GET("/drivers", s.drivers)
@@ -135,6 +182,13 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	admin.PUT("/connections/{id}", s.adminUpdateConnection)
 	admin.DELETE("/connections/{id}", s.adminDeleteConnection)
 	admin.GET("/logs", s.adminLogs)
+	admin.GET("/settings", s.adminGetSettings)
+	admin.PUT("/settings", s.adminSetSettings)
+	admin.GET("/sessions/lifetime", s.adminGetSessionLifetime)
+	admin.PUT("/sessions/lifetime", s.adminSetSessionLifetime)
+	admin.GET("/docs/schedule", s.adminGetDocSchedule)
+	admin.PUT("/docs/schedule", s.adminSetDocSchedule)
+	admin.POST("/docs/run", s.adminRunDocs)
 	admin.GET("/sso", s.adminListSSO)
 	admin.POST("/sso", s.adminSaveSSO)
 	admin.PUT("/sso/{name}", s.adminSaveSSO)
@@ -188,204 +242,23 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 }
 
 func (s *Server) Start(ctx context.Context) error {
+	defer func() { s.notebookStop(); s.notebookWorkers.Wait() }()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	jobs, err := s.startDocJobs(ctx)
-	if err != nil {
-		return err
-	}
-	initialDone := make(chan struct{})
-	go func() {
-		defer close(initialDone)
-		if err := s.dispatchDocs(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("load documentation schedules", "error", err)
-		}
-	}()
-	defer func() {
-		cancel()
-		<-jobs.Stop().Done()
-		<-initialDone
-	}()
+	maintenanceDone := make(chan struct{})
+	go func() { defer close(maintenanceDone); s.maintainNotebookRuns(ctx) }()
+	defer func() { cancel(); <-maintenanceDone }()
+	docsDone := make(chan struct{})
+	go func() { defer close(docsDone); s.runDocJobs(ctx) }()
+	defer func() { cancel(); <-docsDone }()
+	settingsDone := make(chan struct{})
+	go func() { defer close(settingsDone); s.reloadSettings(ctx) }()
+	defer func() { cancel(); <-settingsDone }()
 
 	addr := net.JoinHostPort(s.cfg.Server.Host, s.cfg.Server.Port)
 	slog.Info("starting server", "addr", addr, "base_path", s.cfg.Server.BasePath)
 
 	return s.mux.StartWithContext(ctx, addr)
-}
-
-// ////////////////////////////////////////////
-// middleware
-
-type ctxKey struct{}
-
-func currentUser(r *http.Request) *store.User {
-	u, _ := r.Context().Value(ctxKey{}).(*store.User)
-
-	return u
-}
-
-func (s *Server) requireUser(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(cookieName)
-		if err != nil {
-			writeError(w, http.StatusUnauthorized, "not logged in")
-
-			return
-		}
-
-		user, sess, err := s.auth.AuthenticateSession(r.Context(), cookie.Value)
-		if err == nil && sess.Remember && time.Since(time.UnixMilli(sess.LastSeenAt)) > time.Hour {
-			// The session slides on the server; the cookie of a remembered
-			// one is renewed on the first visit after a pause, so it does
-			// not run out while the session is still in use.
-			s.setCookie(w, r, cookie.Value, true)
-		}
-
-		if err != nil {
-			if !errors.Is(err, store.ErrNotFound) {
-				slog.Error("authenticate", "error", err)
-			}
-
-			s.clearCookie(w, r)
-			writeError(w, http.StatusUnauthorized, "session expired")
-
-			return
-		}
-
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, user)))
-	})
-}
-
-func (s *Server) requireAdmin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if u := currentUser(r); u == nil || !u.IsAdmin() {
-			writeError(w, http.StatusForbidden, "admin only")
-
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-// sameOrigin rejects state-changing requests whose Origin does not match the
-// host. Together with the SameSite=Lax cookie this stops cross-site requests.
-func sameOrigin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-			if origin := r.Header.Get("Origin"); origin != "" && !originMatches(origin, r) {
-				writeError(w, http.StatusForbidden, "cross-origin request")
-
-				return
-			}
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-// originMatches reports whether the Origin header names the host the request
-// was sent to. Behind a reverse proxy that rewrites Host, the proxy must pass
-// the original one in X-Forwarded-Host.
-func originMatches(origin string, r *http.Request) bool {
-	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
-		return false
-	}
-
-	host := r.Header.Get("X-Forwarded-Host")
-	if host == "" {
-		host = r.Host
-	}
-
-	// X-Forwarded-Host may list several hosts; the first is the client's.
-	host, _, _ = strings.Cut(host, ",")
-
-	return strings.EqualFold(u.Host, strings.TrimSpace(host))
-}
-
-func limitBody(max int64) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, max)
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
-		h.Set("Referrer-Policy", "same-origin")
-		next.ServeHTTP(w, r)
-	})
-}
-
-// ////////////////////////////////////////////
-// helpers
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"message": msg})
-}
-
-// writeStoreError maps store errors to HTTP responses and hides internal
-// details behind a generic message.
-func writeStoreError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "not found")
-	case errors.Is(err, store.ErrConflict):
-		writeError(w, http.StatusConflict, "name already exists")
-	default:
-		slog.Error("request failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-	}
-}
-
-func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-
-	if err := dec.Decode(v); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request too large")
-
-			return false
-		}
-
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid request: %v", err))
-
-		return false
-	}
-
-	if dec.More() {
-		writeError(w, http.StatusBadRequest, "invalid request: trailing data")
-
-		return false
-	}
-
-	_, _ = io.Copy(io.Discard, r.Body)
-
-	return true
-}
-
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-
-	return host
 }
 
 func (s *Server) isSecure(r *http.Request) bool {
@@ -400,9 +273,16 @@ func (s *Server) cookiePath() string {
 	return s.cfg.Server.BasePath + "/"
 }
 
-// setCookie sets the session cookie. A remembered session keeps its
-// cookie for its whole lifetime; any other lives until the browser closes.
+// setCookie sets the cookie of a new session. A remembered session's cookie
+// lasts its idle window and is renewed while used; any other lives until the
+// browser closes.
 func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, token string, remember bool) {
+	s.setCookieFor(w, r, token, s.auth.Lifetime().CookieMaxAge(remember))
+}
+
+// setCookieFor sets the session cookie for maxAge; zero ends it with the
+// browser.
+func (s *Server) setCookieFor(w http.ResponseWriter, r *http.Request, token string, maxAge time.Duration) {
 	c := &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
@@ -412,8 +292,8 @@ func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, token string,
 		SameSite: http.SameSiteLaxMode,
 	}
 
-	if remember {
-		c.MaxAge = int(s.auth.SessionTTL(true).Seconds())
+	if maxAge > 0 {
+		c.MaxAge = max(1, int(maxAge.Seconds()))
 	}
 
 	http.SetCookie(w, c)

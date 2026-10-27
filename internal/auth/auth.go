@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -96,53 +97,43 @@ func RandomPassword() string {
 // ////////////////////////////////////////////
 
 type Auth struct {
-	store *store.Store
-	ttl   time.Duration
-	// rememberTTL is the lifetime of a "remember me" session; zero turns
-	// remembering off.
-	rememberTTL time.Duration
-	limiter     *limiter
+	store   *store.Store
+	limiter *limiter
+
+	// Session lifetimes, edited by admins and kept in the store.
+	mu       sync.RWMutex
+	lifetime SessionLifetime
 
 	// dummyHash keeps a failed login for an unknown user as slow as one for a
 	// known user, so usernames cannot be probed by timing.
 	dummyHash string
 }
 
-func New(st *store.Store, ttl time.Duration) *Auth {
+func New(st *store.Store) *Auth {
 	dummy, _ := HashPassword(RandomPassword())
 
 	return &Auth{
-		store:       st,
-		ttl:         ttl,
-		rememberTTL: 30 * 24 * time.Hour,
-		limiter:     newLimiter(5, time.Minute),
-		dummyHash:   dummy,
+		store:     st,
+		lifetime:  DefaultSessionLifetime,
+		limiter:   newLimiter(5, time.Minute),
+		dummyHash: dummy,
 	}
 }
 
-func (a *Auth) TTL() time.Duration {
-	return a.ttl
+// Lifetime returns the session lifetimes in use.
+func (a *Auth) Lifetime() SessionLifetime {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	return a.lifetime
 }
 
-// SetRememberTTL sets how long a remembered session lasts; zero turns
-// "remember me" off.
-func (a *Auth) SetRememberTTL(d time.Duration) {
-	a.rememberTTL = d
-}
+// SetLifetime replaces the session lifetimes in use.
+func (a *Auth) SetLifetime(l SessionLifetime) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
-// RememberTTL is the lifetime of a remembered session, zero when
-// remembering is off.
-func (a *Auth) RememberTTL() time.Duration {
-	return a.rememberTTL
-}
-
-// SessionTTL is the lifetime of a session.
-func (a *Auth) SessionTTL(remember bool) time.Duration {
-	if remember && a.rememberTTL > a.ttl {
-		return a.rememberTTL
-	}
-
-	return a.ttl
+	a.lifetime = l
 }
 
 // Login checks the credentials and opens a session. It returns the raw
@@ -188,7 +179,8 @@ func (a *Auth) Login(ctx context.Context, username, password, ip, userAgent stri
 // CreateSession opens a session; a remembered one lives for the longer
 // remember-me lifetime.
 func (a *Auth) CreateSession(ctx context.Context, userID, ip, userAgent string, remember bool) (string, error) {
-	remember = remember && a.rememberTTL > a.ttl
+	l := a.Lifetime()
+	remember = remember && l.RememberEnabled()
 
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -206,7 +198,7 @@ func (a *Auth) CreateSession(ctx context.Context, userID, ip, userAgent string, 
 		TokenHash:  hashToken(token),
 		UserID:     userID,
 		CreatedAt:  ts.UnixMilli(),
-		ExpiresAt:  ts.Add(a.SessionTTL(remember)).UnixMilli(),
+		ExpiresAt:  l.expiry(ts.UnixMilli(), ts.UnixMilli(), remember),
 		LastSeenAt: ts.UnixMilli(),
 		IP:         ip,
 		UserAgent:  userAgent,
@@ -218,8 +210,9 @@ func (a *Auth) CreateSession(ctx context.Context, userID, ip, userAgent string, 
 	return token, nil
 }
 
-// Authenticate resolves a session token to its user. Sessions slide: each use
-// more than a minute after the last one extends the expiry.
+// Authenticate resolves a session token to its user. A remembered session
+// slides: each use more than a minute after the last one extends its expiry
+// by the idle window, never past its maximum lifetime.
 func (a *Auth) Authenticate(ctx context.Context, token string) (*store.User, error) {
 	user, _, err := a.AuthenticateSession(ctx, token)
 
@@ -227,7 +220,8 @@ func (a *Auth) Authenticate(ctx context.Context, token string) (*store.User, err
 }
 
 // AuthenticateSession is Authenticate that also returns the session, whose
-// Remember decides the cookie's lifetime.
+// Remember decides the cookie's lifetime. LastSeenAt is the previous use and
+// ExpiresAt the extended expiry.
 func (a *Auth) AuthenticateSession(ctx context.Context, token string) (*store.User, *store.Session, error) {
 	if token == "" {
 		return nil, nil, store.ErrNotFound
@@ -257,7 +251,17 @@ func (a *Auth) AuthenticateSession(ctx context.Context, token string) (*store.Us
 	}
 
 	if ts.UnixMilli()-sess.LastSeenAt > time.Minute.Milliseconds() {
-		_ = a.store.TouchSession(ctx, hash, ts.UnixMilli(), ts.Add(a.SessionTTL(sess.Remember)).UnixMilli())
+		// Recomputed from the current lifetimes, so an admin's change applies
+		// to open sessions too.
+		expires := a.Lifetime().expiry(sess.CreatedAt, ts.UnixMilli(), sess.Remember)
+		if ts.UnixMilli() > expires {
+			_ = a.store.DeleteSession(ctx, hash)
+
+			return nil, nil, store.ErrNotFound
+		}
+		if err := a.store.TouchSession(ctx, hash, ts.UnixMilli(), expires); err == nil {
+			sess.ExpiresAt = expires
+		}
 	}
 
 	return user, sess, nil
@@ -271,16 +275,25 @@ func (a *Auth) Logout(ctx context.Context, token string) error {
 	return a.store.DeleteSession(ctx, hashToken(token))
 }
 
-// Janitor removes expired sessions until ctx is done.
+// Janitor removes expired sessions and picks up lifetimes saved on another
+// replica, until ctx is done.
 func (a *Auth) Janitor(ctx context.Context) {
-	ticker := time.NewTicker(15 * time.Minute)
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
-	for {
+	for n := 1; ; n++ {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if err := a.LoadLifetime(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("load session lifetime", "error", err)
+			}
+
+			if n%15 != 0 {
+				continue
+			}
+
 			_, _ = a.store.DeleteExpiredSessions(ctx)
 			_, _ = a.store.DeleteExpiredOAuthCodes(ctx)
 			_, _ = a.store.DeleteExpiredAccessTokens(ctx)

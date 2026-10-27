@@ -1,6 +1,31 @@
 import en from '@/lib/i18n/en';
 
-export type Messages = typeof en;
+// Sections a translation may leave out; t() falls back to English for them.
+type Optional = 'notebook' | 'generate' | 'docsHub' | 'tx';
+
+// Messages added after a translation was written may be missing from it;
+// t() falls back to English for them too. A string names leaf messages,
+// true a whole section.
+type Later = {
+  admin: { server: true; docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' };
+  result: 'elapsed' | 'cancelling' | 'runningFor';
+  query: 'runParallel';
+};
+
+type Sections<K> = { [P in keyof K]: K[P] extends true ? P : never }[keyof K];
+
+type Loosen<T, K> = {
+  [P in keyof T as P extends Sections<K> ? never : P]: P extends keyof K
+    ? K[P] extends string
+      ? T[P] extends object
+        ? Omit<T[P], K[P]> & Partial<Pick<T[P], K[P] & keyof T[P]>>
+        : T[P]
+      : Loosen<T[P], K[P]>
+    : T[P];
+} & { [P in keyof T & Sections<K>]?: T[P] };
+
+type Base = Omit<typeof en, Optional> & Partial<Pick<typeof en, Optional>>;
+export type Messages = Loosen<Base, Later>;
 export type Locale = 'en' | 'de' | 'es' | 'fr' | 'nl' | 'pl' | 'ru' | 'tr' | 'ja' | 'ko' | 'zh-CN' | 'zh-TW';
 
 // Each language names itself, so it can be found by someone who does not
@@ -112,9 +137,9 @@ export function t(path: string, params: Record<string, string | number> = {}): s
   const own = lookup(i18n.messages, path);
   let msg = own ?? lookup(en, path) ?? path;
 
-  if (msg.includes(' | ')) {
+  if ('count' in params && msg.includes(' | ')) {
     const forms = msg.split(' | ');
-    const i = pluralIndex(own !== undefined ? i18n.locale : 'en', Number(params.count ?? 0));
+    const i = pluralIndex(own !== undefined ? i18n.locale : 'en', Number(params.count));
     msg = forms[Math.min(i, forms.length - 1)];
   }
 

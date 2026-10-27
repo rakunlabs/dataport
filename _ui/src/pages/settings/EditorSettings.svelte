@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
   import { Info, RotateCcw, Variable } from 'lucide-svelte';
-  import SqlEditor from '@/lib/components/SqlEditor.svelte';
+  import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
   import { fontFamilies, prefs, resetPrefs, savePrefs } from '@/lib/stores/prefs.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';
   import { placeholders, substitute } from '@/lib/helper/variables';

@@ -19,19 +19,17 @@ type DocSnapshot struct {
 	GeneratedAt   int64
 	AttemptedAt   int64
 	LastError     string
-	CronSpec      string
-	NextRun       int64
 	LeaseToken    string
 	LeaseUntil    int64
 }
 
-const docColumns = "connection_id, user_id, schema_name, source_version, payload, generated_at, attempted_at, last_error, cron_spec, next_run, lease_token, lease_until"
+const docColumns = "connection_id, user_id, schema_name, source_version, payload, generated_at, attempted_at, last_error, lease_token, lease_until"
 const docWhere = "connection_id = ? AND user_id = ? AND schema_name = ?"
 
 func scanDoc(row interface{ Scan(...any) error }) (*DocSnapshot, error) {
 	var d DocSnapshot
 	if err := row.Scan(&d.ConnectionID, &d.UserID, &d.Schema, &d.SourceVersion, &d.Payload, &d.GeneratedAt,
-		&d.AttemptedAt, &d.LastError, &d.CronSpec, &d.NextRun, &d.LeaseToken, &d.LeaseUntil); err != nil {
+		&d.AttemptedAt, &d.LastError, &d.LeaseToken, &d.LeaseUntil); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -52,15 +50,16 @@ func (s *Store) GetDoc(ctx context.Context, k DocKey) (*DocSnapshot, error) {
 		k.ConnectionID, k.UserID, k.Schema))
 }
 
-// ClaimDoc is an atomic, expiring lease. dueOnly also guards against two
-// dispatchers processing the same scheduled occurrence after it completes.
-func (s *Store) ClaimDoc(ctx context.Context, k DocKey, token string, until int64, dueOnly bool) (bool, error) {
+// ClaimDoc is an atomic, expiring lease. A non-zero before claims only a
+// snapshot not attempted since then, so two dispatchers cannot process the
+// same scheduled occurrence.
+func (s *Store) ClaimDoc(ctx context.Context, k DocKey, token string, until int64, before int64) (bool, error) {
 	ts := now()
 	query := "UPDATE " + s.t("schema_docs") + " SET lease_token = ?, lease_until = ?, attempted_at = ? WHERE " + docWhere + " AND lease_until <= ?"
 	args := []any{token, until, ts, k.ConnectionID, k.UserID, k.Schema, ts}
-	if dueOnly {
-		query += " AND cron_spec <> '' AND next_run > 0 AND next_run <= ?"
-		args = append(args, ts)
+	if before > 0 {
+		query += " AND attempted_at < ?"
+		args = append(args, before)
 	}
 	res, err := s.exec(ctx, query, args...)
 	if err != nil {
@@ -71,10 +70,10 @@ func (s *Store) ClaimDoc(ctx context.Context, k DocKey, token string, until int6
 }
 
 // FinishDoc preserves the last successful payload on failure. The lease
-// token fences slow/expired writers, and a concurrently edited schedule wins.
-func (s *Store) FinishDoc(ctx context.Context, d *DocSnapshot, token string, success bool, next int64) (bool, error) {
-	query := "UPDATE " + s.t("schema_docs") + " SET last_error = ?, lease_token = '', lease_until = 0, next_run = CASE WHEN cron_spec = ? THEN ? ELSE next_run END"
-	args := []any{d.LastError, d.CronSpec, next}
+// token fences slow/expired writers.
+func (s *Store) FinishDoc(ctx context.Context, d *DocSnapshot, token string, success bool) (bool, error) {
+	query := "UPDATE " + s.t("schema_docs") + " SET last_error = ?, lease_token = '', lease_until = 0"
+	args := []any{d.LastError}
 	if success {
 		query += ", payload = ?, source_version = ?, generated_at = ?"
 		args = append(args, d.Payload, d.SourceVersion, d.GeneratedAt)
@@ -89,16 +88,18 @@ func (s *Store) FinishDoc(ctx context.Context, d *DocSnapshot, token string, suc
 	return n == 1, err
 }
 
-func (s *Store) SetDocSchedule(ctx context.Context, k DocKey, spec string, next int64) error {
-	_, err := s.exec(ctx, "UPDATE "+s.t("schema_docs")+" SET cron_spec = ?, next_run = ? WHERE "+docWhere,
-		spec, next, k.ConnectionID, k.UserID, k.Schema)
-	return err
+// CountDueDocs counts snapshots not attempted since before.
+func (s *Store) CountDueDocs(ctx context.Context, before int64) (int, error) {
+	var n int
+	err := s.queryRow(ctx, "SELECT COUNT(*) FROM "+s.t("schema_docs")+" WHERE attempted_at < ?", before).Scan(&n)
+	return n, err
 }
 
-func (s *Store) DueDocs(ctx context.Context) ([]DocKey, error) {
+// DueDocs lists snapshots not attempted since before and not being refreshed.
+func (s *Store) DueDocs(ctx context.Context, before int64) ([]DocKey, error) {
 	ts := now()
 	rows, err := s.query(ctx, "SELECT connection_id, user_id, schema_name FROM "+s.t("schema_docs")+
-		" WHERE cron_spec <> '' AND next_run > 0 AND next_run <= ? AND lease_until <= ? ORDER BY next_run LIMIT 100", ts, ts)
+		" WHERE attempted_at < ? AND lease_until <= ? ORDER BY attempted_at LIMIT 100", before, ts)
 	if err != nil {
 		return nil, err
 	}
@@ -113,3 +114,63 @@ func (s *Store) DueDocs(ctx context.Context) ([]DocKey, error) {
 	}
 	return list, rows.Err()
 }
+
+// DocInfo describes a saved snapshot without its document.
+type DocInfo struct {
+	ConnectionID   string `json:"connection_id"`
+	ConnectionName string `json:"connection_name"`
+	DBType         string `json:"db_type"`
+	UserID         string `json:"user_id,omitempty"`
+	Username       string `json:"username,omitempty"`
+	Schema         string `json:"schema"`
+	GeneratedAt    int64  `json:"generated_at"`
+	AttemptedAt    int64  `json:"attempted_at"`
+	LastError      string `json:"last_error"`
+	Refreshing     bool   `json:"refreshing"`
+	// Ready is false until a first document was saved.
+	Ready bool `json:"ready"`
+}
+
+const docInfoSelect = `SELECT d.connection_id, c.name, c.db_type, d.user_id, u.username, d.schema_name,
+d.generated_at, d.attempted_at, d.last_error, d.lease_until`
+
+func (s *Store) scanDocInfos(ctx context.Context, query string, args ...any) ([]DocInfo, error) {
+	rows, err := s.query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	ts := now()
+	list := []DocInfo{}
+	for rows.Next() {
+		var (
+			d     DocInfo
+			lease int64
+		)
+		if err := rows.Scan(&d.ConnectionID, &d.ConnectionName, &d.DBType, &d.UserID, &d.Username, &d.Schema,
+			&d.GeneratedAt, &d.AttemptedAt, &d.LastError, &lease); err != nil {
+			return nil, err
+		}
+		d.Refreshing = lease > ts
+		d.Ready = d.GeneratedAt > 0
+		list = append(list, d)
+	}
+	return list, rows.Err()
+}
+
+// DocOverview lists every saved snapshot, for admins.
+func (s *Store) DocOverview(ctx context.Context) ([]DocInfo, error) {
+	return s.scanDocInfos(ctx, docInfoSelect+" FROM "+s.t("schema_docs")+" d JOIN "+s.t("connections")+" c ON c.id = d.connection_id JOIN "+
+		s.t("users")+" u ON u.id = d.user_id ORDER BY c.name, d.schema_name, u.username")
+}
+
+// UserDocs lists the snapshots of one user.
+func (s *Store) UserDocs(ctx context.Context, userID string) ([]DocInfo, error) {
+	list, err := s.scanDocInfos(ctx, docInfoSelect+" FROM "+s.t("schema_docs")+" d JOIN "+s.t("connections")+" c ON c.id = d.connection_id JOIN "+
+		s.t("users")+" u ON u.id = d.user_id WHERE d.user_id = ? ORDER BY c.name, d.schema_name", userID)
+	for i := range list {
+		list[i].UserID, list[i].Username = "", ""
+	}
+	return list, err
+}
+

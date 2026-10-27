@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t, i18n } from '@/lib/i18n/index.svelte';
   import { Copy, Check, ExternalLink, LoaderCircle } from 'lucide-svelte';
-  import Logo from '@/lib/components/Logo.svelte';
+  import Logo from '@/lib/components/ui/Logo.svelte';
   import { api } from '@/lib/api/client';
   import type { BuildInfo } from '@/lib/api/types';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';

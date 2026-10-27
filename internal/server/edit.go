@@ -2,7 +2,6 @@ package server
 
 import (
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,28 +31,12 @@ func (s *Server) applyEdits(w http.ResponseWriter, r *http.Request) {
 	}
 
 	g, password := s.grant(w, r)
-	if g == nil {
-		return
-	}
-
-	if g.ReadOnly {
-		writeError(w, http.StatusForbidden, engine.ErrReadOnly.Error())
-
+	if g == nil || !writable(w, g, req.Confirm, engine.RiskWrite) {
 		return
 	}
 
 	user := currentUser(r)
 	c := g.Connection
-
-	if c.Production && !req.Confirm {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"message":               "this is a production database; confirm to save the changes",
-			"confirmation_required": true,
-			"risk":                  engine.RiskWrite,
-		})
-
-		return
-	}
 
 	result, err := s.engine.ApplyEdits(r.Context(), c, password, engine.EditRequest{
 		Schema:  req.Schema,
@@ -86,9 +69,7 @@ func (s *Server) applyEdits(w http.ResponseWriter, r *http.Request) {
 		entry.DurationMS = result.DurationMS
 	}
 
-	if logErr := s.store.AddQueryLog(r.Context(), entry); logErr != nil {
-		slog.Error("write query log", "error", logErr)
-	}
+	s.audit(r.Context(), entry)
 
 	if err != nil {
 		writeEngineError(w, r, err)

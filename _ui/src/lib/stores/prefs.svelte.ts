@@ -42,6 +42,8 @@ export interface Prefs {
   // Fill in placeholders before a run.
   variables: boolean;
   variableSyntaxes: VariableSyntaxes;
+  // New query tabs start with a manual transaction, as last chosen.
+  manualTx: boolean;
 }
 
 const key = 'dataport.prefs';
@@ -60,6 +62,7 @@ export const defaultPrefs: Prefs = {
   resultInNewTab: false,
   variables: true,
   variableSyntaxes: { atSet: true, shell: true, named: false, mybatis: true },
+  manualTx: false,
 };
 
 function load(): Prefs {

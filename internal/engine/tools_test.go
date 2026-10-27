@@ -43,6 +43,13 @@ func TestMapType(t *testing.T) {
 		{"postgres", "clickhouse", "timestamp with time zone", "DateTime64(6)"},
 		{"clickhouse", "postgres", "Nullable(Int32)", "integer"},
 		{"generic", "mysql", "bool", "tinyint(1)"},
+		{"postgres", "mysql", "interval", "longtext"},
+		{"postgres", "mysql", "point", "longtext"},
+		{"postgres", "mysql", "geometry(multipoint, 4326)", "longtext"},
+		{"mysql", "postgres", "int(11) unsigned", "integer"},
+		{"clickhouse", "postgres", "UInt8", "smallint"},
+		{"duckdb", "postgres", "usmallint", "integer"},
+		{"clickhouse", "postgres", "Int128", "integer"},
 	}
 
 	for _, c := range cases {
@@ -126,4 +133,62 @@ func TestTransferSamePoolOfOne(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "at least two") {
 		t.Fatalf("got %v", err)
 	}
+}
+
+func TestImportValueIntRange(t *testing.T) {
+	conv := importValue("postgres", "bigint", false)
+
+	if got := conv(float64(42)); got != int64(42) {
+		t.Fatalf("got %#v", got)
+	}
+
+	for _, f := range []float64{1e19, -1e19, 9223372036854775807, 1.5} {
+		if got := conv(f); got != f {
+			t.Errorf("conv(%g) = %#v, want the float back", f, got)
+		}
+	}
+}
+
+func TestSafeFileName(t *testing.T) {
+	cases := map[string]string{
+		"../../etc/passwd": "_.._etc_passwd",
+		`..\win`:           "_win",
+		"a/b":              "a_b",
+		"..":               "",
+		"plain":            "plain",
+	}
+
+	for in, want := range cases {
+		if got := safeFileName(in); got != want {
+			t.Errorf("safeFileName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestCancelDuplicateQueryID(t *testing.T) {
+	m := NewManager(store.Limits{}, time.Minute)
+	defer m.Close()
+
+	var a, b, other int
+
+	doneA := m.track(ExecRequest{QueryID: "q", UserID: "u"}, func() { a++ })
+	doneB := m.track(ExecRequest{QueryID: "q", UserID: "u"}, func() { b++ })
+	doneOther := m.track(ExecRequest{QueryID: "q", UserID: "v"}, func() { other++ })
+
+	if !m.Cancel("u", "q") || a != 1 || b != 1 || other != 0 {
+		t.Fatalf("cancel: a=%d b=%d other=%d", a, b, other)
+	}
+
+	doneA()
+	doneB()
+
+	if m.Cancel("u", "q") {
+		t.Fatal("finished requests must not be cancellable")
+	}
+
+	if !m.Cancel("v", "q") || other != 1 {
+		t.Fatal("another user's request with the same id must stay tracked")
+	}
+
+	doneOther()
 }

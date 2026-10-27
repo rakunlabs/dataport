@@ -78,7 +78,7 @@ INSERT INTO customers VALUES (1, 'Ada'), (2, '` + strings.Repeat("x", 50) + `');
 	t.Cleanup(en.Close)
 
 	ci, _ := crypto.New("k")
-	au := auth.New(st, time.Hour)
+	au := auth.New(st)
 
 	cfg := &config.Config{
 		Server: config.Server{BasePath: basePath},
@@ -260,6 +260,30 @@ func TestMCP(t *testing.T) {
 		t.Fatalf("execute: %v", out)
 	}
 
+	// Generated rows: a preview writes nothing, then rows go in with the
+	// foreign key taken from customers.
+	_, out = call(rw, "dataport_generate_rows", map[string]any{"connection": "shop", "table": "orders", "rows": 0, "seed": 3})
+	if out["inserted"].(float64) != 0 || len(out["sample"].([]any)) == 0 {
+		t.Fatalf("generate preview: %v", out)
+	}
+
+	_, out = call(rw, "dataport_generate_rows", map[string]any{
+		"connection": "shop", "table": "orders", "rows": 40,
+		"columns": []map[string]any{{"name": "code", "generator": "template", "template": "ORD-{{ .n }}"}},
+	})
+	if out["inserted"].(float64) != 40 {
+		t.Fatalf("generate: %v", out)
+	}
+
+	_, out = call(rw, "dataport_query", map[string]any{"connection": "shop", "sql": "select count(*), sum(customer_id not in (1, 2)), max(code) from orders"})
+	if row := out["results"].([]any)[0].(map[string]any)["rows"].([]any)[0].([]any); row[0].(float64) != 40 || row[1].(float64) != 0 || row[2] != "ORD-9" {
+		t.Fatalf("generated rows: %v", row)
+	}
+
+	if res, _ := call(rw, "dataport_generate_rows", map[string]any{"connection": "shop-prod", "table": "orders", "rows": 1}); !strings.Contains(errText(res), "confirmation") {
+		t.Fatalf("generate on production without elicitation: %v", errText(res))
+	}
+
 	// Production writes need the user's confirmation through the client.
 	if res, _ := call(rw, "dataport_execute", map[string]any{"connection": "shop-prod", "sql": "delete from customers where id = 2"}); !strings.Contains(errText(res), "confirmation") {
 		t.Fatalf("production without elicitation: %v", errText(res))
@@ -286,8 +310,8 @@ func TestMCP(t *testing.T) {
 	}
 
 	for _, tool := range tools.Tools {
-		if tool.Name == "dataport_execute" {
-			t.Fatal("read-only token has the execute tool")
+		if tool.Name == "dataport_execute" || tool.Name == "dataport_generate_rows" {
+			t.Fatal("read-only token has a write tool: " + tool.Name)
 		}
 	}
 

@@ -288,6 +288,7 @@ A neutral graphite (dark) or cool paper-grey (light) IDE palette with a single b
 - **Read-Write Amber** (`warn` / `warn-soft`): the read-write pill, pending-edit dot on tabs and the pending-changes count.
 - **Own-Account Green** (`ok` / `ok-soft`): the own-account pill (user signs in with their own database account), success toasts.
 - **Query Teal** (`type`): the query-tab icon when active.
+- **Object Hues** (`obj-schema`, `obj-table`, `obj-view`, `obj-matview`, `obj-procedure`, `obj-function`, `obj-package`, `obj-sequence`), after DBX: icon colours of database objects in the connection tree and object lists (schemas amber, tables green, views dusty rose, materialized views indigo, procedures blue, functions amber, packages cyan, sequences teal). The active table tab's icon uses `obj-table`. Icons only, never text or fills.
 
 ### Tertiary
 - **Column Type Hues** (`type-int`, `type-num`, `type-text`, `type-bool`, `type-time`, `type-struct`, `type-id`, `type-bin`, each with a `-dark` pair): small mono type hints next to column names in grid headers and structure views, and the matching value colour where relevant (e.g. booleans). They are labels, never fills.

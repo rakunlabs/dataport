@@ -301,13 +301,14 @@ func TestRememberMe(t *testing.T) {
 		t.Fatalf("session cookie outlives the browser: %+v", c)
 	}
 
+	// A remembered session lasts its idle window, renewed while used.
 	c := login(true)
-	if c.MaxAge < 29*24*3600 {
+	if c.MaxAge < 6*24*3600 || c.MaxAge > 7*24*3600 {
 		t.Fatalf("remembered cookie: max-age %d", c.MaxAge)
 	}
 
 	if _, sess, err := env.srv.auth.AuthenticateSession(ctx, c.Value); err != nil || !sess.Remember ||
-		time.Until(time.UnixMilli(sess.ExpiresAt)) < 29*24*time.Hour {
+		time.Until(time.UnixMilli(sess.ExpiresAt)) < 6*24*time.Hour {
 		t.Fatalf("remembered session: %v %+v", err, sess)
 	}
 

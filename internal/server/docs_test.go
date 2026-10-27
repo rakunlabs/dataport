@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rakunlabs/dataport/internal/auth"
 	"github.com/rakunlabs/dataport/internal/engine"
 	"github.com/rakunlabs/dataport/internal/store"
 )
@@ -71,18 +72,21 @@ func TestSavedDocumentation(t *testing.T) {
 		t.Fatalf("lost old payload on failure: %v %+v", err, failed)
 	}
 	run("DROP VIEW broken")
-	// A due schedule is dispatched once, advances next_run and clears errors.
-	if err := env.st.SetDocSchedule(ctx, k, "@hourly", time.Now().Add(-time.Hour).UnixMilli()); err != nil {
+	// The schedule refreshes snapshots not attempted since its last run,
+	// once, and clears errors.
+	if err := env.st.SetSetting(ctx, docScheduleSetting, `{"enabled":true,"cron_spec":"@every 1h"}`); err != nil {
 		t.Fatal(err)
 	}
+	later := time.Now().Add(2 * time.Hour)
 	run("CREATE TABLE scheduled (id INTEGER PRIMARY KEY)")
-	if err := other.dispatchDocs(ctx); err != nil {
+	if err := other.dispatchDocsAt(ctx, later); err != nil {
 		t.Fatal(err)
 	}
 	d, _ := env.st.GetDoc(ctx, k)
-	if d.NextRun <= time.Now().UnixMilli() || d.LastError != "" {
-		t.Fatalf("schedule not advanced: %+v", d)
+	if d.LastError != "" {
+		t.Fatalf("scheduled refresh failed: %+v", d)
 	}
+	// Attempted after the last occurrence, so another dispatcher skips it.
 	if err := s.dispatchDocs(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -109,10 +113,7 @@ func TestSavedDocumentation(t *testing.T) {
 	if _, err := s.documentation(ctx, k, false); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("revoked user read cache: %v", err)
 	}
-	if err := env.st.SetDocSchedule(ctx, k, "@hourly", 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.dispatchDocs(ctx); err != nil {
+	if err := s.dispatchDocsAt(ctx, later.Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	after, _ = env.st.GetDoc(ctx, k)
@@ -123,15 +124,19 @@ func TestSavedDocumentation(t *testing.T) {
 
 func TestDocScheduleHTTP(t *testing.T) {
 	env := newMCPEnv(t, "/dp")
-	k := docKeyFor(t, env)
-	base := env.httpSrv.URL + "/dp/api/v1/connections/" + k.ConnectionID + "/docs"
-	resp, err := http.Post(env.httpSrv.URL+"/dp/api/v1/auth/login", "application/json", strings.NewReader(`{"username":"alice","password":"x-password"}`))
-	if err != nil {
+	hash, _ := auth.HashPassword("x-password")
+	if err := env.st.CreateUser(context.Background(), &store.User{Username: "admin", PasswordHash: hash, Role: store.RoleAdmin}); err != nil {
 		t.Fatal(err)
 	}
-	cookies := resp.Cookies()
-	_ = resp.Body.Close()
-	request := func(method, url, body string, want int) []byte {
+	login := func(user string) []*http.Cookie {
+		resp, err := http.Post(env.httpSrv.URL+"/dp/api/v1/auth/login", "application/json", strings.NewReader(`{"username":"`+user+`","password":"x-password"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.Cookies()
+	}
+	request := func(cookies []*http.Cookie, method, url, body string, want int) []byte {
 		t.Helper()
 		req, _ := http.NewRequest(method, url, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -150,34 +155,111 @@ func TestDocScheduleHTTP(t *testing.T) {
 		}
 		return raw
 	}
-	request("GET", base+"?schema=main", "", http.StatusOK)
-	raw := request("PUT", base+"/schedule?schema=main", `{"cron_spec":"CRON_TZ=Europe/Istanbul 0 3 * * *"}`, http.StatusOK)
-	var status docStatus
-	_ = json.Unmarshal(raw, &status)
-	if status.NextRun <= time.Now().UnixMilli() || status.CronSpec == "" {
-		t.Fatalf("schedule: %s", raw)
+	url := env.httpSrv.URL + "/dp/api/v1/admin/docs/schedule"
+	alice := func() []*http.Cookie { return login("alice") }
+	request(alice(), "GET", url, "", http.StatusForbidden)
+	admin := login("admin")
+	var v struct {
+		Enabled  bool   `json:"enabled"`
+		CronSpec string `json:"cron_spec"`
+		NextRun  int64  `json:"next_run"`
+		Run      docRun `json:"run"`
 	}
-	request("PUT", base+"/schedule?schema=main", `{"cron_spec":"not cron"}`, http.StatusBadRequest)
-	request("PUT", base+"/schedule?schema=main", `{"cron_spec":"@every 1s"}`, http.StatusBadRequest)
-	request("POST", base+"/refresh?schema=main", `{}`, http.StatusOK)
-	request("PUT", base+"/schedule?schema=main", `{"cron_spec":""}`, http.StatusOK)
-	d, _ := env.st.GetDoc(context.Background(), k)
-	if d.NextRun != 0 || d.CronSpec != "" {
-		t.Fatalf("not disabled: %+v", d)
+	_ = json.Unmarshal(request(admin, "GET", url, "", http.StatusOK), &v)
+	if !v.Enabled || v.CronSpec != docScheduleDefault || v.NextRun <= time.Now().UnixMilli() {
+		t.Fatalf("default schedule: %+v", v)
+	}
+	_ = json.Unmarshal(request(admin, "PUT", url, `{"enabled":true,"cron_spec":"CRON_TZ=Europe/Istanbul 0 3 * * *"}`, http.StatusOK), &v)
+	if !v.Enabled || v.CronSpec != "CRON_TZ=Europe/Istanbul 0 3 * * *" || v.NextRun <= time.Now().UnixMilli() {
+		t.Fatalf("saved schedule: %+v", v)
+	}
+	for _, spec := range []string{"not cron", "@every 1s", "CRON_TZ=bad-zone 0 3 * * *", "0 0 31 2 *", ""} {
+		request(admin, "PUT", url, `{"enabled":true,"cron_spec":"`+spec+`"}`, http.StatusBadRequest)
+	}
+	// Turning it off keeps the expression for later.
+	_ = json.Unmarshal(request(admin, "PUT", url, `{"enabled":false,"cron_spec":"@hourly"}`, http.StatusOK), &v)
+	if v.Enabled || v.CronSpec != "@hourly" || v.NextRun != 0 {
+		t.Fatalf("not disabled: %+v", v)
+	}
+
+	// Run now refreshes every saved snapshot in the background, even while
+	// the schedule is off, and reports its progress.
+	k := docKeyFor(t, env)
+	if _, err := env.srv.documentation(context.Background(), k, false); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := env.st.GetDoc(context.Background(), k)
+	runURL := env.httpSrv.URL + "/dp/api/v1/admin/docs/run"
+	request(alice(), "POST", runURL, "", http.StatusForbidden)
+	request(admin, "POST", runURL, "", http.StatusOK)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_ = json.Unmarshal(request(admin, "GET", url, "", http.StatusOK), &v)
+		if !v.Run.Running && v.Run.FinishedAt > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run did not finish: %+v", v.Run)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !v.Run.Manual || v.Run.Total != 1 || v.Run.Done != 1 || v.Run.Failed != 0 || v.Run.Status != store.DocRunDone || v.Run.Username != "admin" {
+		t.Fatalf("run status: %+v", v.Run)
+	}
+	after, _ := env.st.GetDoc(context.Background(), k)
+	if after.AttemptedAt <= before.AttemptedAt || after.Payload == "" {
+		t.Fatalf("snapshot not refreshed: %+v", after)
+	}
+
+	// The run is recorded, so the page lists it, also after a restart, with
+	// every saved snapshot.
+	var page struct {
+		History   []store.DocRun  `json:"history"`
+		Snapshots []store.DocInfo `json:"snapshots"`
+	}
+	_ = json.Unmarshal(request(admin, "GET", url, "", http.StatusOK), &page)
+	if len(page.History) != 1 || page.History[0].Status != store.DocRunDone || page.History[0].Username != "admin" ||
+		len(page.Snapshots) != 1 || !page.Snapshots[0].Ready || page.Snapshots[0].Username != "alice" {
+		t.Fatalf("history: %+v snapshots: %+v", page.History, page.Snapshots)
+	}
+	env.srv.docRunMu.Lock()
+	env.srv.docRun = docRun{}
+	env.srv.docRunMu.Unlock()
+	_ = json.Unmarshal(request(admin, "GET", url, "", http.StatusOK), &v)
+	if v.Run.Status != store.DocRunDone || v.Run.Done != 1 {
+		t.Fatalf("status after restart: %+v", v.Run)
+	}
+
+	// Users list their own documentation.
+	var mine struct {
+		Docs []store.DocInfo `json:"docs"`
+	}
+	_ = json.Unmarshal(request(alice(), "GET", env.httpSrv.URL+"/dp/api/v1/docs", "", http.StatusOK), &mine)
+	if len(mine.Docs) != 1 || mine.Docs[0].Schema != k.Schema || mine.Docs[0].Username != "" {
+		t.Fatalf("own docs: %+v", mine.Docs)
+	}
+	_ = json.Unmarshal(request(admin, "GET", env.httpSrv.URL+"/dp/api/v1/docs", "", http.StatusOK), &mine)
+	if len(mine.Docs) != 0 {
+		t.Fatalf("admin sees alice's docs: %+v", mine.Docs)
 	}
 }
 
-func TestDocNextRun(t *testing.T) {
-	at := time.Date(2026, 10, 26, 0, 30, 0, 0, time.UTC)
-	next, err := docNextRun("CRON_TZ=Europe/Istanbul 0 3 * * *", at)
-	want := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC).UnixMilli()
-	if err != nil || next != want {
-		t.Fatalf("next = %d, %v; want %d", next, err, want)
+func TestDocRunKeepsOldDocument(t *testing.T) {
+	ctx := context.Background()
+	env := newMCPEnv(t, "")
+	k := docKeyFor(t, env)
+	s := env.srv
+	first, err := s.documentation(ctx, k, false)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, spec := range []string{"@every 1s", "CRON_TZ=bad-zone 0 3 * * *", "never", "0 0 31 2 *"} {
-		if _, err := docNextRun(spec, at); err == nil {
-			t.Errorf("accepted %s", spec)
-		}
+	// While a refresh holds the lease, readers keep getting the old document.
+	if ok, err := env.st.ClaimDoc(ctx, k, "running", time.Now().Add(time.Minute).UnixMilli(), 0); err != nil || !ok {
+		t.Fatalf("claim: %v %v", ok, err)
+	}
+	during, err := s.documentation(ctx, k, false)
+	if err != nil || during.Document.GeneratedAt != first.Document.GeneratedAt || !during.Status.Refreshing {
+		t.Fatalf("old document not served during refresh: %v %+v", err, during)
 	}
 }
 

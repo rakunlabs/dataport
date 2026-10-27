@@ -3,8 +3,8 @@
   // may reach and approves; the browser then returns to the client.
   import { router } from 'svelte-spa-router';
   import { Bot, Check, X, TriangleAlert, LoaderCircle, Lock, LockOpen } from 'lucide-svelte';
-  import Logo from '@/lib/components/Logo.svelte';
-  import DbIcon from '@/lib/components/DbIcon.svelte';
+  import Logo from '@/lib/components/ui/Logo.svelte';
+  import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { api } from '@/lib/api/client';
   import { session } from '@/lib/stores/session.svelte';
   import { errorMessage } from '@/lib/stores/toast.svelte';

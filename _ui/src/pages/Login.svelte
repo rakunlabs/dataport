@@ -1,7 +1,7 @@
 <script lang="ts">
   import { push, router } from 'svelte-spa-router';
   import { LogIn, KeyRound, Languages, TriangleAlert, LoaderCircle } from 'lucide-svelte';
-  import Logo from '@/lib/components/Logo.svelte';
+  import Logo from '@/lib/components/ui/Logo.svelte';
   import { login, session, takeReturn } from '@/lib/stores/session.svelte';
   import { api } from '@/lib/api/client';
   import type { AuthInfo } from '@/lib/api/types';

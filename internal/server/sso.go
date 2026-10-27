@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/rakunlabs/dataport/internal/auth"
 	"github.com/rakunlabs/dataport/internal/sso"
 	"github.com/rakunlabs/dataport/internal/store"
 )
@@ -16,8 +18,8 @@ func (s *Server) authInfo(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"password":  !s.cfg.Auth.DisablePasswordLogin,
 		"providers": s.sso.Public(),
-		// Days a "remember me" session lasts; zero hides the option.
-		"remember_days": int(s.auth.RememberTTL().Hours() / 24),
+		// Days a remembered session may stay unused; zero hides the option.
+		"remember_days": rememberDays(s.auth.Lifetime()),
 	})
 }
 
@@ -163,4 +165,12 @@ func (s *Server) adminUnlinkSSO(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func rememberDays(l auth.SessionLifetime) int {
+	if !l.RememberEnabled() {
+		return 0
+	}
+
+	return max(1, int(time.Duration(l.RememberIdle).Hours()/24))
 }

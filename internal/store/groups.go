@@ -116,6 +116,11 @@ func (s *Store) DeleteGroup(ctx context.Context, id string) error {
 			return err
 		}
 
+		if _, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("notebook_access")+" WHERE subject_type = ? AND subject_id = ?"),
+			SubjectGroup, id); err != nil {
+			return err
+		}
+
 		res, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("user_groups")+" WHERE id = ?"), id)
 		if err != nil {
 			return err

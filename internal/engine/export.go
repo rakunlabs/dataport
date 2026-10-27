@@ -3,6 +3,7 @@ package engine
 import (
 	"archive/zip"
 	"bufio"
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/csv"
@@ -45,13 +46,7 @@ func ExportFileName(req ExportRequest) string {
 		base = req.Tables[0]
 	}
 
-	base = strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == '"' || r < ' ' {
-			return '_'
-		}
-
-		return r
-	}, base)
+	base = safeFileName(base)
 	if base == "" {
 		base = "export"
 	}
@@ -64,6 +59,20 @@ func ExportFileName(req ExportRequest) string {
 	}
 
 	return base + "." + req.Format
+}
+
+// safeFileName replaces path separators, quotes and control characters, so
+// a table name can neither leave the download folder nor the zip.
+func safeFileName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == '"' || r < ' ' {
+			return '_'
+		}
+
+		return r
+	}, name)
+
+	return strings.TrimLeft(name, ".")
 }
 
 // Export writes the tables to w. Several tables in CSV or JSON become a zip
@@ -97,7 +106,7 @@ func (m *Manager) Export(ctx context.Context, c *store.Connection, password stri
 		zw := zip.NewWriter(bw)
 
 		for _, table := range req.Tables {
-			f, err := zw.Create(strings.ReplaceAll(table, "/", "_") + "." + req.Format)
+			f, err := zw.Create(cmp.Or(safeFileName(table), "table") + "." + req.Format)
 			if err != nil {
 				return err
 			}

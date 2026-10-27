@@ -24,6 +24,17 @@ func Classify(d Driver, script string) Risk {
 	for _, stmt := range SplitScript(d, script) {
 		kw := FirstKeyword(stmt, d.Dialect())
 
+		// A T-SQL batch needs no semicolons, so one statement may hold
+		// several: rate it by the riskiest keyword it contains.
+		if d.Dialect() == DialectMSSQL {
+			switch _, r := tsqlKeyword(stmt); r {
+			case RiskDDL:
+				return RiskDDL
+			case RiskWrite:
+				risk = RiskWrite
+			}
+		}
+
 		switch {
 		case ddlKeywords[kw]:
 			return RiskDDL

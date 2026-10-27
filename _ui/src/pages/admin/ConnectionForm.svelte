@@ -1,14 +1,16 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { PlugZap, LoaderCircle, CircleCheck, CircleX, X, Users, UsersRound, ChevronRight, ChevronLeft } from 'lucide-svelte';
-  import Modal from '@/lib/components/Modal.svelte';
-  import DbPicker from '@/lib/components/DbPicker.svelte';
-  import DbIcon from '@/lib/components/DbIcon.svelte';
+  import { PlugZap, LoaderCircle, CircleCheck, CircleX, ChevronRight, ChevronLeft } from 'lucide-svelte';
+  import Modal from '@/lib/components/ui/Modal.svelte';
+  import DbPicker from '@/lib/components/ui/DbPicker.svelte';
+  import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { dbLabel } from '@/lib/helper/databases';
   import { api } from '@/lib/api/client';
   import type { Access, Connection, Limits } from '@/lib/api/types';
-  import LimitsFields from '@/lib/components/LimitsFields.svelte';
-  import { admin, groupName, userName } from '@/pages/admin/admin.svelte';
+  import LimitsFields from '@/lib/components/ui/LimitsFields.svelte';
+  import ConnectionAccess from '@/pages/admin/ConnectionAccess.svelte';
+  import ConnectionSecurity from '@/pages/admin/ConnectionSecurity.svelte';
+  import { admin } from '@/pages/admin/admin.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
 
   let {
@@ -47,7 +49,6 @@
   let testing = $state(false);
   let test = $state<{ ok: boolean; message?: string; duration_ms?: number } | null>(null);
   let error = $state('');
-  let pick = $state('');
 
   const driver = $derived(admin.drivers.find((d) => d.type === form.db_type));
   const target = $derived(driver?.target ?? 'network');
@@ -120,20 +121,6 @@
       busy = false;
     }
   }
-
-  function addAccess() {
-    if (!pick) return;
-    const [subject_type, subject_id] = pick.split(':') as ['user' | 'group', string];
-    if (!form.access.some((a) => a.subject_type === subject_type && a.subject_id === subject_id)) {
-      form.access.push({ subject_type, subject_id, read_only: true });
-    }
-    pick = '';
-  }
-
-  const available = $derived({
-    groups: admin.groups.filter((g) => !form.access.some((a) => a.subject_type === 'group' && a.subject_id === g.id)),
-    users: admin.users.filter((u) => u.role !== 'admin' && !form.access.some((a) => a.subject_type === 'user' && a.subject_id === u.id)),
-  });
 </script>
 
 <Modal
@@ -242,51 +229,7 @@
       </div>
       {/if}
       <div class="col-span-3">
-        {#if target !== 'network'}
-          <span class="label">{t('admin.conn.location')}</span>
-          <p class="flex h-7 items-center text-xs text-muted">{target === 'file' ? t('admin.conn.onServer') : t('admin.conn.viaOdbc')}</p>
-        {:else if form.db_type === 'postgres'}
-          <label class="label" for="c-ssl">{t('admin.conn.sslMode')}</label>
-          <select id="c-ssl" class="input" bind:value={form.options.sslmode}>
-            <option value="">{t('admin.conn.default', { value: 'prefer' })}</option>
-            {#each ['disable', 'allow', 'require', 'verify-ca', 'verify-full'] as m (m)}<option value={m}>{m}</option>{/each}
-          </select>
-        {:else if form.db_type === 'mssql'}
-          <label class="label" for="c-enc">{t('admin.conn.encryption')}</label>
-          <div class="flex gap-2">
-            <select id="c-enc" class="input" bind:value={form.options.encrypt}>
-              <option value="">{t('admin.conn.encRequired')}</option>
-              <option value="disable">{t('admin.conn.encDisabled')}</option>
-              <option value="false">{t('admin.conn.encLogin')}</option>
-              <option value="strict">{t('admin.conn.encStrict')}</option>
-            </select>
-            <label class="flex shrink-0 items-center gap-1.5 text-xs" title={t('admin.conn.trustCertHint')}>
-              <input type="checkbox" checked={form.options.trust_server_certificate === 'true'}
-                onchange={(e) => (form.options.trust_server_certificate = (e.target as HTMLInputElement).checked ? 'true' : '')} />
-              {t('admin.conn.trustCert')}
-            </label>
-          </div>
-        {:else if form.db_type === 'oracle' || form.db_type === 'trino'}
-          <label class="label" for="c-ossl">{t('admin.conn.tls')}</label>
-          <select id="c-ossl" class="input" bind:value={form.options.ssl}>
-            <option value="">{t('admin.conn.tlsOff')}</option>
-            <option value="true">{t('admin.conn.tlsOn')}</option>
-            <option value="skip-verify">{t('admin.conn.chSkip')}</option>
-          </select>
-        {:else if form.db_type === 'clickhouse'}
-          <label class="label" for="c-sec">{t('admin.conn.tlsNative')}</label>
-          <select id="c-sec" class="input" bind:value={form.options.secure}>
-            <option value="">{t('admin.conn.chOff')}</option>
-            <option value="true">{t('admin.conn.chOn')}</option>
-            <option value="skip-verify">{t('admin.conn.chSkip')}</option>
-          </select>
-        {:else}
-          <label class="label" for="c-tls">{t('admin.conn.tls')}</label>
-          <select id="c-tls" class="input" bind:value={form.options.tls}>
-            <option value="">{t('admin.conn.default', { value: 'preferred' })}</option>
-            {#each ['false', 'true', 'skip-verify'] as m (m)}<option value={m}>{m}</option>{/each}
-          </select>
-        {/if}
+        <ConnectionSecurity bind:options={form.options} dbType={form.db_type} {target} />
       </div>
       <div class="col-span-3">
         <span class="label">{t('admin.conn.color')}</span>
@@ -352,43 +295,7 @@
       </div>
     </details>
 
-    <section>
-      <span class="label">{t('admin.conn.whoCanUse')}</span>
-      <p class="mb-2 text-xs text-muted">
-        {t('admin.conn.whoCanUseHint')}
-      </p>
-      <div class="mb-2 flex gap-2">
-        <select class="input" bind:value={pick}>
-          <option value="">{t('admin.conn.addSubject')}</option>
-          {#if available.groups.length}
-            <optgroup label={t('admin.groups')}>
-              {#each available.groups as g (g.id)}<option value={'group:' + g.id}>{g.name}</option>{/each}
-            </optgroup>
-          {/if}
-          {#if available.users.length}
-            <optgroup label={t('admin.users')}>
-              {#each available.users as u (u.id)}<option value={'user:' + u.id}>{u.display_name || u.username}</option>{/each}
-            </optgroup>
-          {/if}
-        </select>
-        <button type="button" class="btn-outline" onclick={addAccess} disabled={!pick}>{t('common.add')}</button>
-      </div>
-      <div class="divide-y divide-line-soft rounded-md border border-line">
-        {#each form.access as a, i (a.subject_type + a.subject_id)}
-          <div class="flex items-center gap-2 px-3 py-1.5 text-sm">
-            {#if a.subject_type === 'group'}<UsersRound size={14} class="text-muted" />{:else}<Users size={14} class="text-muted" />{/if}
-            <span class="flex-1">{a.subject_type === 'group' ? groupName(a.subject_id) : userName(a.subject_id)}</span>
-            <select class="h-7 rounded border border-line bg-bg px-1.5 text-xs" bind:value={a.read_only} disabled={form.read_only}>
-              <option value={true}>{t('admin.readOnly')}</option>
-              <option value={false}>{t('admin.readWrite')}</option>
-            </select>
-            <button type="button" class="icon-btn size-6" onclick={() => form.access.splice(i, 1)} aria-label={t('admin.remove')}><X size={13} /></button>
-          </div>
-        {:else}
-          <p class="px-3 py-3 text-center text-xs text-faint">{t('admin.conn.nobody')}</p>
-        {/each}
-      </div>
-    </section>
+    <ConnectionAccess bind:access={form.access} readOnly={form.read_only} />
 
     {#if error}<p class="rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{error}</p>{/if}
   </form>

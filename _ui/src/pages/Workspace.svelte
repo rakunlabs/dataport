@@ -1,18 +1,21 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
   import { FilePlus2, Lock, ChevronsRight } from 'lucide-svelte';
-  import TopBar from '@/lib/components/TopBar.svelte';
-  import Sidebar from '@/lib/components/Sidebar.svelte';
-  import TabBar from '@/lib/components/TabBar.svelte';
-  import QueryTab from '@/lib/components/QueryTab.svelte';
-  import TableTab from '@/lib/components/TableTab.svelte';
-  import RightPanel from '@/lib/components/RightPanel.svelte';
+  import TopBar from '@/lib/components/workspace/TopBar.svelte';
+  import Sidebar from '@/lib/components/workspace/Sidebar.svelte';
+  import TabBar from '@/lib/components/workspace/TabBar.svelte';
+  import QueryTab from '@/lib/components/workspace/QueryTab.svelte';
+  import TableTab from '@/lib/components/table/TableTab.svelte';
+  import RightPanel from '@/lib/components/workspace/RightPanel.svelte';
   import Settings from '@/pages/Settings.svelte';
-  import DiagramTab from '@/lib/components/DiagramTab.svelte';
-  import DocsTab from '@/lib/components/DocsTab.svelte';
-  import ProcessesTab from '@/lib/components/ProcessesTab.svelte';
-  import UsersTab from '@/lib/components/UsersTab.svelte';
-  import DbIcon from '@/lib/components/DbIcon.svelte';
+  import DiagramTab from '@/lib/components/docs/DiagramTab.svelte';
+  import DocsTab from '@/lib/components/docs/DocsTab.svelte';
+  import DocsHub from '@/lib/components/docs/DocsHub.svelte';
+  import ProcessesTab from '@/lib/components/server/ProcessesTab.svelte';
+  import UsersTab from '@/lib/components/server/UsersTab.svelte';
+  import DbIcon from '@/lib/components/ui/DbIcon.svelte';
+  import Notebooks from '@/lib/components/notebook/Notebooks.svelte';
+  import NotebookTab from '@/lib/components/notebook/NotebookTab.svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { activeTab, openQueryTab, startWorkspace, ws } from '@/lib/stores/workspace.svelte';
 
@@ -55,10 +58,12 @@
 
   <div class="flex min-h-0 flex-1">
     {#if collapsed}
-      <div class="flex w-9 shrink-0 flex-col items-center border-r border-line bg-panel pt-1.5">
-        <button class="icon-btn" onclick={() => setCollapsed(false)} title={t('sidebar.expand')} aria-label={t('sidebar.expand')} aria-expanded="false">
-          <ChevronsRight size={15} />
-        </button>
+      <div class="flex w-9 shrink-0 flex-col border-r border-line bg-panel">
+        <div class="pane-head items-center justify-center">
+          <button class="icon-btn size-6" onclick={() => setCollapsed(false)} title={t('sidebar.expand')} aria-label={t('sidebar.expand')} aria-expanded="false">
+            <ChevronsRight size={15} />
+          </button>
+        </div>
       </div>
     {:else}
       <div class="shrink-0 border-r border-line" style="width:{sidebarWidth}px">
@@ -75,7 +80,13 @@
       <div class="min-h-0 flex-1">
         {#if tab}
           {#key tab.id}
-            {#if tab.kind === 'query'}
+            {#if tab.kind === 'notebooks'}
+              <Notebooks />
+            {:else if tab.kind === 'docsHub'}
+              <DocsHub />
+            {:else if tab.kind === 'notebook'}
+              <NotebookTab {tab} />
+            {:else if tab.kind === 'query'}
               <QueryTab {tab} />
             {:else if tab.kind === 'settings'}
               <Settings />

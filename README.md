@@ -25,8 +25,8 @@ docker run -d -p 8080:8080 -v dataport:/data -v ./databases:/files \
   ghcr.io/rakunlabs/dataport:latest
 ```
 
-`/data` holds the SQLite store and the generated secret key; keep it on a
-volume and back it up. Behind a reverse proxy that rewrites `Host`, pass the
+`/data` holds the SQLite store; keep it on a volume and back it up. Set
+`DATAPORT_AUTH_SECRET_KEY` too, and back it up with the store. Behind a reverse proxy that rewrites `Host`, pass the
 original host in `X-Forwarded-Host` and set `DATAPORT_AUTH_SECURE_COOKIE=true`
 when TLS ends at the proxy.
 
@@ -49,25 +49,28 @@ Tables are created on start; migrations take a lock, so replicas can start
 together. When the account that may create tables differs from the one the
 application runs with, set `DATAPORT_STORE_MIGRATE_DSN`: migrations then run
 on that connection and the application only needs to read and write the
-tables. With PostgreSQL set `DATAPORT_AUTH_SECRET_KEY` on every replica,
-since a generated key lives in the local data directory. There is no tool to
+tables. With PostgreSQL set the same `DATAPORT_AUTH_SECRET_KEY` on every
+replica. There is no tool to
 move an existing SQLite store to PostgreSQL yet.
 
 Environment variables use the `DATAPORT_` prefix (a `dataport.yaml` file works
 too).
+The `DATAPORT_QUERY_*` (except `FILE_DIR`), `DATAPORT_NOTEBOOK_*` and
+`DATAPORT_MCP_*` values are starting values: admins can change them under
+*Settings → Server limits*, and a value saved there wins until it is reset.
+Most apply at once; turning MCP on or off and stateless mode apply after a
+restart.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DATAPORT_DATA_DIR` | `./data` | SQLite file and generated secret key |
+| `DATAPORT_DATA_DIR` | `./data` | SQLite file |
 | `DATAPORT_STORE_TYPE` | `sqlite` | `sqlite` or `postgres` for the app database |
 | `DATAPORT_STORE_DSN` | | PostgreSQL connection string, e.g. `postgres://dataport:secret@db:5432/dataport`; for SQLite the database file (default `<data dir>/dataport.db`) |
 | `DATAPORT_STORE_MIGRATE_DSN` | | PostgreSQL only: separate connection that creates and migrates the tables; empty uses the store DSN |
 | `DATAPORT_STORE_TABLE_PREFIX` | `dataport_` | Prefix of the app tables, to share a database or schema. Before this version it was `dp_`: set it to `dp_` to keep an existing store |
-| `DATAPORT_AUTH_SECRET_KEY` | generated | Encrypts stored connection passwords. Any text; an AES key is derived from it with argon2id. Back it up |
+| `DATAPORT_AUTH_SECRET_KEY` | | Encrypts stored connection passwords. Any text; an AES key is derived from it with argon2id. Empty is used as an empty key (a warning is logged), so set one before saving passwords; changing it later makes saved ones unreadable. Back it up |
 | `DATAPORT_AUTH_ADMIN_USERNAME` | `admin` | First admin, created when there are no users |
 | `DATAPORT_AUTH_ADMIN_PASSWORD` | generated | |
-| `DATAPORT_AUTH_SESSION_TTL` | `12h` | Sliding session lifetime; the cookie ends when the browser closes |
-| `DATAPORT_AUTH_REMEMBER_TTL` | `720h` | Sliding lifetime of a session signed in with *Remember me*, whose cookie survives closing the browser; `0` hides the option |
 | `DATAPORT_AUTH_SECURE_COOKIE` | `false` | Force the Secure cookie flag |
 | `DATAPORT_AUTH_EXTERNAL_URL` | | Public origin for SSO redirect URIs, e.g. `https://dataport.example.com` |
 | `DATAPORT_AUTH_DISABLE_PASSWORD_LOGIN` | `false` | Hide the password form and allow only SSO |
@@ -80,6 +83,9 @@ too).
 | `DATAPORT_QUERY_POOL_MAX_LIFETIME` | `1h` | Default lifetime of a pooled connection |
 | `DATAPORT_QUERY_POOL_MAX_IDLE_TIME` | `5m` | Default time an unused connection stays open |
 | `DATAPORT_QUERY_FILE_DIR` | | Directory SQLite and DuckDB files are opened from; empty disables file databases |
+| `DATAPORT_NOTEBOOK_MAX_CONCURRENT` | `8` | Maximum simultaneous notebook runs per instance, foreground and background combined; excess requests return 429 |
+| `DATAPORT_NOTEBOOK_MAX_DURATION` | `30m` | Whole-notebook deadline, also for background runs; cell and server query timeouts still apply |
+| `DATAPORT_NOTEBOOK_MAX_OUTPUT_BYTES` | `16777216` | Total result budget of a notebook, including dependency results (16 MiB); SQL cells return at most 10,000 rows per statement and obey lower server limits |
 | `DATAPORT_MCP_ENABLED` | `true` | Serve the MCP endpoint at `<base path>/mcp` |
 | `DATAPORT_MCP_MAX_ROWS` | `200` | Rows returned to an agent per statement |
 | `DATAPORT_MCP_MAX_CELL_CHARS` | `2000` | Longer text values are shortened for agents |
@@ -91,11 +97,24 @@ too).
 
 ## How access works
 
+- Sign-in lifetimes are set by admins under **Settings → Sign-in**. A sign-in
+  without *Remember me* ends 24 hours after signing in and its cookie ends
+  with the browser. A remembered one stays while used: each visit extends it
+  by 7 days, up to 30 days after signing in. Changes apply to open sessions
+  from their next use.
 - Connections are granted to users or groups, read-only or read-write.
   Read-write needs both the connection and a grant to allow it.
 - Each run is one transaction. Read-only runs use a read-only transaction and
   only reading statements; everything else is rolled back. A failing statement
   rolls back the whole run. `BEGIN`/`COMMIT` in scripts are refused.
+- A query tab can switch to a **manual transaction** (the *TX* button): its
+  runs then share one transaction until the user presses *Commit* or
+  *Rollback*. A failing statement keeps the transaction open; stopping a run,
+  closing the tab or 30 minutes without use rolls it back. The choice is
+  remembered for new tabs and survives a reload, and the open transaction
+  too while the server holds it. It holds a pooled connection on that server
+  instance, so at most the pool size minus one can be open per connection.
+  Commits and rollbacks are written to the query log.
 - The account configured on the connection is the final limit: give it only
   the privileges users should have.
 - A connection can instead let **each user sign in with their own database
@@ -195,18 +214,24 @@ again. Snapshots (including triggers) are isolated by user, connection and
 schema, survive restarts, and are invalidated when the connection or saved
 database identity changes. Current access is checked on every read and job.
 
-*Refresh now* rebuilds the snapshot. *Auto-refresh* saves a personal cron
-schedule for this schema, powered by
-[hardloop](https://github.com/rakunlabs/hardloop). Leave it blank to turn it
-off, use `@hourly`, or e.g. `CRON_TZ=Europe/Istanbul 0 3 * * *` for 03:00
-Istanbul time daily. The minimum interval is one minute; without `CRON_TZ`
-the server's time zone applies. Day-of-month and weekday restrictions use
-AND, not traditional cron's OR. The UI shows the snapshot date, next run,
-refresh-in-progress and failure status. MCP outputs also state the snapshot
-date and that it is not live.
+*Refresh now* rebuilds the snapshot. Scheduled refreshes use one server-wide
+cron schedule, powered by [hardloop](https://github.com/rakunlabs/hardloop),
+that admins edit under *Settings → Documentation*: a *Scheduled refresh*
+switch turns it on or off (keeping the expression), and *Refresh all now*
+rebuilds every saved snapshot at once, with progress and an estimated finish
+time. Users keep seeing the previous document until its new one is ready.
+The schedule defaults to midnight
+(`0 0 * * *`, server time) and rebuilds every saved snapshot, each with its
+owner's current access. Use
+`@hourly`, or e.g. `CRON_TZ=Europe/Istanbul 0 3 * * *` for 03:00 Istanbul
+time daily. The minimum interval is one minute. Day-of-month and weekday
+restrictions use AND, not traditional cron's OR. The UI shows the snapshot
+date, next run, refresh-in-progress and failure status. MCP outputs also
+state the snapshot date and that it is not live.
 
-Hardloop checks due schedules each minute and once at startup. A missed
-schedule runs once on recovery, not once per missed occurrence. Jobs run
+A run missed while the server was down happens once at startup, not once per
+missed occurrence. A schedule saved on one replica reaches the others within
+a minute. Jobs run
 sequentially per instance; persisted, expiring leases prevent manual and
 scheduled refreshes from overlapping across replicas, with fenced writes.
 On failure the last successful document stays available with a warning;
@@ -230,8 +255,268 @@ and definitions, though no table rows or connection passwords.
 - *Data transfer* copies tables to another connection, also across database
   types, mapping column types; each table is one transaction on the target.
   Indexes and foreign keys are not copied.
+- *Generate test data* (on a table) fills it with made-up rows: names,
+  emails, addresses, numbers, dates and more, guessed per column from its
+  name and type and changeable before the run, with a live preview. Foreign
+  keys pick existing values of the referenced table; identity, computed and
+  defaulted columns are left to the database. A column can also take a list,
+  a constant, a sequence or a mugo template such as
+  `{{ .row.first_name | lower }}@example.com` (`fake "email"`, `randInt` and
+  `oneOf` make values). A seed makes the same rows again. A data language
+  (any of faker.js's, such as Türkçe or 日本語) turns names, places, phone
+  numbers, companies and text into that language; the browser makes those
+  values with faker.js, so this is in the UI only. Agents have the
+  same tool as `dataport_generate_rows`, in English.
 
 Tools that write need a read-write grant and follow the production rules.
+
+## Notebooks and SQL endpoints
+
+Open **Notebooks** in the top bar, then **New notebook**, or use **Create
+notebook** in a query tab. Notebooks are stored on the server (SQLite or
+PostgreSQL), separately from saved queries. Each starts private.
+
+### Cells and dependencies
+
+Each cell has its own connection, description, unique path, SQL, row limit
+and timeout. Cells can be reordered with the up/down controls, duplicated,
+collapsed or disabled. **Show output** controls the returned result; it does
+not stop dependent cells from using it. The existing result grid and CSV/JSON
+export work on notebook results too.
+
+Save before running. **Run all** uses enabled cells; **Run cell** runs that
+cell and its dependencies. Dependencies are cell paths under **Cell
+settings**. They run in a stable topological order, once per run, including
+nested dependencies. Missing, cyclic and disabled dependencies are refused.
+Dependency cells must be read-only SQL cells, not write or transfer cells.
+Only the final row-producing statement of a dependency supplies its value.
+Results are capped; a dependency can therefore see a partial result when its
+query exceeds the row limit. Use narrow queries rather than relying on an
+unbounded dependency result.
+
+Cells are read-only by default. **Allow writes** is an explicit opt-in and
+still requires a writable database grant. **Each cell is a separate
+transaction**, not a transaction for the whole notebook: if a later cell
+fails or is cancelled, earlier committed writes remain. Databases without
+transactions retain their usual engine limitations. A failed run is never
+automatically replayed.
+
+### Parameters and safe SQL templates
+
+Declare inputs under **Parameters** with a name, type (`string`, `number`,
+`boolean`, `json`), required flag and optional JSON default. Test input is a
+JSON object. Unknown inputs and wrong types are refused. Defaults are JSON:
+write `"active"`, not `active`, for a string. Local drafts and test input are
+kept in the signed-in user's browser storage; do not use them for secrets.
+
+Enable **SQL template** on a cell to use Go template control flow and bound
+values. For example, a cell with path `customers`:
+
+```sql
+SELECT id, name FROM customers
+WHERE status = {{ param .data.status }};
+```
+
+A second cell depending on `customers` can use:
+
+```sql
+SELECT * FROM orders
+WHERE customer_id = {{ param (index .cells.customers 0).id }};
+```
+
+Do **not** put quotes around `{{ param ... }}`. It becomes a native driver
+placeholder (`?`, `$1`, `@p1`, etc.), and the value is bound separately, never
+interpolated into SQL. Parameterized cells must contain one statement.
+Identifiers (table, schema and column names) must be static SQL; dynamic
+`ident` interpolation is deliberately unavailable, including inside quoted
+SQL or comments. `if`, `with`, and a single level of `range` over an array
+or object are supported. Output actions must end with `param`. Rendering is
+cancellation-aware and capped at 10,000 iterations; integer ranges are
+refused. Inputs are bounded to 10,000 values and 20 levels of nesting; SQL
+and rendered SQL are limited to 1 MiB.
+
+#### mugo functions
+
+Templates use [mugo](https://rytsh.github.io/mugo/functions/reference.html)
+functions, as Saz does, limited to those that cannot reach the server and
+whose output stays proportional to their input. Shape a value, then bind it:
+
+```sql
+SELECT * FROM customers
+WHERE name = {{ .data.name | trim | upper | param }}
+  AND id = {{ param (cast.ToInt .data.id) }}
+  AND tags = {{ param (.data.tags | sortAlpha | join ",") }};
+```
+
+Available:
+
+- **strings:** `trim`, `trimAll`, `trimPrefix`, `trimSuffix`, `upper`,
+  `lower`, `title`, `untitle`, `substr`, `trunc`, `abbrev`, `abbrevboth`,
+  `nospace`, `initials`, `swapcase`, `snakecase`, `camelcase`, `kebabcase`,
+  `contains`, `hasPrefix`, `hasSuffix`, `quote`, `squote`, `cat`, `plural`,
+  `toString`, `splitList`, `join`, `sortAlpha`, `replace`, `regexMatch`,
+  `regexFind`, `regexFindAll`, `regexSplit`;
+- **numbers:** `atoi`, `int`, `int64`, `float64`, `add`, `add1`, `sub`,
+  `mul`, `div`, `mod`, `max`, `min`, `addf`, `add1f`, `subf`, `mulf`, `divf`,
+  `maxf`, `minf`, `round`, `floor`, `ceil`;
+- **defaults and logic:** `default`, `empty`, `coalesce`, `ternary`, `all`,
+  `any`, `compact`;
+- **data:** `list`, `dict`, `get`, `hasKey`, `keys`, `values`, `pick`,
+  `omit`, `dig`, `first`, `last`, `rest`, `initial`, `reverse`, `has`;
+- **JSON and encoding:** `toJson`, `toRawJson`, `fromJson`, `b64enc`,
+  `b64dec`, `b32enc`, `b32dec`, `sha1sum`, `sha256sum`, `sha512sum`,
+  `adler32sum`;
+- **dates:** `now`, `date`, `dateInZone`, `toDate`, `mustToDate`,
+  `unixEpoch`, `duration`, `durationRound`, `dateModify`, `ago`, `uuidv4`;
+- **mugo namespaces:** `cast.ToBool`, `ToFloat64`, `ToInt`, `ToInt64`,
+  `ToString`, `ToSlice`, `ToStringSlice`, `ToStringMap`, `ToIntSlice`,
+  `ToDuration`, `StringToDate`; `codec.JsonDecode`, `JsonEncode`,
+  `ByteToString`, `StringToByte`; `crypto.Base64`, `Base64Decode`, `MD5`,
+  `SHA1`, `SHA256`, `FNV32a`, `HMAC`, `JwtParseUnverified`; `time.Now`,
+  `RFC3339`, `Format`, `UTC`, `AddDuration`, `Duration`, `AddDate`;
+- **Go built-ins:** `index`, `len`, `slice`, `eq`, `ne`, `lt`, `le`, `gt`,
+  `ge`, `and`, `or`, `not`.
+
+Not available: functions that read the environment, files or network or
+run commands (`env`, `expandenv`, `getHostByName`, `exec`, `file`, `os`,
+`execTemplate`); functions whose output a small input can blow up (`repeat`,
+`until`, `untilStep`, `seq`, `indent`, `wrap`, `printf`, `randBytes`, key
+and certificate generation, `bcrypt`); and mugo's `math` namespace, whose
+arbitrary-precision decimals turn `"1e999999999"` into a billion digits; use
+the integer and float functions above instead. Namespaces work only as
+`namespace.Method`, not as values. Missing keys are errors: for optional
+inputs use `get .data "key" | default "x"` or declare a parameter default.
+`param` binds strings, numbers, booleans, dates and byte strings; exact
+decimals stay text, so the database converts them without rounding.
+
+**Preview writes** runs read-only cells and renders write cells without
+executing them. Production SQL writes in the workspace first show this
+preview. Approval is bound to the connection, exact SQL and parameter values;
+dependencies are read again when the real run starts, and changed values
+require another review. Preview reads and actual reads are not a shared
+database snapshot. Inspect the partial-success warning before manually
+retrying a run.
+
+### Sharing and publishing
+
+The owner or an administrator can share with users/groups:
+
+- **View**: read the notebook;
+- **View and run**: also execute it;
+- **View, run and edit**: also save changes.
+
+Only the owner or an administrator can change sharing, delete or publish.
+Notebook sharing never grants database access. All source and target grants
+are checked before running, and again before each cell. Own-account
+connections use the caller's saved database identity, not the author's.
+Saving uses optimistic version checks so two editors cannot silently
+overwrite one another. Running or previewing also requires the version
+currently displayed: a newer saved draft causes a reload-required error,
+never silent execution of unseen SQL.
+
+Under **Endpoint**, publish a saved version. The endpoint runs an immutable
+snapshot of that document; saving a draft does not change it. Publish again
+to replace the snapshot, or **Unpublish** to disable it. A published path
+cannot be renamed until it is unpublished.
+
+Published endpoints require a personal access token as a bearer token;
+browser session cookies alone do not work. Create a token under **Settings →
+MCP access**. The token's owner needs notebook execution permission and all
+the database grants. A single-connection token cannot run a plan using
+another connection. Tokens are rechecked on each request and between cells.
+GET runs are read-only. POST may execute non-production writes only with a
+write-capable token and writable grants. **Production writes are refused by
+published endpoints**, since no interactive confirmation is available.
+
+```sh
+curl -X POST 'https://dataport.example.com/api/v1/run/customer-report' \
+  -H 'Authorization: Bearer dpt_…' \
+  -H 'Content-Type: application/json' \
+  --data '{"status":"active"}'
+
+# Run one published cell and its dependencies:
+curl 'https://dataport.example.com/api/v1/run/customer-report/customers?status=active' \
+  -H 'Authorization: Bearer dpt_…'
+```
+
+These paths are relative to the configured server base path. GET input uses
+query parameters; non-string parameters use JSON syntax. POST input is the
+JSON object itself, not a wrapper containing `data`. Responses contain a run
+ID, status, duration, and per-cell typed engine results for cells with output
+enabled. A failed run returns its partial results with HTTP 422; an
+unconfirmed workspace production write uses HTTP 409.
+
+### Background work and history
+
+**Run in background** starts a saved notebook and returns a run ID without
+waiting for completion. **Run history** shows cell status/timings and lets
+the initiating user or an administrator stop a run. History is private to
+the caller, except that administrators can inspect all runs of a notebook
+they can open. It records metadata, not input values or result rows;
+**background results cannot be downloaded later**. Use a foreground run for
+results or a transfer cell for a persistent destination.
+
+Runs maintain a heartbeat in the shared store. Cancellation requests work
+across replicas through the store, normally within one second. Abandoned
+workers are marked failed after their two-minute lease expires; terminal
+states cannot be overwritten by a late worker. Runs are not automatically
+resumed after a crash. Completed history is kept for 14 days. All replicas
+need the same store and secret key. A cancellation stops further work; it
+does not undo already committed cells.
+
+### Transfer cells
+
+Enable **Transfer SQL result** to stream a cell's read-only source query into
+an existing table on another connection, without materializing the whole
+dataset in the browser. Source query row limits do not restrict a transfer.
+Choose the target, schema, table and batch size (1–500, further limited by
+driver parameter limits). Optional **Empty target first** uses `DELETE`
+inside the target transaction.
+
+Mappings select/rename columns, preserve values or convert to
+string/number/date, enforce nullable handling, decode ISO-8859-1 bytes, and
+apply a value template. Value templates use the same mugo functions as SQL
+templates, with the source value at `.`, for example `{{ . | trim | upper }}`;
+they print the value directly, but cannot loop or call templates. No mappings
+keeps all columns.
+The source account may be read-only; the target needs a writable grant.
+The target must support transactions, must not be production, and must use
+a distinct connection. A target failure rolls back that cell's target
+transaction, including its optional DELETE. It does not roll back earlier
+notebook cells.
+
+**Skip insert errors containing** is optional and supported on PostgreSQL,
+MySQL and SQLite targets. A matching failed batch is rolled back to a
+savepoint and retried row by row, so valid neighbours are retained. An
+unmatched error or any savepoint-control failure aborts the transfer. The
+result reports inserted and skipped rows. Production transfers remain in
+the existing connection transfer tool, rather than accepting a blanket
+notebook approval.
+
+### Import/export and Saz compatibility
+
+**Export notebook** downloads its definition as JSON, without credentials,
+results, sharing grants or tokens. **Import JSON / Saz** creates a new,
+unpublished local draft from a dataport document or a Saz note JSON object
+(`name`, `path`, `content.cells`); the Saz API's `data` wrapper is accepted
+too. Source/target database names are matched to
+dataport connections where possible; review every connection before saving.
+
+Cell order, paths, descriptions, enabled/output/template flags,
+dependencies, limits and compatible transfer configuration are carried over.
+Saz source-scan conversions (`map_type.column`) are refused with an explicit
+manual-migration error rather than being collapsed into a different destination
+conversion. Unknown encodings and the old skip-all-errors mode are also
+refused, never silently substituted. Saz templates printed values straight
+into the SQL text (`'{{ .data.status }}'`); dataport refuses that, so rewrite
+each value as a bound parameter without quotes, for example
+`{{ .data.status | param }}`. The supported mugo functions keep working inside
+that pipeline; the server-reaching ones listed above do not. Inputs used
+through `.data` must be declared in Parameters. Imported notebooks do not
+inherit the old shared-token model.
+
+The new UI labels are translated in English and Turkish; the other existing
+locales currently use English for the notebook namespace.
 
 ## Single sign-on
 
@@ -261,8 +546,13 @@ port, a file, or an ODBC connection string.
 | ODBC (Ingres, DB2, Informix, Teradata, HANA…) | statement checks, always rolled back | yes | `dataport-cgo` |
 
 The container image runs the cgo build, so every database above works in
-it. Its base image (`ghcr.io/rytsh/dock/db/multi`) brings unixODBC and the
-ODBC drivers; mount SQLite and DuckDB files under `/files`. Releases also
+it. Its base image (`ghcr.io/rakunlabs/dock/db/multi`) brings unixODBC and the
+ODBC drivers, registered in `/etc/odbcinst.ini` as `DB2`,
+`ODBC Driver 18 for SQL Server`, `PostgreSQL Unicode` and `MariaDB Unicode`
+(use them as `Driver={DB2};…`). Ingres is not included, as Actian's license
+does not allow redistribution; to add it, build your own image on top of
+dataport's as described in
+[dock/images/db](https://github.com/rakunlabs/dock/tree/main/images/db#adding-ingres). Mount SQLite and DuckDB files under `/files`. Releases also
 ship binaries, as dbq does: `dataport` is pure Go and runs anywhere without
 ODBC and DuckDB; `dataport-cgo` (linux/amd64) has them and needs unixODBC
 (`libodbc`) at run time. `make build-cgo` builds it locally and
@@ -288,6 +578,18 @@ the picker as unavailable.
 AI agents (Claude Code, Cursor, VS Code…) can use dataport through the Model
 Context Protocol (streamable HTTP). Settings → *MCP access* shows the
 address and the client setup.
+
+### Agent access
+
+Each user decides under **Settings → MCP access → Agent access** which of
+their connections agents may use: drag a connection between *Available to
+agents* and *Hidden from agents*, and choose per connection whether agents
+may **read**, **write** (change data) or also change the **schema** (DDL).
+Connections shared later start hidden or read-only, as the user chooses.
+The choice is one per user, read on every call, and applies at once to all
+of the user's tokens and signed-in clients. The user's own grant, read-only
+tokens and production confirmation remain upper limits. Until a user saves a
+choice, agents reach every connection as far as the grant allows.
 
 **Endpoints**
 
@@ -343,5 +645,35 @@ definition, row estimates and the columns of related tables),
 `dataport_schema_report` (the documentation's map and anomalies of a whole
 schema), `dataport_query` (read-only, rolled back) and `dataport_execute`
 (only for tokens that may write).
+
+**Notebooks over MCP.** An agent can manage the user's notebooks with the
+same rules as the workspace:
+
+- `dataport_list_notebooks`, `dataport_get_notebook`: the notebooks the user
+  owns or that are shared with them, and a notebook's cells (connection
+  names, SQL, flags, dependencies, transfer settings), parameters and version;
+- `dataport_run_notebook`: run the saved draft, or with `published` the
+  published snapshot, or one `cell` with its dependencies, with `inputs` for
+  its parameters; `preview` renders write cells without running them, and
+  `background` returns a run id at once;
+- `dataport_notebook_runs`, `dataport_cancel_notebook_run`: follow and stop
+  the caller's runs (administrators see every run);
+- `dataport_save_notebook`: create a notebook, or replace a draft the user may
+  edit; updates need the current `version`, so a concurrent change is never
+  overwritten, and cells name connections the user was granted;
+- `dataport_publish_notebook`, `dataport_share_notebook`,
+  `dataport_delete_notebook`: owner (or administrator) only. Shares name users
+  and groups; the list is replaced as a whole.
+
+Read-only tokens get only the reading and running tools, and their runs
+refuse write and transfer cells. A token or endpoint for one connection only
+sees notebooks whose cells (draft and published) all stay on that connection.
+Writes on production connections are shown to the user through the client
+(MCP elicitation): dataport previews the run, asks with every rendered
+statement and its bound values, and runs only those exact statements;
+dependency values that change in between are refused rather than run.
+Clients that cannot ask are refused, though they may still preview. Notebook
+statements go to the query log with source `mcp`; run history records the
+source too.
 
 Integration tests run against `make env`: `go test -tags integration ./internal/engine/`.

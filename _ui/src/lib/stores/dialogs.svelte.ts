@@ -1,7 +1,7 @@
-// The dialogs of the connection tools: export, import and transfer. The
-// tree opens them with what was right-clicked.
+// The dialogs of the connection tools: export, import, transfer and test
+// data. The tree opens them with what was right-clicked.
 
-export type ToolDialog = 'export' | 'import' | 'transfer';
+export type ToolDialog = 'export' | 'import' | 'transfer' | 'generate';
 
 interface Request {
   kind: ToolDialog;

@@ -9,8 +9,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
@@ -37,12 +35,9 @@ type Cipher struct {
 }
 
 // New derives an AES-256-GCM cipher from the secret key, which can be any
-// non-empty text.
+// text. An empty key is used as it is: it still encrypts, but anyone with
+// the store and dataport's source can read the passwords.
 func New(key string) (*Cipher, error) {
-	if strings.TrimSpace(key) == "" {
-		return nil, errors.New("secret key is empty")
-	}
-
 	block, err := aes.NewCipher(argon2.IDKey([]byte(key), kdfSalt, kdfTime, kdfMemory, kdfThreads, 32))
 	if err != nil {
 		return nil, fmt.Errorf("new aes cipher; %w", err)
@@ -54,42 +49,6 @@ func New(key string) (*Cipher, error) {
 	}
 
 	return &Cipher{aead: aead}, nil
-}
-
-// LoadOrCreateKey returns key when it is set, otherwise reads the key file in
-// dir, creating it with a random key on first use.
-func LoadOrCreateKey(key, dir string) (string, error) {
-	if key != "" {
-		return key, nil
-	}
-
-	path := filepath.Join(dir, "secret.key")
-
-	data, err := os.ReadFile(path)
-	if err == nil {
-		return strings.TrimSpace(string(data)), nil
-	}
-
-	if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("read secret key %s; %w", path, err)
-	}
-
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate secret key; %w", err)
-	}
-
-	generated := base64.RawStdEncoding.EncodeToString(raw)
-
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("create data dir %s; %w", dir, err)
-	}
-
-	if err := os.WriteFile(path, []byte(generated+"\n"), 0o600); err != nil {
-		return "", fmt.Errorf("write secret key %s; %w", path, err)
-	}
-
-	return generated, nil
 }
 
 func (c *Cipher) Encrypt(plain string) (string, error) {

@@ -1,11 +1,11 @@
 <script lang="ts">
   import { t, i18n, locales, setLocale } from '@/lib/i18n/index.svelte';
-  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, Moon, Sun, Monitor, Check, Info } from 'lucide-svelte';
+  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, Moon, Sun, Monitor, Check, Info, SlidersHorizontal } from 'lucide-svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
   import { ws } from '@/lib/stores/workspace.svelte';
-  import PasswordDialog from '@/lib/components/PasswordDialog.svelte';
-  import McpPanel from '@/lib/components/McpPanel.svelte';
+  import PasswordDialog from '@/lib/components/dialogs/PasswordDialog.svelte';
+  import McpPanel from '@/lib/components/settings/McpPanel.svelte';
   import EditorSettings from '@/pages/settings/EditorSettings.svelte';
   import About from '@/pages/settings/About.svelte';
   import Connections from '@/pages/admin/Connections.svelte';
@@ -13,8 +13,11 @@
   import Groups from '@/pages/admin/Groups.svelte';
   import Logs from '@/pages/admin/Logs.svelte';
   import Sso from '@/pages/admin/Sso.svelte';
+  import DocsSchedule from '@/pages/admin/Docs.svelte';
+  import Sessions from '@/pages/admin/Sessions.svelte';
+  import ServerSettings from '@/pages/admin/ServerSettings.svelte';
 
-  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'logs';
+  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'sessions' | 'server' | 'docs' | 'logs';
 
   const isAdmin = $derived(session.user?.role === 'admin');
 
@@ -30,6 +33,9 @@
     { key: 'users', label: 'admin.users', icon: Users },
     { key: 'groups', label: 'admin.groups', icon: UsersRound },
     { key: 'sso', label: 'admin.sso', icon: KeyRound },
+    { key: 'sessions', label: 'admin.sessions.title', icon: Timer },
+    { key: 'server', label: 'admin.server.title', icon: SlidersHorizontal },
+    { key: 'docs', label: 'admin.docs.title', icon: BookOpen },
     { key: 'logs', label: 'admin.logs', icon: ScrollText },
   ];
 
@@ -101,6 +107,12 @@
       <Groups />
     {:else if section === 'sso'}
       <Sso />
+    {:else if section === 'sessions'}
+      <Sessions />
+    {:else if section === 'server'}
+      <ServerSettings />
+    {:else if section === 'docs'}
+      <DocsSchedule />
     {:else if section === 'logs'}
       <Logs />
     {:else}
