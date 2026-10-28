@@ -7,16 +7,19 @@
 package sso
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rakunlabs/ada/middleware/auth/cookie"
 	"github.com/rakunlabs/ada/middleware/auth/identity"
@@ -93,10 +96,26 @@ type Manager struct {
 	mu         sync.RWMutex
 	providers  []Provider
 	strategies map[string]*oauth2.Strategy
+	// errs keeps why a provider failed to initialise, for the admin page.
+	errs    map[string]string
+	retried map[string]time.Time
 }
 
 func New(st *store.Store, ci *crypto.Cipher, basePath, externalURL string) *Manager {
-	return &Manager{store: st, cipher: ci, basePath: basePath, externalURL: strings.TrimSuffix(externalURL, "/")}
+	return &Manager{store: st, cipher: ci, basePath: basePath, externalURL: origin(externalURL)}
+}
+
+// origin keeps only the scheme and host of the external URL: ada refuses a
+// callback origin with a path, and the base path is added separately.
+func origin(raw string) string {
+	raw = strings.TrimSpace(raw)
+
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return strings.TrimSuffix(raw, "/")
+	}
+
+	return u.Scheme + "://" + u.Host
 }
 
 // CallbackPath is where providers redirect back to, without the origin.
@@ -112,6 +131,7 @@ func (m *Manager) Load(ctx context.Context) error {
 	}
 
 	strategies := make(map[string]*oauth2.Strategy, len(providers))
+	errs := map[string]string{}
 
 	for _, p := range providers {
 		if !p.Enabled {
@@ -121,6 +141,7 @@ func (m *Manager) Load(ctx context.Context) error {
 		s, err := m.build(ctx, p)
 		if err != nil {
 			slog.Error("sso provider is unavailable", "provider", p.Name, "error", err)
+			errs[p.Name] = err.Error()
 		}
 
 		if s != nil {
@@ -131,6 +152,7 @@ func (m *Manager) Load(ctx context.Context) error {
 	m.mu.Lock()
 	m.providers = providers
 	m.strategies = strategies
+	m.errs = errs
 	m.mu.Unlock()
 
 	return nil
@@ -170,16 +192,26 @@ func (m *Manager) build(ctx context.Context, p Provider) (*oauth2.Strategy, erro
 		TokenURL:        p.TokenURL,
 		UserInfoURL:     p.UserInfoURL,
 		JWKSURL:         p.JWKSURL,
-		IssuerURL:       p.IssuerURL,
 		DisablePKCE:     p.DisablePKCE,
 		AuthHeaderStyle: style,
+	}
+
+	// As in pika, explicit endpoints skip OIDC discovery: a discovery
+	// document whose issuer differs from the configured one in the
+	// slightest (a trailing slash) would disable the provider for good.
+	// Discovery is still needed when it is the only source of the user.
+	if p.AuthURL == "" || p.TokenURL == "" || (p.UserInfoURL == "" && p.JWKSURL == "") {
+		cfg.IssuerURL = p.IssuerURL
 	}
 
 	opts := oauth2.Options{
 		Label:            p.DisplayName,
 		CallbackBasePath: m.basePath + "/api/v1/auth/sso/callback",
 		CallbackBaseURL:  m.externalURL,
-		FlowCookie:       cookie.Options{Path: m.basePath + "/api/v1/auth/sso/"},
+		// Without an external URL the redirect URI is built from the request;
+		// behind a proxy that is the forwarded host, as elsewhere in dataport.
+		UnsafeTrustAllForwardedHeaders: m.externalURL == "",
+		FlowCookie:                     cookie.Options{Path: m.basePath + "/api/v1/auth/sso/"},
 	}
 
 	return oauth2.NewWithContext(ctx, p.Name, cfg, opts)
@@ -198,7 +230,10 @@ func (m *Manager) Public() []Public {
 	list := []Public{}
 
 	for _, p := range m.providers {
-		if _, ok := m.strategies[p.Name]; ok {
+		_, ok := m.strategies[p.Name]
+		// A provider that failed to start stays listed: a click tries it
+		// again and shows why it fails.
+		if ok || (p.Enabled && m.errs[p.Name] != "") {
 			label := p.DisplayName
 			if label == "" {
 				label = p.Name
@@ -211,12 +246,14 @@ func (m *Manager) Public() []Public {
 	return list
 }
 
-func (m *Manager) get(name string) (*oauth2.Strategy, Provider, bool) {
+func (m *Manager) get(ctx context.Context, name string) (*oauth2.Strategy, Provider, bool) {
+	m.retry(ctx, name)
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	s, ok := m.strategies[name]
-	if !ok {
+	if !ok || m.errs[name] != "" {
 		return nil, Provider{}, false
 	}
 
@@ -229,31 +266,133 @@ func (m *Manager) get(name string) (*oauth2.Strategy, Provider, bool) {
 	return nil, Provider{}, false
 }
 
-// Login runs one step of the flow: it redirects to the provider when the
-// request starts a login, and returns the identity on the callback. It
-// returns nil when the strategy already wrote the response.
-func (m *Manager) Login(w http.ResponseWriter, r *http.Request, name string) (*identity.Identity, Provider, bool) {
-	s, p, ok := m.get(name)
-	if !ok {
-		http.Error(w, "unknown sign-in provider", http.StatusNotFound)
+// retry builds a provider that failed at start again, such as when the
+// identity provider was not reachable yet, at most every half minute.
+func (m *Manager) retry(ctx context.Context, name string) {
+	m.mu.Lock()
+	failed := m.errs[name] != ""
+	due := time.Since(m.retried[name]) > 30*time.Second
 
-		return nil, Provider{}, false
+	var p Provider
+
+	idx := slices.IndexFunc(m.providers, func(x Provider) bool { return x.Name == name && x.Enabled })
+	if idx >= 0 {
+		p = m.providers[idx]
 	}
 
-	id, outcome, err := s.Login(w, r)
+	if failed && due && idx >= 0 {
+		if m.retried == nil {
+			m.retried = map[string]time.Time{}
+		}
+
+		m.retried[name] = time.Now()
+	}
+	m.mu.Unlock()
+
+	if !failed || !due || idx < 0 {
+		return
+	}
+
+	s, err := m.build(ctx, p)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err != nil {
+		slog.Error("sso provider is unavailable", "provider", name, "error", err)
+		m.errs[name] = err.Error()
+
+		return
+	}
+
+	m.strategies[name] = s
+	delete(m.errs, name)
+}
+
+// Login runs one step of the flow: it redirects to the provider when the
+// request starts a login, and returns the identity on the callback. With a
+// nil identity and no error the response was written (the redirect to the
+// provider). An error carries a message for the login page.
+func (m *Manager) Login(w http.ResponseWriter, r *http.Request, name string) (*identity.Identity, Provider, error) {
+	s, p, ok := m.get(r.Context(), name)
+	if !ok {
+		return nil, Provider{}, denied("this sign-in provider is not available")
+	}
+
+	// The strategy writes its failures as JSON; they are kept from the
+	// browser and shown on the login page instead.
+	cw := &captureWriter{ResponseWriter: w}
+
+	id, outcome, err := s.Login(cw, r)
 	if err != nil {
 		slog.Error("sso login", "provider", name, "error", err)
-		http.Error(w, "sign-in failed", http.StatusInternalServerError)
 
-		return nil, Provider{}, false
+		return nil, Provider{}, denied("sign-in failed, try again")
+	}
+
+	if cw.failed() {
+		slog.Warn("sso login failed", "provider", name, "status", cw.status, "response", strings.TrimSpace(cw.body.String()))
+
+		return nil, Provider{}, denied(failureMessage(cw.status, cw.body.Bytes()))
 	}
 
 	if outcome != strategy.OutcomeContinue || id == nil {
-		return nil, Provider{}, false
+		return nil, Provider{}, nil
 	}
 
-	return id, p, true
+	return id, p, nil
 }
+
+func failureMessage(status int, body []byte) string {
+	var e struct {
+		Error string `json:"error"`
+	}
+
+	_ = json.Unmarshal(body, &e)
+
+	switch {
+	case e.Error == "state_invalid" || e.Error == "pkce_missing":
+		return "the sign-in took too long or was started in another tab; try again"
+	case e.Error == "authorization_denied":
+		return "the sign-in was cancelled at the provider"
+	case e.Error == "provider_configuration":
+		return "the sign-in provider is misconfigured; ask an administrator"
+	case status >= http.StatusBadGateway:
+		return "the sign-in provider could not be reached or rejected the request; ask an administrator"
+	}
+
+	return "sign-in failed, try again"
+}
+
+// captureWriter passes a successful response through and holds back an
+// error response, so the caller can answer with a redirect instead.
+type captureWriter struct {
+	http.ResponseWriter
+
+	status int
+	body   bytes.Buffer
+}
+
+func (c *captureWriter) WriteHeader(status int) {
+	c.status = status
+	if status < http.StatusBadRequest {
+		c.ResponseWriter.WriteHeader(status)
+	}
+}
+
+func (c *captureWriter) Write(b []byte) (int, error) {
+	if c.status == 0 {
+		c.WriteHeader(http.StatusOK)
+	}
+
+	if c.failed() {
+		return c.body.Write(b)
+	}
+
+	return c.ResponseWriter.Write(b)
+}
+
+func (c *captureWriter) failed() bool { return c.status >= http.StatusBadRequest }
 
 // ////////////////////////////////////////////
 // admin
@@ -285,6 +424,10 @@ func (m *Manager) Status(name string) string {
 
 	for _, p := range m.providers {
 		if p.Name == name && p.Enabled {
+			if e := m.errs[name]; e != "" {
+				return e
+			}
+
 			if _, ok := m.strategies[name]; !ok {
 				return "unavailable, check the server log"
 			}

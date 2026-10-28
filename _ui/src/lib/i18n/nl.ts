@@ -40,7 +40,6 @@ const nl: Messages = {
   },
   login: {
     remember: 'Onthoud mij',
-    rememberDays: 'voor {days} dagen',
     rememberHint: 'Blijf {days} dagen aangemeld in deze browser, ook nadat je hem sluit. Laat dit uit op gedeelde computers.',
     title: 'Aanmelden',
     subtitle: 'Gebruik je dataport-account om de databases te openen die met je gedeeld zijn.',
@@ -51,6 +50,7 @@ const nl: Messages = {
     or: 'of',
     continueWith: 'Doorgaan met {name}',
     passwordDisabled: 'Meld je aan met je organisatieaccount.',
+    localLogin: 'Lokaal aanmelden',
   },
   password: {
     title: 'Wachtwoord wijzigen',
@@ -988,6 +988,17 @@ const nl: Messages = {
       disabledLabel: 'Uitgeschakeld',
       create: 'Gebruiker aanmaken',
     },
+    notebookAccess: {
+      title: 'Wie notebooks mag gebruiken',
+      description: 'Notebooks worden nog steeds één voor één gedeeld; dit bepaalt wie ze überhaupt mag gebruiken, ook via MCP en gepubliceerde endpoints. Beheerders mogen het altijd.',
+      everyone: 'Alle gebruikers',
+      groups: 'Alleen beheerders en deze groepen',
+      members: '{count} lid | {count} leden',
+      noGroups: 'Nog geen groepen. Maak er een aan onder Groepen.',
+      restrictedHint: 'Leden van een aangevinkte groep kunnen de met hen gedeelde notebooks openen, maken en uitvoeren. Anderen zien geen notebooks meer en hun lopende notebooks stoppen.',
+      adminsOnly: 'Zonder aangevinkte groep mogen alleen beheerders notebooks gebruiken.',
+      saved: 'Notebooktoegang opgeslagen',
+    },
     group: {
       description: 'Geef een team in één keer toegang tot een database in plaats van per gebruiker.',
       new: 'Nieuwe groep',
@@ -1001,6 +1012,12 @@ const nl: Messages = {
       create: 'Groep aanmaken',
     },
     sessions: {
+      page: 'Aanmeldpagina',
+      subtitle: 'Naam van de instantie',
+      subtitleHint: 'Staat onder het logo op de aanmeldpagina en ernaast in de bovenbalk, zodat gebruikers zien waar ze zijn, zoals sandbox of production. Laat leeg om niets te tonen.',
+      collapse: 'Lokaal aanmeldformulier standaard inklappen',
+      collapseHint: 'Gebruikers openen het met de kleine knop ‘Lokaal aanmelden’ op de aanmeldpagina. Aanmelden met een wachtwoord blijft voor alle lokale gebruikers mogelijk.',
+      pageSaved: 'Aanmeldpagina opgeslagen',
       title: 'Aanmelden',
       description: 'Hoe lang gebruikers aangemeld blijven.',
       session: 'Sessieduur',

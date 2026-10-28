@@ -40,7 +40,6 @@ const zhTW: Messages = {
   },
   login: {
     remember: '記住我',
-    rememberDays: '{days} 天',
     rememberHint: '在此瀏覽器上保持登入 {days} 天，關閉瀏覽器後依然有效。在共用電腦上請勿勾選。',
     title: '登入',
     subtitle: '使用您的 dataport 帳號存取與您共用的資料庫。',
@@ -51,6 +50,7 @@ const zhTW: Messages = {
     or: '或',
     continueWith: '使用 {name} 繼續',
     passwordDisabled: '請使用您的組織帳號登入。',
+    localLogin: '本機登入',
   },
   password: {
     title: '變更密碼',
@@ -988,6 +988,17 @@ const zhTW: Messages = {
       disabledLabel: '已停用',
       create: '建立使用者',
     },
+    notebookAccess: {
+      title: '誰可以使用notebook',
+      description: 'notebook仍逐一分享；此設定決定誰可以使用notebook，包括透過 MCP 與已發佈的端點。管理員一律可以使用。',
+      everyone: '所有使用者',
+      groups: '僅限管理員與這些群組',
+      members: '{count} 位成員',
+      noGroups: '尚無群組。請在「群組」中建立。',
+      restrictedHint: '勾選群組的成員可以開啟、建立並執行分享給他們的notebook。其他人不再看到notebook，執行中的notebook會停止。',
+      adminsOnly: '未勾選任何群組時，只有管理員可以使用notebook。',
+      saved: 'notebook存取已儲存',
+    },
     group: {
       description: '一次將資料庫指派給整個團隊，而不必逐一指派給使用者。',
       new: '新增群組',
@@ -1001,6 +1012,12 @@ const zhTW: Messages = {
       create: '建立群組',
     },
     sessions: {
+      page: '登入頁面',
+      subtitle: '執行個體名稱',
+      subtitleHint: '顯示在登入頁面的標誌下方與頂列標誌旁邊，讓使用者知道自己連到哪裡，例如 sandbox 或 production。留空則不顯示。',
+      collapse: '預設摺疊本機登入表單',
+      collapseHint: '使用者可透過登入頁面上的「本機登入」小按鈕展開表單。所有本機使用者仍可使用密碼登入。',
+      pageSaved: '登入頁面已儲存',
       title: '登入',
       description: '使用者保持登入的時間。',
       session: '工作階段時長',

@@ -40,7 +40,6 @@ const fr: Messages = {
   },
   login: {
     remember: 'Se souvenir de moi',
-    rememberDays: 'pendant {days} jours',
     rememberHint: 'Rester connecté sur ce navigateur pendant {days} jours, même après sa fermeture. Laissez désactivé sur les ordinateurs partagés.',
     title: 'Connexion',
     subtitle: 'Utilisez votre compte dataport pour accéder aux bases de données partagées avec vous.',
@@ -51,6 +50,7 @@ const fr: Messages = {
     or: 'ou',
     continueWith: 'Continuer avec {name}',
     passwordDisabled: 'Connectez-vous avec le compte de votre organisation.',
+    localLogin: 'Connexion locale',
   },
   password: {
     title: 'Changer le mot de passe',
@@ -988,6 +988,17 @@ const fr: Messages = {
       disabledLabel: 'Désactivé',
       create: "Créer l'utilisateur",
     },
+    notebookAccess: {
+      title: 'Qui peut utiliser les notebooks',
+      description: 'Les notebooks restent partagés un par un ; ceci décide qui peut les utiliser, aussi via MCP et les points de terminaison publiés. Les administrateurs le peuvent toujours.',
+      everyone: 'Tous les utilisateurs',
+      groups: 'Seulement les administrateurs et ces groupes',
+      members: '{count} membre | {count} membres',
+      noGroups: 'Pas encore de groupe. Créez-en un dans Groupes.',
+      restrictedHint: "Les membres d'un groupe coché peuvent ouvrir, créer et exécuter les notebooks partagés avec eux. Les autres ne les voient plus et leurs exécutions s'arrêtent.",
+      adminsOnly: 'Sans groupe coché, seuls les administrateurs peuvent utiliser les notebooks.',
+      saved: 'Accès aux notebooks enregistré',
+    },
     group: {
       description: "Attribuez une base de données à toute une équipe d'un coup plutôt qu'utilisateur par utilisateur.",
       new: 'Nouveau groupe',
@@ -1001,6 +1012,12 @@ const fr: Messages = {
       create: 'Créer le groupe',
     },
     sessions: {
+      page: 'Page de connexion',
+      subtitle: "Nom de l'instance",
+      subtitleHint: 'Affiché sous le logo sur la page de connexion et à côté dans la barre supérieure, pour que les utilisateurs voient où ils sont, par exemple sandbox ou production. Laissez vide pour ne rien afficher.',
+      collapse: 'Replier le formulaire de connexion locale par défaut',
+      collapseHint: "Les utilisateurs l'ouvrent avec le petit bouton « Connexion locale » de la page. La connexion par mot de passe reste possible pour tous les utilisateurs locaux.",
+      pageSaved: 'Page de connexion enregistrée',
       title: 'Connexion',
       description: 'Combien de temps les utilisateurs restent connectés.',
       session: 'Durée de session',

@@ -1,4 +1,10 @@
+<img align="left" height="64" src="assets/favicon-192x192.png" />
+
 # dataport
+
+[![License](https://img.shields.io/github/license/rakunlabs/dataport?color=blue&style=flat-square)](https://raw.githubusercontent.com/rakunlabs/dataport/main/LICENSE)
+[![Coverage](https://img.shields.io/sonar/coverage/rakunlabs_dataport?logo=sonarcloud&server=https%3A%2F%2Fsonarcloud.io&style=flat-square)](https://sonarcloud.io/summary/overall?id=rakunlabs_dataport)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/rakunlabs/dataport/test.yml?branch=main&logo=github&style=flat-square&label=ci)](https://github.com/rakunlabs/dataport/actions)
 
 A web SQL workspace for teams. An admin defines the databases and who may use
 them; users sign in with their own account and work only on what was shared

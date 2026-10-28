@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -17,11 +18,16 @@ type meResponse struct {
 	// CanCreateConnections is set while users may add their own
 	// connections.
 	CanCreateConnections bool `json:"can_create_connections"`
+	// Subtitle names this instance, as on the sign-in page.
+	Subtitle string `json:"subtitle,omitempty"`
+	// CanUseNotebooks is set when notebooks are open to the user.
+	CanUseNotebooks bool `json:"can_use_notebooks"`
 }
 
-func (s *Server) toMe(u *store.User) meResponse {
+func (s *Server) toMe(ctx context.Context, u *store.User) meResponse {
 	return meResponse{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role,
-		CanCreateConnections: s.connectionsCfg().UserCreate}
+		CanCreateConnections: s.connectionsCfg().UserCreate, Subtitle: s.loginPage(ctx).Subtitle,
+		CanUseNotebooks: s.notebooksAllowed(ctx, u)}
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +62,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.setCookie(w, r, token, req.Remember)
-	writeJSON(w, http.StatusOK, s.toMe(user))
+	writeJSON(w, http.StatusOK, s.toMe(r.Context(), user))
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +80,7 @@ func (s *Server) about(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.toMe(currentUser(r)))
+	writeJSON(w, http.StatusOK, s.toMe(r.Context(), currentUser(r)))
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {

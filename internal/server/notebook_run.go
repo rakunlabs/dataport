@@ -103,6 +103,10 @@ func (s *Server) publishedNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, caller.user))
+	if !s.notebooksAllowed(r.Context(), caller.user) {
+		writeError(w, http.StatusForbidden, errNotebooksOff.Error())
+		return
+	}
 	n, err := s.store.GetNotebook(r.Context(), caller.user, r.PathValue("path"), true)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		writeStoreError(w, err)

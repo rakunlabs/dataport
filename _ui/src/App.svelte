@@ -11,6 +11,11 @@
   import { t } from '@/lib/i18n/index.svelte';
 
   const ready = loadSession();
+
+  // The instance name in the browser tab tells sandbox and production apart.
+  $effect(() => {
+    document.title = session.user?.subtitle ? `${session.user.subtitle} · Dataport` : 'Dataport';
+  });
 </script>
 
 {#await ready}

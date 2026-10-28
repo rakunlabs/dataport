@@ -40,7 +40,6 @@ const ko: Messages = {
   },
   login: {
     remember: '로그인 상태 유지',
-    rememberDays: '{days}일 동안',
     rememberHint: '브라우저를 닫은 후에도 이 브라우저에서 {days}일 동안 로그인 상태를 유지합니다. 공용 컴퓨터에서는 사용하지 마세요.',
     title: '로그인',
     subtitle: 'dataport 계정으로 로그인하여 공유된 데이터베이스에 접근하세요.',
@@ -51,6 +50,7 @@ const ko: Messages = {
     or: '또는',
     continueWith: '{name}(으)로 계속',
     passwordDisabled: '조직 계정으로 로그인하세요.',
+    localLogin: '로컬 로그인',
   },
   password: {
     title: '비밀번호 변경',
@@ -988,6 +988,17 @@ const ko: Messages = {
       disabledLabel: '비활성화됨',
       create: '사용자 생성',
     },
+    notebookAccess: {
+      title: 'notebook을 사용할 수 있는 사용자',
+      description: 'notebook은 계속 하나씩 공유합니다. 이 설정은 MCP와 게시된 엔드포인트를 포함해 누가 notebook을 사용할 수 있는지 정합니다. 관리자는 항상 사용할 수 있습니다.',
+      everyone: '모든 사용자',
+      groups: '관리자와 이 그룹만',
+      members: '{count}명',
+      noGroups: '아직 그룹이 없습니다. 그룹에서 만드세요.',
+      restrictedHint: '선택한 그룹의 구성원은 공유받은 notebook을 열고 만들고 실행할 수 있습니다. 그 외 사용자는 notebook을 더 이상 볼 수 없고 실행 중인 notebook은 멈춥니다.',
+      adminsOnly: '선택한 그룹이 없으면 관리자만 notebook을 사용할 수 있습니다.',
+      saved: 'notebook 접근 설정을 저장했습니다',
+    },
     group: {
       description: '사용자별로 부여하는 대신 팀 전체에 한 번에 데이터베이스를 부여합니다.',
       new: '새 그룹',
@@ -1001,6 +1012,12 @@ const ko: Messages = {
       create: '그룹 생성',
     },
     sessions: {
+      page: '로그인 페이지',
+      subtitle: '인스턴스 이름',
+      subtitleHint: '로그인 페이지의 로고 아래와 상단 바의 로고 옆에 표시되어 sandbox, production 등 접속한 곳을 알 수 있습니다. 비워 두면 표시하지 않습니다.',
+      collapse: '로컬 로그인 양식을 기본으로 접기',
+      collapseHint: '사용자는 로그인 페이지의 작은 "로컬 로그인" 버튼으로 양식을 열 수 있습니다. 비밀번호 로그인은 모든 로컬 사용자가 계속 사용할 수 있습니다.',
+      pageSaved: '로그인 페이지를 저장했습니다',
       title: '로그인',
       description: '사용자가 로그인 상태를 유지하는 기간입니다.',
       session: '세션 유효 시간',

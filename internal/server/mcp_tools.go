@@ -157,7 +157,7 @@ type queryOut struct {
 // ////////////////////////////////////////////
 // tools
 
-func (s *Server) registerMCPTools(server *mcp.Server, readOnly bool) {
+func (s *Server) registerMCPTools(server *mcp.Server, readOnly, notebooks bool) {
 	closed := false
 	destructive := true
 
@@ -385,7 +385,9 @@ func (s *Server) registerMCPTools(server *mcp.Server, readOnly bool) {
 		return s.mcpRun(ctx, req, in.Connection, in.SQL, in.MaxRows, true)
 	})
 
-	s.registerNotebookReadTools(server)
+	if notebooks {
+		s.registerNotebookReadTools(server)
+	}
 
 	// A tool that can never succeed only makes the model try it; read-only
 	// tokens do not get one. The engine still enforces the grant either way.
@@ -393,7 +395,9 @@ func (s *Server) registerMCPTools(server *mcp.Server, readOnly bool) {
 		return
 	}
 
-	s.registerNotebookWriteTools(server)
+	if notebooks {
+		s.registerNotebookWriteTools(server)
+	}
 	s.registerGenerateTool(server)
 
 	mcp.AddTool(server, &mcp.Tool{

@@ -40,7 +40,6 @@ const pl: Messages = {
   },
   login: {
     remember: 'Zapamiętaj mnie',
-    rememberDays: 'na {days} dni',
     rememberHint: 'Pozostań zalogowany w tej przeglądarce przez {days} dni, również po jej zamknięciu. Nie włączaj na współdzielonych komputerach.',
     title: 'Logowanie',
     subtitle: 'Użyj konta dataport, aby uzyskać dostęp do udostępnionych Ci baz danych.',
@@ -51,6 +50,7 @@ const pl: Messages = {
     or: 'lub',
     continueWith: 'Kontynuuj przez {name}',
     passwordDisabled: 'Zaloguj się kontem organizacji.',
+    localLogin: 'Logowanie lokalne',
   },
   password: {
     title: 'Zmiana hasła',
@@ -988,6 +988,17 @@ const pl: Messages = {
       disabledLabel: 'Wyłączony',
       create: 'Utwórz użytkownika',
     },
+    notebookAccess: {
+      title: 'Kto może używać notebooków',
+      description: 'Notebooki nadal udostępnia się pojedynczo; to ustawienie decyduje, kto w ogóle może z nich korzystać, także przez MCP i opublikowane endpointy. Administratorzy zawsze mogą.',
+      everyone: 'Wszyscy użytkownicy',
+      groups: 'Tylko administratorzy i te grupy',
+      members: '{count} członek | {count} członków',
+      noGroups: 'Nie ma jeszcze grup. Utwórz je w sekcji Grupy.',
+      restrictedHint: 'Członkowie zaznaczonej grupy mogą otwierać, tworzyć i uruchamiać udostępnione im notebooki. Pozostali przestają je widzieć, a ich uruchomienia się zatrzymują.',
+      adminsOnly: 'Bez zaznaczonej grupy notebooków mogą używać tylko administratorzy.',
+      saved: 'Zapisano dostęp do notebooków',
+    },
     group: {
       description: 'Przydziel bazę danych całemu zespołowi naraz zamiast każdemu użytkownikowi osobno.',
       new: 'Nowa grupa',
@@ -1001,6 +1012,12 @@ const pl: Messages = {
       create: 'Utwórz grupę',
     },
     sessions: {
+      page: 'Strona logowania',
+      subtitle: 'Nazwa instancji',
+      subtitleHint: 'Widoczna pod logo na stronie logowania i obok niego na górnym pasku, aby użytkownicy wiedzieli, gdzie są, np. sandbox lub production. Puste pole niczego nie pokazuje.',
+      collapse: 'Domyślnie zwijaj formularz logowania lokalnego',
+      collapseHint: 'Użytkownicy mogą go rozwinąć małym przyciskiem „Logowanie lokalne” na stronie logowania. Logowanie hasłem pozostaje dostępne dla wszystkich lokalnych użytkowników.',
+      pageSaved: 'Zapisano stronę logowania',
       title: 'Logowanie',
       description: 'Jak długo użytkownicy pozostają zalogowani.',
       session: 'Czas sesji',

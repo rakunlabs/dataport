@@ -138,21 +138,28 @@ func callerOf(req *mcp.CallToolRequest) (*mcpCaller, error) {
 }
 
 func (s *Server) newMCPServer(caller *mcpCaller) *mcp.Server {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Users notebooks are not open to get no notebook tools; each tool
+	// still checks, as the setting may change during a session.
+	notebooks := s.notebooksAllowed(ctx, caller.user)
+
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "dataport",
 		Title:   "dataport",
 		Version: config.Service,
 	}, &mcp.ServerOptions{
-		Instructions: s.mcpInstructions(caller),
+		Instructions: s.mcpInstructions(caller, notebooks),
 	})
 
-	s.registerMCPTools(server, caller.token.ReadOnly)
+	s.registerMCPTools(server, caller.token.ReadOnly, notebooks)
 
 	return server
 }
 
-func (s *Server) mcpInstructions(caller *mcpCaller) string {
-	text := mcpInstructions(s.mcpCfg(), caller.token.ReadOnly)
+func (s *Server) mcpInstructions(caller *mcpCaller, notebooks bool) string {
+	text := mcpInstructions(s.mcpCfg(), caller.token.ReadOnly, notebooks)
 	if caller.scope == "" {
 		return text
 	}
@@ -169,7 +176,7 @@ func (s *Server) mcpInstructions(caller *mcpCaller) string {
 	return text + "\nThis endpoint serves one connection, " + name + "; the connection argument of the tools may be omitted.\n"
 }
 
-func mcpInstructions(cfg config.MCP, readOnly bool) string {
+func mcpInstructions(cfg config.MCP, readOnly, notebooks bool) string {
 	var b strings.Builder
 
 	b.WriteString("dataport gives you the databases an administrator shared with the user who created your access token. ")
@@ -195,8 +202,13 @@ func mcpInstructions(cfg config.MCP, readOnly bool) string {
 		b.WriteString("- On production connections the user is asked to confirm the exact SQL before it runs.\n")
 	}
 
-	b.WriteString("- A refused statement is a policy decision; do not try to work around it.\n\n")
-	b.WriteString("Notebooks: " + mcpToolPrefix + "list_notebooks, " + mcpToolPrefix + "get_notebook and " + mcpToolPrefix + "run_notebook work with the user's saved SQL notebooks; ")
+	b.WriteString("- A refused statement is a policy decision; do not try to work around it.\n")
+
+	if !notebooks {
+		return b.String()
+	}
+
+	b.WriteString("\nNotebooks: " + mcpToolPrefix + "list_notebooks, " + mcpToolPrefix + "get_notebook and " + mcpToolPrefix + "run_notebook work with the user's saved SQL notebooks; ")
 	b.WriteString("cells run in dependency order and each is its own transaction. Read a notebook before changing or running it. ")
 	b.WriteString("In template cells bind every value with {{ param ... }}; never quote or print values into SQL.\n")
 

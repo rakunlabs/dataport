@@ -40,9 +40,15 @@
 <svelte:window onclick={() => (menuOpen = false)} onkeydown={(e) => e.key === 'Escape' && (menuOpen = false)} />
 
 <header class="flex h-[38px] shrink-0 items-center gap-1 border-b border-line bg-panel pr-2 pl-3">
-  <a href="/" use:link class="mr-2 flex items-center gap-2 rounded-md py-1 pr-1.5 text-sm font-semibold tracking-[-0.01em] text-fg">
+  <a href="/" use:link class="mr-2 flex items-center gap-2 rounded-md py-1 pr-1.5 text-fg" title={session.user?.subtitle || undefined}>
     <Logo size={20} />
-    dataport
+    <span class="flex min-w-0 flex-col leading-none">
+      <span class="text-sm font-semibold tracking-[-0.01em]">dataport</span>
+      {#if session.user?.subtitle}
+        <!-- The instance name, set on the sign-in page settings. -->
+        <span class="mt-0.5 max-w-40 truncate text-[10px] leading-[11px] font-medium text-muted">{session.user.subtitle}</span>
+      {/if}
+    </span>
   </a>
 
   <button class="btn" onclick={newQuery} disabled={workspaceConnections().length === 0}>
@@ -55,9 +61,11 @@
     <BookOpen size={14} /> {t('app.docs')}
   </button>
 
-  <button class="btn" onclick={openNotebooks} aria-pressed={activeTab()?.kind === 'notebooks'}>
-    <NotebookPen size={14} /> {t('notebook.title')}
-  </button>
+  {#if session.user?.can_use_notebooks}
+    <button class="btn" onclick={openNotebooks} aria-pressed={activeTab()?.kind === 'notebooks'}>
+      <NotebookPen size={14} /> {t('notebook.title')}
+    </button>
+  {/if}
 
   <button
     class="icon-btn"

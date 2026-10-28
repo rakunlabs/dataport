@@ -201,6 +201,10 @@ func (s *Server) registerNotebookReadTools(server *mcp.Server) {
 			return nil, listNotebooksOut{}, err
 		}
 
+		if !s.notebooksAllowed(ctx, caller.user) {
+			return nil, listNotebooksOut{}, errNotebooksOff
+		}
+
 		list, err := s.store.ListNotebooks(ctx, caller.user)
 		if err != nil {
 			return nil, listNotebooksOut{}, err
@@ -339,6 +343,10 @@ func (s *Server) registerNotebookWriteTools(server *mcp.Server) {
 		caller, err := callerOf(req)
 		if err != nil {
 			return nil, mcpNotebook{}, err
+		}
+
+		if !s.notebooksAllowed(ctx, caller.user) {
+			return nil, mcpNotebook{}, errNotebooksOff
 		}
 
 		var existing *store.Notebook

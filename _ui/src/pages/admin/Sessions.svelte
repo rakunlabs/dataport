@@ -47,6 +47,42 @@
 
   void load();
 
+  // The sign-in page: a name for this instance and the folded local form.
+  interface LoginPage {
+    subtitle: string;
+    collapse_local_login: boolean;
+  }
+
+  let pageSaved = $state<LoginPage | null>(null);
+  let page = $state<LoginPage>({ subtitle: '', collapse_local_login: false });
+  let pageError = $state('');
+  let pageSaving = $state(false);
+  const pageDirty = $derived(!!pageSaved && JSON.stringify(page) !== JSON.stringify(pageSaved));
+
+  function applyPage(v: LoginPage) {
+    pageSaved = { ...v };
+    page = { ...v };
+  }
+
+  api
+    .get<LoginPage>('/admin/login-page')
+    .then(applyPage)
+    .catch((e) => toast(errorMessage(e), 'error'));
+
+  async function savePage(e: SubmitEvent) {
+    e.preventDefault();
+    pageSaving = true;
+    pageError = '';
+    try {
+      applyPage(await api.put<LoginPage>('/admin/login-page', page));
+      toast(t('admin.sessions.pageSaved'), 'success');
+    } catch (e) {
+      pageError = errorMessage(e);
+    } finally {
+      pageSaving = false;
+    }
+  }
+
   async function save(e: SubmitEvent) {
     e.preventDefault();
     saving = true;
@@ -100,5 +136,26 @@
     <p class="hint">{t('admin.sessions.applies')}</p>
     {#if error}<p role="alert" class="text-xs text-danger">{error}</p>{/if}
     <button type="submit" class="btn-primary" disabled={!dirty || saving}>{saving ? t('common.loading') : t('common.save')}</button>
+  </form>
+
+  <form class="max-w-2xl space-y-5 border-t border-line px-6 py-5" onsubmit={savePage}>
+    <h2 class="text-sm font-semibold">{t('admin.sessions.page')}</h2>
+
+    <section class="space-y-1">
+      <label class="label" for="login-subtitle">{t('admin.sessions.subtitle')}</label>
+      <input id="login-subtitle" class="input max-w-sm" maxlength="64" placeholder="sandbox" bind:value={page.subtitle} disabled={!pageSaved || pageSaving} />
+      <p class="hint">{t('admin.sessions.subtitleHint')}</p>
+    </section>
+
+    <section class="space-y-1">
+      <label class="flex items-center gap-2 text-sm font-medium">
+        <input type="checkbox" bind:checked={page.collapse_local_login} disabled={!pageSaved || pageSaving} />
+        {t('admin.sessions.collapse')}
+      </label>
+      <p class="hint">{t('admin.sessions.collapseHint')}</p>
+    </section>
+
+    {#if pageError}<p role="alert" class="text-xs text-danger">{pageError}</p>{/if}
+    <button type="submit" class="btn-primary" disabled={!pageDirty || pageSaving}>{pageSaving ? t('common.loading') : t('common.save')}</button>
   </form>
 </Page>

@@ -7,6 +7,10 @@ export interface Me {
   role: Role;
   // Users may add connections of their own.
   can_create_connections?: boolean;
+  // Names this instance, such as "sandbox".
+  subtitle?: string;
+  // Notebooks are open to this user.
+  can_use_notebooks?: boolean;
 }
 
 export interface AuthInfo {
@@ -14,6 +18,10 @@ export interface AuthInfo {
   remember_days?: number;
   password: boolean;
   providers: { name: string; label: string }[];
+  version?: string;
+  subtitle?: string;
+  // The username and password form starts folded behind "Local login".
+  collapse_local_login?: boolean;
 }
 
 export interface AccessToken {

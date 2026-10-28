@@ -8,6 +8,7 @@
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { cancel, connection, endTx, persist, run, runInNewTab, saveTab, setManualTx, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
   import { prefs } from '@/lib/stores/prefs.svelte';
+  import { session } from '@/lib/stores/session.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';
   import TreeMenu, { type MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
   import { fmtNumber } from '@/lib/i18n/index.svelte';
@@ -172,7 +173,9 @@
       </div>
     {/if}
     <button class="btn" onclick={save} title="Ctrl+S"><Save size={14} /> {tab.savedId ? t('query.save') : t('query.saveAs')}</button>
-    <button class="btn" onclick={() => openNotebook('', tab.sql, tab.connectionId)}>{t('notebook.fromQuery')}</button>
+    {#if session.user?.can_use_notebooks}
+      <button class="btn" onclick={() => openNotebook('', tab.sql, tab.connectionId)}>{t('notebook.fromQuery')}</button>
+    {/if}
 
     <div class="toolbar-sep"></div>
 

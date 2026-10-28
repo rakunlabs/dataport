@@ -40,7 +40,6 @@ const es: Messages = {
   },
   login: {
     remember: 'Recordarme',
-    rememberDays: 'durante {days} días',
     rememberHint: 'Mantén la sesión iniciada en este navegador durante {days} días, incluso después de cerrarlo. No lo actives en equipos compartidos.',
     title: 'Iniciar sesión',
     subtitle: 'Usa tu cuenta de dataport para acceder a las bases de datos compartidas contigo.',
@@ -51,6 +50,7 @@ const es: Messages = {
     or: 'o',
     continueWith: 'Continuar con {name}',
     passwordDisabled: 'Inicia sesión con la cuenta de tu organización.',
+    localLogin: 'Inicio de sesión local',
   },
   password: {
     title: 'Cambiar contraseña',
@@ -988,6 +988,17 @@ const es: Messages = {
       disabledLabel: 'Desactivado',
       create: 'Crear usuario',
     },
+    notebookAccess: {
+      title: 'Quién puede usar notebooks',
+      description: 'Los notebooks se siguen compartiendo uno a uno; esto decide quién puede usarlos, también por MCP y endpoints publicados. Los administradores siempre pueden.',
+      everyone: 'Todos los usuarios',
+      groups: 'Solo administradores y estos grupos',
+      members: '{count} miembro | {count} miembros',
+      noGroups: 'Aún no hay grupos. Crea uno en Grupos.',
+      restrictedHint: 'Los miembros de un grupo marcado pueden abrir, crear y ejecutar los notebooks compartidos con ellos. Los demás dejan de verlos y sus ejecuciones se detienen.',
+      adminsOnly: 'Sin ningún grupo marcado solo los administradores pueden usar notebooks.',
+      saved: 'Acceso a notebooks guardado',
+    },
     group: {
       description: 'Da acceso a una base de datos a todo un equipo de una vez en lugar de usuario por usuario.',
       new: 'Nuevo grupo',
@@ -1001,6 +1012,12 @@ const es: Messages = {
       create: 'Crear grupo',
     },
     sessions: {
+      page: 'Página de inicio de sesión',
+      subtitle: 'Nombre de la instancia',
+      subtitleHint: 'Se muestra bajo el logotipo en la página de inicio de sesión y junto a él en la barra superior, para que los usuarios sepan dónde están, por ejemplo sandbox o production. Déjalo vacío para no mostrar nada.',
+      collapse: 'Plegar el formulario de inicio de sesión local por defecto',
+      collapseHint: 'Los usuarios pueden abrirlo con el botón «Inicio de sesión local» de la página. El inicio de sesión con contraseña sigue disponible para todos los usuarios locales.',
+      pageSaved: 'Página de inicio de sesión guardada',
       title: 'Inicio de sesión',
       description: 'Cuánto tiempo siguen conectados los usuarios.',
       session: 'Duración de la sesión',

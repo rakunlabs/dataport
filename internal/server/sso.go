@@ -9,17 +9,23 @@ import (
 	"time"
 
 	"github.com/rakunlabs/dataport/internal/auth"
+	"github.com/rakunlabs/dataport/internal/config"
 	"github.com/rakunlabs/dataport/internal/sso"
 	"github.com/rakunlabs/dataport/internal/store"
 )
 
 // authInfo tells the login page which sign-in methods exist.
-func (s *Server) authInfo(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) authInfo(w http.ResponseWriter, r *http.Request) {
+	page := s.loginPage(r.Context())
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"password":  !s.cfg.Auth.DisablePasswordLogin,
 		"providers": s.sso.Public(),
 		// Days a remembered session may stay unused; zero hides the option.
-		"remember_days": rememberDays(s.auth.Lifetime()),
+		"remember_days":        rememberDays(s.auth.Lifetime()),
+		"version":              config.Build.Version,
+		"subtitle":             page.Subtitle,
+		"collapse_local_login": page.CollapseLocalLogin,
 	})
 }
 
@@ -55,8 +61,15 @@ func (s *Server) ssoLogin(w http.ResponseWriter, r *http.Request) {
 		s.setRememberCookie(w, r, v == "1")
 	}
 
-	id, provider, ok := s.sso.Login(w, r, name)
-	if !ok {
+	id, provider, err := s.sso.Login(w, r, name)
+	if err != nil {
+		s.setRememberCookie(w, r, false)
+		s.redirectLogin(w, r, err.Error())
+
+		return
+	}
+
+	if id == nil {
 		return
 	}
 

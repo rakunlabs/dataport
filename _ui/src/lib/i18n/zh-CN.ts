@@ -40,7 +40,6 @@ const zhCN: Messages = {
   },
   login: {
     remember: '记住我',
-    rememberDays: '{days} 天内',
     rememberHint: '在此浏览器中保持登录 {days} 天，关闭浏览器后依然有效。在公用计算机上请不要勾选。',
     title: '登录',
     subtitle: '使用你的 dataport 账户访问共享给你的数据库。',
@@ -51,6 +50,7 @@ const zhCN: Messages = {
     or: '或',
     continueWith: '使用 {name} 继续',
     passwordDisabled: '请使用你的组织账户登录。',
+    localLogin: '本地登录',
   },
   password: {
     title: '修改密码',
@@ -988,6 +988,17 @@ const zhCN: Messages = {
       disabledLabel: '已禁用',
       create: '创建用户',
     },
+    notebookAccess: {
+      title: '谁可以使用notebook',
+      description: 'notebook仍逐个共享；此设置决定谁可以使用notebook，包括通过 MCP 和已发布的端点。管理员始终可以使用。',
+      everyone: '所有用户',
+      groups: '仅管理员和这些组',
+      members: '{count} 名成员',
+      noGroups: '还没有组。请在“组”中创建。',
+      restrictedHint: '选中组的成员可以打开、创建并运行共享给他们的notebook。其他人不再看到notebook，正在运行的notebook会停止。',
+      adminsOnly: '未选中任何组时，只有管理员可以使用notebook。',
+      saved: 'notebook访问已保存',
+    },
     group: {
       description: '一次性为整个团队分配数据库，而不必逐个用户分配。',
       new: '新建用户组',
@@ -1001,6 +1012,12 @@ const zhCN: Messages = {
       create: '创建用户组',
     },
     sessions: {
+      page: '登录页面',
+      subtitle: '实例名称',
+      subtitleHint: '显示在登录页面的标志下方和顶栏标志旁边，让用户知道自己连接到哪里，例如 sandbox 或 production。留空则不显示。',
+      collapse: '默认折叠本地登录表单',
+      collapseHint: '用户可以通过登录页面上的“本地登录”小按钮展开表单。所有本地用户仍可使用密码登录。',
+      pageSaved: '登录页面已保存',
       title: '登录',
       description: '用户保持登录的时长。',
       session: '会话时长',

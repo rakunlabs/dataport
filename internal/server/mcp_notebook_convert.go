@@ -22,6 +22,10 @@ func (s *Server) mcpNotebook(ctx context.Context, req *mcp.CallToolRequest, ref,
 		return nil, nil, err
 	}
 
+	if !s.notebooksAllowed(ctx, caller.user) {
+		return nil, nil, errNotebooksOff
+	}
+
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return nil, nil, errors.New("notebook is required; call dataport_list_notebooks")

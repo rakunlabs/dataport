@@ -40,7 +40,6 @@ const ja: Messages = {
   },
   login: {
     remember: 'ログイン状態を保持',
-    rememberDays: '{days} 日間',
     rememberHint: 'このブラウザでは、閉じた後も {days} 日間サインインしたままになります。共用のコンピューターではオフにしてください。',
     title: 'サインイン',
     subtitle: 'dataport アカウントを使って、共有されているデータベースにアクセスします。',
@@ -51,6 +50,7 @@ const ja: Messages = {
     or: 'または',
     continueWith: '{name} で続行',
     passwordDisabled: '組織のアカウントでサインインしてください。',
+    localLogin: 'ローカルログイン',
   },
   password: {
     title: 'パスワード変更',
@@ -988,6 +988,17 @@ const ja: Messages = {
       disabledLabel: '無効',
       create: 'ユーザーを作成',
     },
+    notebookAccess: {
+      title: 'notebookを使えるユーザー',
+      description: 'notebookは引き続き 1 つずつ共有します。この設定は、MCP や公開エンドポイントも含め、そもそも誰が使えるかを決めます。管理者は常に使えます。',
+      everyone: 'すべてのユーザー',
+      groups: '管理者とこれらのグループのみ',
+      members: '{count} 人',
+      noGroups: 'まだグループがありません。「グループ」で作成してください。',
+      restrictedHint: 'チェックしたグループのメンバーは、共有されたnotebookを開き、作成し、実行できます。それ以外のユーザーにはnotebookが表示されず、実行中のものは止まります。',
+      adminsOnly: 'グループを 1 つもチェックしないと、管理者だけが使えます。',
+      saved: 'notebookのアクセスを保存しました',
+    },
     group: {
       description: 'ユーザーごとではなく、チーム単位でまとめてデータベースを割り当てます。',
       new: '新規グループ',
@@ -1001,6 +1012,12 @@ const ja: Messages = {
       create: 'グループを作成',
     },
     sessions: {
+      page: 'サインインページ',
+      subtitle: 'インスタンス名',
+      subtitleHint: 'サインインページのロゴの下と、上部バーのロゴの横に表示され、sandbox や production など接続先が分かります。空欄にすると何も表示しません。',
+      collapse: 'ローカルログインフォームを既定で折りたたむ',
+      collapseHint: 'サインインページの小さな「ローカルログイン」ボタンで開けます。パスワードでのサインインはすべてのローカルユーザーが引き続き使えます。',
+      pageSaved: 'サインインページを保存しました',
       title: 'サインイン',
       description: 'ユーザーがサインインしたままでいられる期間。',
       session: 'セッションの有効期間',

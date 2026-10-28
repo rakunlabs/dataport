@@ -73,6 +73,9 @@ func (s *Server) executeNotebook(ctx context.Context, user *store.User, n *store
 			if err != nil || fresh.Disabled {
 				return errors.New("user is disabled or removed")
 			}
+			if !s.notebooksAllowed(ctx, fresh) {
+				return errNotebooksOff
+			}
 			if caller != nil {
 				// Recheck authentication between cells. Revocation does not
 				// retroactively undo a cell already running on the database.

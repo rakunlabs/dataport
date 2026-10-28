@@ -6,6 +6,7 @@ import { loadPersisted, persist, persistedUser, setPersistedUser } from '@/lib/s
 import { cancel, endTx, run, runTable, setRunElsewhere, syncTxs } from '@/lib/stores/workspace/run';
 import { prefs } from '@/lib/stores/prefs.svelte';
 import { loadSaved } from '@/lib/stores/workspace/saved';
+import { session } from '@/lib/stores/session.svelte';
 
 function baseTab(kind: TabKind, connectionId: string): Tab {
   return {
@@ -243,6 +244,8 @@ export async function startWorkspace(userId: string) {
     try {
       for (const p of data.tabs) {
         if (!['settings', 'notebooks', 'notebook', 'docsHub'].includes(p.kind) && !connection(p.connectionId)) continue;
+        // Notebooks may have been closed to this user since.
+        if ((p.kind === 'notebooks' || p.kind === 'notebook') && !session.user?.can_use_notebooks) continue;
         const t = baseTab(p.kind, p.connectionId);
         Object.assign(t, p);
         if (p.kind === 'settings') t.title = '';

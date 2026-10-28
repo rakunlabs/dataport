@@ -40,7 +40,6 @@ const de: Messages = {
   },
   login: {
     remember: 'Angemeldet bleiben',
-    rememberDays: 'für {days} Tage',
     rememberHint: 'In diesem Browser {days} Tage angemeldet bleiben, auch nach dem Schließen. Auf gemeinsam genutzten Computern deaktiviert lassen.',
     title: 'Anmelden',
     subtitle: 'Melden Sie sich mit Ihrem dataport-Konto an, um die für Sie freigegebenen Datenbanken zu nutzen.',
@@ -51,6 +50,7 @@ const de: Messages = {
     or: 'oder',
     continueWith: 'Weiter mit {name}',
     passwordDisabled: 'Melden Sie sich mit Ihrem Organisationskonto an.',
+    localLogin: 'Lokale Anmeldung',
   },
   password: {
     title: 'Passwort ändern',
@@ -988,6 +988,17 @@ const de: Messages = {
       disabledLabel: 'Deaktiviert',
       create: 'Benutzer erstellen',
     },
+    notebookAccess: {
+      title: 'Wer Notebooks nutzen darf',
+      description: 'Notebooks werden weiter einzeln geteilt; dies legt fest, wer sie überhaupt nutzen darf, auch über MCP und veröffentlichte Endpunkte. Admins dürfen es immer.',
+      everyone: 'Alle Benutzer',
+      groups: 'Nur Admins und diese Gruppen',
+      members: '{count} Mitglied | {count} Mitglieder',
+      noGroups: 'Noch keine Gruppen. Legen Sie eine unter Gruppen an.',
+      restrictedHint: 'Mitglieder einer markierten Gruppe können die mit ihnen geteilten Notebooks öffnen, anlegen und ausführen. Andere sehen keine Notebooks mehr, und ihre laufenden Notebooks halten an.',
+      adminsOnly: 'Ohne markierte Gruppe dürfen nur Admins Notebooks nutzen.',
+      saved: 'Notebook-Zugriff gespeichert',
+    },
     group: {
       description: 'Geben Sie einem Team eine Datenbank auf einmal statt Benutzer für Benutzer.',
       new: 'Neue Gruppe',
@@ -1001,6 +1012,12 @@ const de: Messages = {
       create: 'Gruppe erstellen',
     },
     sessions: {
+      page: 'Anmeldeseite',
+      subtitle: 'Name der Instanz',
+      subtitleHint: 'Wird auf der Anmeldeseite unter dem Logo und in der oberen Leiste daneben angezeigt, damit Benutzer sehen, wo sie sind, etwa sandbox oder production. Leer lassen, um nichts anzuzeigen.',
+      collapse: 'Lokales Anmeldeformular standardmäßig einklappen',
+      collapseHint: 'Benutzer öffnen es über die kleine Schaltfläche „Lokale Anmeldung“ auf der Anmeldeseite. Die Anmeldung mit Passwort bleibt für alle lokalen Benutzer möglich.',
+      pageSaved: 'Anmeldeseite gespeichert',
       title: 'Anmeldung',
       description: 'Wie lange Benutzer angemeldet bleiben.',
       session: 'Sitzungsdauer',
