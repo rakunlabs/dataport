@@ -7,7 +7,7 @@
   import { api } from '@/lib/api/client';
   import type { DocInfo, DocList } from '@/lib/api/types';
   import { t, i18n } from '@/lib/i18n/index.svelte';
-  import { loadSchemas, openDocs, openSettings, ws } from '@/lib/stores/workspace.svelte';
+  import { loadSchemas, openDocs, openSettings, ws, workspaceConnections } from '@/lib/stores/workspace.svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { errorMessage } from '@/lib/stores/toast.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
@@ -36,7 +36,7 @@
   onMount(() => {
     // With a few connections every schema shows at once; with many, only
     // those with documentation open by themselves.
-    if (ws.connections.length <= 5) for (const c of ws.connections) open[c.id] = true;
+    if (workspaceConnections().length <= 5) for (const c of workspaceConnections()) open[c.id] = true;
     void load();
   });
 
@@ -49,7 +49,7 @@
 
   // Schemas of open connections come from the tree, loaded on demand.
   $effect(() => {
-    for (const c of ws.connections) if (open[c.id]) void loadSchemas(c.id, 'failed');
+    for (const c of workspaceConnections()) if (open[c.id]) void loadSchemas(c.id, 'failed');
   });
 
   const byKey = $derived(new Map((list?.docs ?? []).map((d) => [`${d.connection_id}|${d.schema}`, d])));
@@ -118,12 +118,12 @@
 
     {#if error}
       <p class="mx-4 flex items-start gap-1.5 rounded-md border border-danger/30 bg-danger-soft p-2 text-xs text-danger"><TriangleAlert size={13} class="mt-0.5 shrink-0" /> {error}</p>
-    {:else if !ws.connections.length}
+    {:else if !workspaceConnections().length}
       <p class="px-4 py-6 text-sm text-muted">{t('docsHub.empty')}</p>
     {/if}
 
     <div class="px-2 pb-6">
-      {#each ws.connections as c (c.id)}
+      {#each workspaceConnections() as c (c.id)}
         {@const node = ws.schemas[c.id]}
         {@const expanded = !!open[c.id]}
         <div class="mt-1">

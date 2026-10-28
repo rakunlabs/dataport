@@ -172,6 +172,10 @@ func (s *Server) oauthAuthorizeInfo(w http.ResponseWriter, r *http.Request) {
 
 	conns := make([]map[string]any, 0, len(grants))
 	for _, g := range grants {
+		if g.Connection.HideMCP || g.Connection.NotebookOnly {
+			continue
+		}
+
 		conns = append(conns, map[string]any{"id": g.Connection.ID, "name": g.Connection.Name, "db_type": g.Connection.DBType, "writable": !g.ReadOnly})
 	}
 

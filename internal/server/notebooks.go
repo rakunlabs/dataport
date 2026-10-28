@@ -121,12 +121,13 @@ func (s *Server) storeNotebook(ctx context.Context, user *store.User, existing *
 		}
 	}
 	// Saving a document must not let an editor smuggle in an ungranted DB.
+	// Connections kept out of notebooks cannot be put into a cell either.
 	for _, c := range req.Document.Cells {
-		if _, err := s.store.GetGrant(ctx, user, c.ConnectionID); err != nil {
+		if g, err := s.store.GetGrant(ctx, user, c.ConnectionID); err != nil || g.Connection.HideNotebooks {
 			return nil, refuse(http.StatusForbidden, "cell "+c.Path+" names a connection not shared with you")
 		}
 		if c.Transfer != nil {
-			if _, err := s.store.GetGrant(ctx, user, c.Transfer.ConnectionID); err != nil {
+			if g, err := s.store.GetGrant(ctx, user, c.Transfer.ConnectionID); err != nil || g.Connection.HideNotebooks {
 				return nil, refuse(http.StatusForbidden, "the transfer target of cell "+c.Path+" is not shared with you")
 			}
 		}

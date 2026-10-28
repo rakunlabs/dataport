@@ -1,13 +1,16 @@
 import en from '@/lib/i18n/en';
 
 // Sections a translation may leave out; t() falls back to English for them.
-type Optional = 'notebook' | 'generate' | 'docsHub' | 'tx';
+type Optional = 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn';
 
 // Messages added after a translation was written may be missing from it;
 // t() falls back to English for them too. A string names leaf messages,
 // true a whole section.
 type Later = {
-  admin: { server: true; docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' };
+  admin: {
+    server: true;
+    conn: 'visibility' | 'visibilityHint' | 'showWorkspace' | 'showWorkspaceHint' | 'showNotebooks' | 'showNotebooksHint' | 'showMcp' | 'showMcpHint' | 'notebookOnly' | 'notebookOnlyHint' | 'notebookOnlyShared' | 'notebookOnlyChip' | 'personalTitle' | 'personalHint' | 'owner';
+    docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' };
   result: 'elapsed' | 'cancelling' | 'runningFor';
   query: 'runParallel';
 };

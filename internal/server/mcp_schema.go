@@ -35,6 +35,11 @@ func (s *Server) mcpConnections(ctx context.Context, caller *mcpCaller) ([]mcpCo
 			continue
 		}
 
+		// Notebook-only connections are reached through notebooks alone.
+		if g.Connection.HideMCP || g.Connection.NotebookOnly {
+			continue
+		}
+
 		mode := capMCPMode(policy, caller, g)
 		if mode == store.MCPOff {
 			continue
@@ -79,7 +84,7 @@ func (s *Server) mcpGrant(ctx context.Context, req *mcp.CallToolRequest, name st
 			return nil, "", nil, err
 		}
 
-		g := findGrant(grants, name)
+		g := findGrant(mcpVisible(grants), name)
 		if g == nil {
 			return nil, "", nil, fmt.Errorf("unknown connection %q; call dataport_list_connections", name)
 		}
@@ -101,6 +106,10 @@ func (s *Server) mcpGrant(ctx context.Context, req *mcp.CallToolRequest, name st
 		return nil, "", nil, err
 	}
 
+	if g.Connection.HideMCP {
+		return nil, "", nil, fmt.Errorf("connection %q is not available to agents", g.Connection.Name)
+	}
+
 	mode, err := s.mcpMode(ctx, caller, g)
 	if err != nil {
 		return nil, "", nil, err
@@ -111,6 +120,18 @@ func (s *Server) mcpGrant(ctx context.Context, req *mcp.CallToolRequest, name st
 	}
 
 	return g, password, caller, nil
+}
+
+// mcpVisible drops the connections an admin keeps away from agents.
+func mcpVisible(grants []*store.Grant) []*store.Grant {
+	out := make([]*store.Grant, 0, len(grants))
+	for _, g := range grants {
+		if !g.Connection.HideMCP {
+			out = append(out, g)
+		}
+	}
+
+	return out
 }
 
 // mcpSchema returns the schema to use, the connection's first one when the

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, i18n, locales, setLocale } from '@/lib/i18n/index.svelte';
-  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, Moon, Sun, Monitor, Check, Info, SlidersHorizontal } from 'lucide-svelte';
+  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, Moon, Sun, Monitor, Check, Info, SlidersHorizontal, PlugZap } from 'lucide-svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
   import { ws } from '@/lib/stores/workspace.svelte';
@@ -16,17 +16,22 @@
   import DocsSchedule from '@/pages/admin/Docs.svelte';
   import Sessions from '@/pages/admin/Sessions.svelte';
   import ServerSettings from '@/pages/admin/ServerSettings.svelte';
+  import MyConnections from '@/pages/settings/MyConnections.svelte';
 
-  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'sessions' | 'server' | 'docs' | 'logs';
+  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'myConnections' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'sessions' | 'server' | 'docs' | 'logs';
 
   const isAdmin = $derived(session.user?.role === 'admin');
 
-  const personal: { key: Section; label: string; icon: typeof Palette }[] = [
+  // Own connections show up while an admin lets users create them.
+  const canCreate = $derived(!!session.user?.can_create_connections);
+
+  const personal = $derived<{ key: Section; label: string; icon: typeof Palette }[]>([
     { key: 'appearance', label: 'settings.appearance', icon: Palette },
     { key: 'editor', label: 'settings.editor', icon: Code2 },
     { key: 'account', label: 'settings.account', icon: UserRound },
     { key: 'mcp', label: 'settings.mcp', icon: Bot },
-  ];
+    ...(canCreate ? [{ key: 'myConnections' as Section, label: 'myConn.title', icon: PlugZap }] : []),
+  ]);
 
   const adminItems: { key: Section; label: string; icon: typeof Palette }[] = [
     { key: 'connections', label: 'admin.connections', icon: Database },
@@ -43,7 +48,9 @@
 
   // The section lives in the workspace, so it survives switching tabs.
   const section = $derived<Section>(
-    !isAdmin && adminSections.includes(ws.settingsSection as Section) ? 'appearance' : ((ws.settingsSection as Section) || 'appearance'),
+    (!isAdmin && adminSections.includes(ws.settingsSection as Section)) || (!canCreate && ws.settingsSection === 'myConnections')
+      ? 'appearance'
+      : ((ws.settingsSection as Section) || 'appearance'),
   );
 
   const themes: { mode: ThemeMode; icon: typeof Sun; key: string }[] = [
@@ -101,6 +108,8 @@
   <div class="min-w-0 flex-1 overflow-hidden bg-bg">
     {#if section === 'connections'}
       <Connections />
+    {:else if section === 'myConnections'}
+      <MyConnections />
     {:else if section === 'users'}
       <UsersPage />
     {:else if section === 'groups'}

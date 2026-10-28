@@ -24,6 +24,14 @@ export interface ConnectionView {
   max_rows_limit?: number;
   // Longest time limit a run may have; 0 means runs may have none.
   max_timeout_ms?: number;
+  // A connection the user created for themselves.
+  personal?: boolean;
+  // Where an admin lets the connection show up.
+  hide_workspace?: boolean;
+  hide_notebooks?: boolean;
+  hide_mcp?: boolean;
+  // Usable in notebook cells only.
+  notebook_only?: boolean;
 }
 
 // Pool settings; 0 or a missing field means "use the default".
@@ -58,9 +66,23 @@ export interface Connection {
   limits: Limits;
   max_rows: number;
   timeout_ms: number;
+  // The user who created a personal connection; empty for shared ones.
+  owner_id: string;
+  hide_workspace: boolean;
+  hide_notebooks: boolean;
+  hide_mcp: boolean;
+  notebook_only: boolean;
   created_at: number;
   updated_at: number;
   access: Access[];
+}
+
+export interface PersonalConnectionList {
+  // Users may create their own connections.
+  enabled: boolean;
+  // They may also open database files.
+  files: boolean;
+  connections: Connection[];
 }
 
 export type DriverTarget = 'network' | 'file' | 'dsn';

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -35,6 +36,8 @@ type Store struct {
 	db       *sql.DB
 	postgres bool
 	prefix   string
+	// personal is set while users may create and use their own connections.
+	personal atomic.Bool
 }
 
 func New(ctx context.Context, cfg config.Store, dataDir string) (*Store, error) {

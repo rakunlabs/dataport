@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -31,6 +32,12 @@ type connectionRequest struct {
 	MaxRows   int            `json:"max_rows"`
 	TimeoutMS int            `json:"timeout_ms"`
 	Access    []store.Access `json:"access"`
+	// Where the connection shows up; NotebookOnly allows it in notebook
+	// cells alone and needs a shared account.
+	HideWorkspace bool `json:"hide_workspace"`
+	HideNotebooks bool `json:"hide_notebooks"`
+	HideMCP       bool `json:"hide_mcp"`
+	NotebookOnly  bool `json:"notebook_only"`
 }
 
 func (req *connectionRequest) validate() string {
@@ -53,6 +60,10 @@ func (req *connectionRequest) validate() string {
 		return "max rows cannot be negative"
 	case req.TimeoutMS < 0 || req.TimeoutMS > int(24*time.Hour/time.Millisecond):
 		return "timeout is out of range"
+	case req.NotebookOnly && req.UserCredentials:
+		return "a notebook-only connection needs a shared account"
+	case req.NotebookOnly && req.HideNotebooks:
+		return "a notebook-only connection cannot be hidden from notebooks"
 	}
 
 	return validateLimits(req.Limits)
@@ -96,12 +107,18 @@ func (req *connectionRequest) apply(c *store.Connection) {
 	c.MaxRows = req.MaxRows
 	c.TimeoutMS = req.TimeoutMS
 	c.Access = req.Access
+	c.HideWorkspace = req.HideWorkspace || req.NotebookOnly
+	c.HideNotebooks = req.HideNotebooks
+	c.HideMCP = req.HideMCP || req.NotebookOnly
+	c.NotebookOnly = req.NotebookOnly
 
 	if c.Access == nil {
 		c.Access = []store.Access{}
 	}
 }
 
+// adminListConnections lists the shared connections, then the personal
+// ones of users, which an admin may see and delete but not change.
 func (s *Server) adminListConnections(w http.ResponseWriter, r *http.Request) {
 	list, err := s.store.ListConnections(r.Context())
 	if err != nil {
@@ -113,8 +130,23 @@ func (s *Server) adminListConnections(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+// sharedConnection loads a connection an admin defined; personal ones are
+// not found, so an admin cannot point a user's saved password elsewhere.
+func (s *Server) sharedConnection(ctx context.Context, id string) (*store.Connection, error) {
+	c, err := s.store.GetConnection(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.OwnerID != "" {
+		return nil, store.ErrNotFound
+	}
+
+	return c, nil
+}
+
 func (s *Server) adminGetConnection(w http.ResponseWriter, r *http.Request) {
-	c, err := s.store.GetConnection(r.Context(), r.PathValue("id"))
+	c, err := s.sharedConnection(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeStoreError(w, err)
 
@@ -178,7 +210,7 @@ func (s *Server) adminUpdateConnection(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	c, err := s.store.GetConnection(ctx, r.PathValue("id"))
+	c, err := s.sharedConnection(ctx, r.PathValue("id"))
 	if err != nil {
 		writeStoreError(w, err)
 
@@ -241,6 +273,15 @@ func (s *Server) adminDeleteConnection(w http.ResponseWriter, r *http.Request) {
 // carries the id of a saved connection and no password, the stored password
 // is used, so an admin can test without typing it again.
 func (s *Server) adminTestConnection(w http.ResponseWriter, r *http.Request) {
+	s.testConnection(w, r, nil, s.sharedConnection)
+}
+
+// testConnection tries a connection form; saved finds the stored
+// connection of the request's id, among those the caller may change. check,
+// when set, refuses forms the caller may not save.
+func (s *Server) testConnection(w http.ResponseWriter, r *http.Request, check func(*connectionRequest) string,
+	saved func(context.Context, string) (*store.Connection, error),
+) {
 	var req struct {
 		connectionRequest
 		ID string `json:"id"`
@@ -250,7 +291,16 @@ func (s *Server) adminTestConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if msg := req.validate(); msg != "" {
+	msg := ""
+	if check != nil {
+		msg = check(&req.connectionRequest)
+	}
+
+	if msg == "" {
+		msg = req.validate()
+	}
+
+	if msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 
 		return
@@ -265,7 +315,7 @@ func (s *Server) adminTestConnection(w http.ResponseWriter, r *http.Request) {
 	case req.Password != nil:
 		password = *req.Password
 	case req.ID != "" && !req.UserCredentials:
-		saved, err := s.store.GetConnection(r.Context(), req.ID)
+		stored, err := saved(r.Context(), req.ID)
 		if err != nil {
 			writeStoreError(w, err)
 
@@ -273,13 +323,13 @@ func (s *Server) adminTestConnection(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// The stored password only goes to the server it was saved for.
-		if !sameTarget(saved, c) {
+		if !sameTarget(stored, c) {
 			writeError(w, http.StatusBadRequest, "enter the password to test a changed type, host, port or username")
 
 			return
 		}
 
-		if password, err = s.cipher.Decrypt(saved.PasswordEnc); err != nil {
+		if password, err = s.cipher.Decrypt(stored.PasswordEnc); err != nil {
 			writeError(w, http.StatusInternalServerError, "stored password cannot be read")
 
 			return

@@ -1,6 +1,8 @@
 # Local settings for trying dataport. Read automatically from the current
 # folder by `make run`; environment variables (DATAPORT_...) override it.
-# Not committed (.gitignore): it holds passwords.
+#
+# Query, pool, notebook, connection and MCP settings are not set here: an
+# admin changes them in the UI under Settings → Server limits.
 
 log_level: info
 
@@ -37,13 +39,7 @@ auth:
   # http://localhost:3000 instead.
   external_url: http://localhost:8080
 
-query:
-  # Rows per statement; users may ask for more per tab, up to max_rows_limit.
-  default_max_rows: 200
-  # 0s = no time limit; users can still stop a run or pick a limit per tab.
-  default_timeout: 0s
-  # Pool defaults for connections that leave a limit empty.
-  pool_max_open: 5
-  pool_max_idle: 5
-  pool_max_lifetime: 1h
-  pool_max_idle_time: 5m
+# query:
+#   # Directory SQLite and DuckDB files are opened from; empty (the default)
+#   # disables file databases. The data directory is always refused.
+#   file_dir: ./files

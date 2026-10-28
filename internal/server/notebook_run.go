@@ -300,8 +300,11 @@ func (s *Server) cellAccess(ctx context.Context, user *store.User, c notebook.Ce
 	if p.caller != nil && p.caller.scope != "" && (p.caller.scope != c.ConnectionID || c.Transfer != nil && p.caller.scope != c.Transfer.ConnectionID) {
 		return g, refuse(http.StatusForbidden, "notebook uses a connection outside this token's scope")
 	}
-	if g.src, g.srcPassword, err = s.resolveGrant(ctx, user, c.ConnectionID); err != nil {
+	if g.src, g.srcPassword, err = s.resolveNotebookGrant(ctx, user, c.ConnectionID); err != nil {
 		return g, refuse(http.StatusForbidden, "cell "+c.Path+": connection unavailable or database sign-in required")
+	}
+	if g.src.Connection.HideNotebooks {
+		return g, refuse(http.StatusForbidden, "cell "+c.Path+": connection is not available in notebooks")
 	}
 	if c.Write && c.Transfer == nil && g.src.ReadOnly {
 		return g, refuse(http.StatusForbidden, "cell "+c.Path+": connection is read-only")
@@ -318,8 +321,8 @@ func (s *Server) cellAccess(ctx context.Context, user *store.User, c notebook.Ce
 		}
 	}
 	if c.Transfer != nil {
-		g.dst, g.dstPassword, err = s.resolveGrant(ctx, user, c.Transfer.ConnectionID)
-		if err != nil || g.dst.ReadOnly {
+		g.dst, g.dstPassword, err = s.resolveNotebookGrant(ctx, user, c.Transfer.ConnectionID)
+		if err != nil || g.dst.ReadOnly || g.dst.Connection.HideNotebooks {
 			return g, refuse(http.StatusForbidden, "cell "+c.Path+": transfer target unavailable or read-only")
 		}
 		if p.source == "mcp" && p.caller != nil {
@@ -340,6 +343,9 @@ func (s *Server) cellAccess(ctx context.Context, user *store.User, c notebook.Ce
 // connection a cell touches must be open to agents; a writing cell needs a
 // mode that allows its statements, and a transfer target needs write.
 func (s *Server) mcpCellAccess(ctx context.Context, caller *mcpCaller, c notebook.Cell, g *store.Grant, target bool) error {
+	if g.Connection.HideMCP {
+		return refuse(http.StatusForbidden, "cell "+c.Path+": connection "+g.Connection.Name+" is not available to agents")
+	}
 	mode, err := s.mcpMode(ctx, caller, g)
 	if err != nil {
 		return err

@@ -231,6 +231,12 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 			return err
 		}
 
+		// Personal connections hold the user's own account; nobody else may
+		// use them.
+		if _, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("connections")+" WHERE owner_id = ?"), id); err != nil {
+			return err
+		}
+
 		res, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("users")+" WHERE id = ?"), id)
 		if err != nil {
 			return err

@@ -4,7 +4,7 @@
   import { api } from '@/lib/api/client';
   import type { AccessToken, TokenList } from '@/lib/api/types';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
-  import { ws } from '@/lib/stores/workspace.svelte';
+  import { mcpConnections, ws } from '@/lib/stores/workspace.svelte';
   import McpAccess from '@/lib/components/settings/McpAccess.svelte';
 
   let info = $state<TokenList | null>(null);
@@ -114,7 +114,7 @@
         <label class="label" for="mcp-scope">{t('mcp.scope')}</label>
         <select id="mcp-scope" class="input mb-2" bind:value={scope}>
           <option value="">{t('mcp.allConnections')}</option>
-          {#each ws.connections as c (c.id)}
+          {#each mcpConnections() as c (c.id)}
             <option value={c.id}>{c.name} · {c.db_type}</option>
           {/each}
         </select>

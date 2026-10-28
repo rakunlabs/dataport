@@ -55,11 +55,6 @@ move an existing SQLite store to PostgreSQL yet.
 
 Environment variables use the `DATAPORT_` prefix (a `dataport.yaml` file works
 too).
-The `DATAPORT_QUERY_*` (except `FILE_DIR`), `DATAPORT_NOTEBOOK_*` and
-`DATAPORT_MCP_*` values are starting values: admins can change them under
-*Settings → Server limits*, and a value saved there wins until it is reset.
-Most apply at once; turning MCP on or off and stateless mode apply after a
-restart.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -74,26 +69,38 @@ restart.
 | `DATAPORT_AUTH_SECURE_COOKIE` | `false` | Force the Secure cookie flag |
 | `DATAPORT_AUTH_EXTERNAL_URL` | | Public origin for SSO redirect URIs, e.g. `https://dataport.example.com` |
 | `DATAPORT_AUTH_DISABLE_PASSWORD_LOGIN` | `false` | Hide the password form and allow only SSO |
-| `DATAPORT_QUERY_DEFAULT_MAX_ROWS` | `200` | Rows returned per statement; users may ask for more per tab, up to the limit below |
-| `DATAPORT_QUERY_MAX_ROWS_LIMIT` | `100000` | Most rows a user may ask one statement for; `0` means no limit |
-| `DATAPORT_QUERY_DEFAULT_TIMEOUT` | `0s` | Time limit of a run when the connection sets none; `0s` means no limit. Users may pick one per tab and can always stop a run |
-| `DATAPORT_QUERY_MAX_TIMEOUT` | `0s` | Cap on any time limit, also on runs without one; `0s` means no cap |
-| `DATAPORT_QUERY_POOL_MAX_OPEN` | `5` | Default pool size per connection |
-| `DATAPORT_QUERY_POOL_MAX_IDLE` | `5` | Default idle connections kept per pool |
-| `DATAPORT_QUERY_POOL_MAX_LIFETIME` | `1h` | Default lifetime of a pooled connection |
-| `DATAPORT_QUERY_POOL_MAX_IDLE_TIME` | `5m` | Default time an unused connection stays open |
 | `DATAPORT_QUERY_FILE_DIR` | | Directory SQLite and DuckDB files are opened from; empty disables file databases |
-| `DATAPORT_NOTEBOOK_MAX_CONCURRENT` | `8` | Maximum simultaneous notebook runs per instance, foreground and background combined; excess requests return 429 |
-| `DATAPORT_NOTEBOOK_MAX_DURATION` | `30m` | Whole-notebook deadline, also for background runs; cell and server query timeouts still apply |
-| `DATAPORT_NOTEBOOK_MAX_OUTPUT_BYTES` | `16777216` | Total result budget of a notebook, including dependency results (16 MiB); SQL cells return at most 10,000 rows per statement and obey lower server limits |
-| `DATAPORT_MCP_ENABLED` | `true` | Serve the MCP endpoint at `<base path>/mcp` |
-| `DATAPORT_MCP_MAX_ROWS` | `200` | Rows returned to an agent per statement |
-| `DATAPORT_MCP_MAX_CELL_CHARS` | `2000` | Longer text values are shortened for agents |
-| `DATAPORT_MCP_MAX_SCHEMA_TABLES` | `100` | Tables described by one `dataport_schema_context` call |
-| `DATAPORT_MCP_TOKEN_TTL` | `2160h` | Longest lifetime of an access token, and of an OAuth sign-in before the client must sign in again; `0` allows tokens that never expire |
-| `DATAPORT_MCP_STATELESS` | `false` | No MCP sessions on the server, for replicas without sticky sessions; production writes are then refused |
 | `DATAPORT_SERVER_PORT` | `8080` | |
 | `DATAPORT_SERVER_BASE_PATH` | | Serve under a sub path such as `/dataport`. The UI uses relative paths, so it works under any base path without a rebuild |
+
+Query, pool, notebook, connection and MCP settings are not configured:
+admins set them under *Settings → Server limits*, and these defaults apply
+until they do.
+Most apply at once; turning MCP on or off and stateless mode apply after a
+restart.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| Queries: rows per statement | `200` | Rows returned per statement; users may ask for more per tab, up to the limit below |
+| Queries: most rows a user may ask for | `100000` | Most rows a user may ask one statement for; `0` means no limit |
+| Queries: default time limit | `0` | Time limit of a run when the connection sets none; `0` means no limit. Users may pick one per tab and can always stop a run |
+| Queries: time limit cap | `0` | Cap on any time limit, also on runs without one; `0` means no cap |
+| Pools: open connections per pool | `5` | Default pool size per connection |
+| Pools: idle connections kept per pool | `5` | Default idle connections kept per pool |
+| Pools: connection lifetime | `1h` | Default lifetime of a pooled connection |
+| Pools: unused connection stays open | `5m` | Default time an unused connection stays open |
+| Pools: close unused pools after | `10m` | An idle pool to a database is closed after this time |
+| Notebooks: simultaneous runs | `8` | Maximum simultaneous notebook runs per instance, foreground and background combined; excess requests return 429 |
+| Notebooks: longest run | `30m` | Whole-notebook deadline, also for background runs; cell and server query timeouts still apply |
+| Notebooks: result budget per run | `16 MiB` | Total result budget of a notebook, including dependency results; SQL cells return at most 10,000 rows per statement and obey lower server limits |
+| Connections: users may create their own | off | Users add their own connections under *Settings → My connections*; only the owner uses one. Turned off, they are kept but hidden and refused |
+| Connections: also database files | off | Also let users open database files (SQLite, DuckDB) from the file directory for their own connections |
+| MCP: serve the endpoint | on | Serve the MCP endpoint at `<base path>/mcp` |
+| MCP: rows per statement | `200` | Rows returned to an agent per statement |
+| MCP: longest text value | `2000` | Longer text values are shortened for agents |
+| MCP: tables per schema overview | `100` | Tables described by one `dataport_schema_context` call |
+| MCP: longest token lifetime | `90 days` | Longest lifetime of an access token, and of an OAuth sign-in before the client must sign in again; `0` allows tokens that never expire |
+| MCP: stateless | off | No MCP sessions on the server, for replicas without sticky sessions; production writes are then refused |
 
 ## How access works
 
@@ -608,8 +615,8 @@ choice, agents reach every connection as far as the grant allows.
   and approves. *Remember this client* approves it again later without
   asking, until its access is revoked. The client renews its access by itself. dataport is the
   OAuth 2.1 server: dynamic client registration, PKCE (S256), one-hour
-  access tokens and rotating refresh tokens that live as long as
-  `DATAPORT_MCP_TOKEN_TTL`.
+  access tokens and rotating refresh tokens that live as long as the
+  longest token lifetime in *Settings → Server limits*.
 - *Access tokens*: for clients without browser sign-in, scripts and CI,
   create a `dpt_…` token (optionally for one connection) and send it as a
   bearer token:

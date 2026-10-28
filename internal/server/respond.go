@@ -121,6 +121,8 @@ func writeGrantError(w http.ResponseWriter, err error, notFound string) {
 		writeCredentialsRequired(w, credErr.msg)
 	case errors.Is(err, errSecret):
 		writeError(w, http.StatusInternalServerError, "connection secret cannot be read")
+	case errors.Is(err, errNotebookOnly):
+		writeError(w, http.StatusForbidden, err.Error())
 	default:
 		writeStoreError(w, err)
 	}

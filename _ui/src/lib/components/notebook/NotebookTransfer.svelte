@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Plus, Trash2 } from 'lucide-svelte';
   import type { NotebookCell } from '@/lib/api/notebooks';
-  import { ws } from '@/lib/stores/workspace.svelte';
+  import { notebookConnections } from '@/lib/stores/workspace.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   let { cell, onchange }: { cell: NotebookCell; onchange: () => void } = $props();
 </script>
@@ -11,7 +11,7 @@
   <div class="space-y-3 border-t border-line-soft bg-panel p-3">
     <p class="text-xs text-muted">{t('notebook.transferHint')}</p>
     <div class="flex flex-wrap items-end gap-3">
-      <label class="flex flex-col gap-1 text-xs">{t('notebook.target')}<select class="input w-48" bind:value={tr.connection_id} onchange={onchange}><option value="">{t('notebook.chooseConnection')}</option>{#each ws.connections.filter((c) => !c.read_only && !c.production && c.id !== cell.connection_id) as c}<option value={c.id}>{c.name}</option>{/each}</select></label>
+      <label class="flex flex-col gap-1 text-xs">{t('notebook.target')}<select class="input w-48" bind:value={tr.connection_id} onchange={onchange}><option value="">{t('notebook.chooseConnection')}</option>{#each notebookConnections().filter((c) => !c.read_only && !c.production && c.id !== cell.connection_id) as c}<option value={c.id}>{c.name}</option>{/each}</select></label>
       <label class="flex flex-col gap-1 text-xs">{t('notebook.schema')}<input class="input w-36 font-mono" bind:value={tr.schema} oninput={onchange} /></label>
       <label class="flex flex-col gap-1 text-xs">{t('notebook.table')}<input class="input w-44 font-mono" bind:value={tr.table} oninput={onchange} /></label>
       <label class="flex flex-col gap-1 text-xs">{t('notebook.batch')}<input class="input w-20" type="number" min="1" max="500" bind:value={tr.batch} oninput={onchange} /></label>

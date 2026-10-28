@@ -4,7 +4,7 @@
   import { X, Search, RefreshCw, Trash2, CircleCheck, CircleX, Ban, Unplug } from 'lucide-svelte';
   import { api, qs } from '@/lib/api/client';
   import type { QueryLog } from '@/lib/api/types';
-  import { connection, deleteSaved, loadSaved, openQueryTab, ws } from '@/lib/stores/workspace.svelte';
+  import { connection, deleteSaved, loadSaved, openQueryTab, ws, workspaceConnections } from '@/lib/stores/workspace.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import { formatDuration, formatTime } from '@/lib/helper/format';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
@@ -52,7 +52,7 @@
   }
 
   function openLog(l: QueryLog) {
-    const conn = connection(l.connection_id) ? l.connection_id : ws.connections[0]?.id;
+    const conn = connection(l.connection_id) ? l.connection_id : workspaceConnections()[0]?.id;
     if (conn) openQueryTab(conn, l.sql);
   }
 </script>
@@ -104,7 +104,7 @@
             onclick={() => {
               const existing = ws.tabs.find((t) => t.savedId === q.id);
               if (existing) ws.activeId = existing.id;
-              else openQueryTab(conn ? q.connection_id : (ws.connections[0]?.id ?? ''), q.sql, q.name, q.id);
+              else openQueryTab(conn ? q.connection_id : (workspaceConnections()[0]?.id ?? ''), q.sql, q.name, q.id);
             }}
           >
             <div class="flex items-center gap-1.5">

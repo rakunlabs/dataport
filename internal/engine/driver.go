@@ -105,6 +105,16 @@ type Targeter interface {
 	Target() string
 }
 
+// TargetOf names what c points at; unknown database types count as network.
+func TargetOf(c *store.Connection) string {
+	d, err := DriverFor(c)
+	if err != nil {
+		return TargetNetwork
+	}
+
+	return target(d)
+}
+
 func target(d Driver) string {
 	if t, ok := d.(Targeter); ok {
 		return t.Target()

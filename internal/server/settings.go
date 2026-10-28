@@ -13,9 +13,10 @@ import (
 	"github.com/rakunlabs/dataport/internal/store"
 )
 
-// Server settings an admin may change in the UI. The configuration gives
-// their starting values; a value saved here wins over it until it is reset.
-// Most apply at once; a few shape the routes and apply after a restart.
+// Server settings an admin may change in the UI. They are not configured:
+// each starts from its built-in default, and a value saved here wins until
+// it is reset. Most apply at once; a few shape the routes and apply after a
+// restart.
 
 const runtimeSetting = "server_settings"
 
@@ -54,6 +55,8 @@ var settingFields = []settingField{
 	{Key: "notebook.max_concurrent", Section: "notebook", Kind: kindInt, Min: 1, Max: 1000, ptr: func(c *config.Config) any { return &c.Notebook.MaxConcurrent }},
 	{Key: "notebook.max_duration", Section: "notebook", Kind: kindDuration, Unit: "m", Min: 60, Max: 7 * 86400, ptr: func(c *config.Config) any { return &c.Notebook.MaxDuration }},
 	{Key: "notebook.max_output_bytes", Section: "notebook", Kind: kindInt, Unit: "MiB", Min: 1 << 20, Max: 1 << 30, ptr: func(c *config.Config) any { return &c.Notebook.MaxOutputBytes }},
+	{Key: "connections.user_create", Section: "connections", Kind: kindBool, ptr: func(c *config.Config) any { return &c.Connections.UserCreate }},
+	{Key: "connections.user_files", Section: "connections", Kind: kindBool, ptr: func(c *config.Config) any { return &c.Connections.UserFiles }},
 	{Key: "mcp.enabled", Section: "mcp", Kind: kindBool, Restart: true, ptr: func(c *config.Config) any { return &c.MCP.Enabled }},
 	{Key: "mcp.stateless", Section: "mcp", Kind: kindBool, Restart: true, ptr: func(c *config.Config) any { return &c.MCP.Stateless }},
 	{Key: "mcp.max_rows", Section: "mcp", Kind: kindInt, Min: 1, Max: 100_000, ptr: func(c *config.Config) any { return &c.MCP.MaxRows }},
@@ -186,9 +189,11 @@ func (s *Server) useSettings(next *config.Config, start bool) {
 		}
 	}
 
-	s.cfg.Query, s.cfg.MCP, s.cfg.Notebook = next.Query, next.MCP, next.Notebook
+	s.cfg.Query, s.cfg.MCP, s.cfg.Notebook, s.cfg.Connections = next.Query, next.MCP, next.Notebook, next.Connections
 	q := s.cfg.Query
 	s.settingsMu.Unlock()
+
+	s.store.SetPersonalConnections(next.Connections.UserCreate)
 
 	if s.engine != nil {
 		s.engine.SetDefaults(store.Limits{
@@ -231,6 +236,13 @@ func (s *Server) mcpCfg() config.MCP {
 	return s.cfg.MCP
 }
 
+func (s *Server) connectionsCfg() config.Connections {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+
+	return s.cfg.Connections
+}
+
 func (s *Server) notebookCfg() config.Notebook {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
@@ -243,9 +255,9 @@ func (s *Server) notebookCfg() config.Notebook {
 
 type settingView struct {
 	settingField
-	// Value is what is saved, or the configuration's value when nothing is.
+	// Value is what is saved, or the starting value when nothing is.
 	Value any `json:"value"`
-	// Config is the value from the configuration.
+	// Config is the built-in default.
 	Config any `json:"config"`
 	// Saved is set when an admin saved a value.
 	Saved bool `json:"saved"`

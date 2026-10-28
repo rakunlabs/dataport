@@ -16,7 +16,7 @@
     showGroup as showGroupFor,
     type GroupKey,
   } from '@/lib/components/workspace/treeMenus';
-  import { loadColumns, loadObjects, loadRoutines, loadSchemas, openQueryTab, openTableTab, refreshConnection, toggle, ws, activeTab } from '@/lib/stores/workspace.svelte';
+  import { loadColumns, loadObjects, loadRoutines, loadSchemas, openQueryTab, openTableTab, refreshConnection, toggle, ws, activeTab, workspaceConnections } from '@/lib/stores/workspace.svelte';
   import { askCredentials, forgetCredentials } from '@/lib/stores/credentials.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import type { ConnectionView, DbObject, Routine } from '@/lib/api/types';
@@ -70,7 +70,7 @@
   // in collapsed schemas show up too.
   $effect(() => {
     if (!f) return;
-    for (const c of ws.connections) {
+    for (const c of workspaceConnections()) {
       if (!ws.expanded[c.id]) continue;
       for (const schema of ws.schemas[c.id]?.items ?? []) openSchema(c.id, schema);
     }
@@ -123,7 +123,7 @@
 <aside class="flex h-full flex-col bg-panel">
   <div class="pane-head items-center gap-2 pr-1.5 pl-3">
     <span class="pane-title">{t('sidebar.connections')}</span>
-    <span class="text-xs text-faint tabular-nums">{ws.connections.length}</span>
+    <span class="text-xs text-faint tabular-nums">{workspaceConnections().length}</span>
     {#if oncollapse}
       <button class="icon-btn ml-auto size-6" onclick={oncollapse} title={t('sidebar.collapse')} aria-label={t('sidebar.collapse')} aria-expanded="true">
         <ChevronsLeft size={15} />
@@ -146,14 +146,14 @@
       <p class="flex items-center gap-2 px-3 py-2 text-xs text-muted"><LoaderCircle size={12} class="animate-spin" /> {t('common.loading')}</p>
     {:else if ws.connectionsError}
       <p class="flex items-start gap-1.5 px-3 py-2 text-xs text-danger"><TriangleAlert size={12} class="mt-0.5 shrink-0" /> {ws.connectionsError}</p>
-    {:else if ws.connections.length === 0}
+    {:else if workspaceConnections().length === 0}
       <div class="px-4 py-8 text-center">
         <Lock size={18} class="mx-auto mb-2 text-faint" />
         <p class="text-xs leading-relaxed text-muted">{t('sidebar.noAccess')}</p>
       </div>
     {/if}
 
-    {#each ws.connections as c (c.id)}
+    {#each workspaceConnections() as c (c.id)}
       {@const open = ws.expanded[c.id]}
       {@const schemas = ws.schemas[c.id]}
       {@const here = current?.connectionId === c.id}

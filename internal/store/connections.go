@@ -37,10 +37,21 @@ type Connection struct {
 	TimeoutMS       int  `json:"timeout_ms"`
 	// Limits are the pool settings; users signing in with their own
 	// account may override them for their own pool.
-	Limits    Limits   `json:"limits"`
-	CreatedAt int64    `json:"created_at"`
-	UpdatedAt int64    `json:"updated_at"`
-	Access    []Access `json:"access"`
+	Limits Limits `json:"limits"`
+	// OwnerID is the user who created a personal connection; empty for the
+	// connections an admin defines. Only the owner uses a personal one.
+	OwnerID string `json:"owner_id"`
+	// HideWorkspace, HideNotebooks and HideMCP keep the connection out of
+	// the workspace lists, the notebook cells and MCP agents.
+	HideWorkspace bool `json:"hide_workspace"`
+	HideNotebooks bool `json:"hide_notebooks"`
+	HideMCP       bool `json:"hide_mcp"`
+	// NotebookOnly allows the connection only in notebook cells: queries,
+	// the schema browser, tools and agents' direct calls are refused.
+	NotebookOnly bool     `json:"notebook_only"`
+	CreatedAt    int64    `json:"created_at"`
+	UpdatedAt    int64    `json:"updated_at"`
+	Access       []Access `json:"access"`
 
 	// Owner is set at runtime when Username and the password are a user's
 	// own account, so the engine keeps a separate pool for that user.
@@ -130,9 +141,16 @@ type ConnectionView struct {
 	// MaxTimeoutMS is the longest time limit a user may choose; zero means
 	// runs may have none.
 	MaxTimeoutMS int `json:"max_timeout_ms"`
+
+	// Personal is set for a connection the user created for themselves.
+	Personal      bool `json:"personal"`
+	HideWorkspace bool `json:"hide_workspace"`
+	HideNotebooks bool `json:"hide_notebooks"`
+	HideMCP       bool `json:"hide_mcp"`
+	NotebookOnly  bool `json:"notebook_only"`
 }
 
-const connectionColumns = "id, name, description, db_type, host, port, database_name, username, password_enc, options, color, read_only, production, user_credentials, max_rows, timeout_ms, limits, created_at, updated_at"
+const connectionColumns = "id, name, description, db_type, host, port, database_name, username, password_enc, options, color, read_only, production, user_credentials, max_rows, timeout_ms, limits, owner_id, hide_workspace, hide_notebooks, hide_mcp, notebook_only, created_at, updated_at"
 
 func scanConnection(row interface{ Scan(...any) error }) (*Connection, error) {
 	var (
@@ -142,10 +160,12 @@ func scanConnection(row interface{ Scan(...any) error }) (*Connection, error) {
 		production int
 		userCreds  int
 		limits     string
+		hide       [4]int
 	)
 
 	if err := row.Scan(&c.ID, &c.Name, &c.Description, &c.DBType, &c.Host, &c.Port, &c.Database, &c.Username,
-		&c.PasswordEnc, &options, &c.Color, &readOnly, &production, &userCreds, &c.MaxRows, &c.TimeoutMS, &limits, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.PasswordEnc, &options, &c.Color, &readOnly, &production, &userCreds, &c.MaxRows, &c.TimeoutMS, &limits,
+		&c.OwnerID, &hide[0], &hide[1], &hide[2], &hide[3], &c.CreatedAt, &c.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -156,6 +176,7 @@ func scanConnection(row interface{ Scan(...any) error }) (*Connection, error) {
 	c.ReadOnly = readOnly != 0
 	c.Production = production != 0
 	c.UserCredentials = userCreds != 0
+	c.HideWorkspace, c.HideNotebooks, c.HideMCP, c.NotebookOnly = hide[0] != 0, hide[1] != 0, hide[2] != 0, hide[3] != 0
 	c.Limits = parseLimits(limits)
 	c.HasPassword = c.PasswordEnc != ""
 	c.Options = map[string]string{}
@@ -242,10 +263,11 @@ func (s *Store) CreateConnection(ctx context.Context, c *Connection) error {
 
 	return wrapWriteErr(s.inTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, s.q("INSERT INTO "+s.t("connections")+" ("+connectionColumns+
-			") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+			") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
 			c.ID, c.Name, c.Description, c.DBType, c.Host, c.Port, c.Database, c.Username, c.PasswordEnc,
 			string(options), c.Color, b2i(c.ReadOnly), b2i(c.Production), b2i(c.UserCredentials), c.MaxRows, c.TimeoutMS,
-			limitsJSON(c.Limits), ts, ts); err != nil {
+			limitsJSON(c.Limits), c.OwnerID, b2i(c.HideWorkspace), b2i(c.HideNotebooks), b2i(c.HideMCP), b2i(c.NotebookOnly),
+			ts, ts); err != nil {
 			return err
 		}
 
@@ -268,10 +290,10 @@ func (s *Store) UpdateConnection(ctx context.Context, c *Connection) error {
 		res, err := tx.ExecContext(ctx, s.q("UPDATE "+s.t("connections")+
 			" SET name = ?, description = ?, db_type = ?, host = ?, port = ?, database_name = ?, username = ?, password_enc = ?,"+
 			" options = ?, color = ?, read_only = ?, production = ?, user_credentials = ?, max_rows = ?, timeout_ms = ?, limits = ?,"+
-			" updated_at = ? WHERE id = ?"),
+			" hide_workspace = ?, hide_notebooks = ?, hide_mcp = ?, notebook_only = ?, updated_at = ? WHERE id = ?"),
 			c.Name, c.Description, c.DBType, c.Host, c.Port, c.Database, c.Username, c.PasswordEnc,
 			string(options), c.Color, b2i(c.ReadOnly), b2i(c.Production), b2i(c.UserCredentials), c.MaxRows, c.TimeoutMS,
-			limitsJSON(c.Limits), c.UpdatedAt, c.ID)
+			limitsJSON(c.Limits), b2i(c.HideWorkspace), b2i(c.HideNotebooks), b2i(c.HideMCP), b2i(c.NotebookOnly), c.UpdatedAt, c.ID)
 		if err != nil {
 			return err
 		}
@@ -381,7 +403,51 @@ func (g *Grant) View() ConnectionView {
 		TimeoutMS:   c.TimeoutMS,
 
 		UserCredentials: c.UserCredentials,
+		Personal:        c.OwnerID != "",
+		HideWorkspace:   c.HideWorkspace,
+		HideNotebooks:   c.HideNotebooks,
+		HideMCP:         c.HideMCP,
+		NotebookOnly:    c.NotebookOnly,
 	}
+}
+
+// SetPersonalConnections turns personal connections on or off. While off
+// they are kept but neither listed nor usable, also by their owners.
+func (s *Store) SetPersonalConnections(on bool) {
+	s.personal.Store(on)
+}
+
+// personalGrant is the grant of a personal connection: only its owner has
+// one, while personal connections are on.
+func (s *Store) personalGrant(user *User, c *Connection) (*Grant, bool) {
+	if !s.personal.Load() || c.OwnerID != user.ID {
+		return nil, false
+	}
+
+	return &Grant{Connection: c, ReadOnly: c.ReadOnly}, true
+}
+
+// PersonalConnections returns the connections the user created.
+func (s *Store) PersonalConnections(ctx context.Context, userID string) ([]*Connection, error) {
+	rows, err := s.query(ctx, "SELECT "+connectionColumns+" FROM "+s.t("connections")+" WHERE owner_id = ? ORDER BY name", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	list := []*Connection{}
+
+	for rows.Next() {
+		c, err := scanConnection(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		c.Access = []Access{}
+		list = append(list, c)
+	}
+
+	return list, rows.Err()
 }
 
 // grantQuery selects the access rows that apply to a user, directly or
@@ -428,6 +494,14 @@ func (s *Store) ListGrants(ctx context.Context, user *User) ([]*Grant, error) {
 	if user.IsAdmin() {
 		grants := make([]*Grant, 0, len(conns))
 		for _, c := range conns {
+			if c.OwnerID != "" {
+				if g, ok := s.personalGrant(user, c); ok {
+					grants = append(grants, g)
+				}
+
+				continue
+			}
+
 			grants = append(grants, &Grant{Connection: c, ReadOnly: c.ReadOnly})
 		}
 
@@ -442,6 +516,14 @@ func (s *Store) ListGrants(ctx context.Context, user *User) ([]*Grant, error) {
 	grants := []*Grant{}
 
 	for _, c := range conns {
+		if c.OwnerID != "" {
+			if g, ok := s.personalGrant(user, c); ok {
+				grants = append(grants, g)
+			}
+
+			continue
+		}
+
 		w, ok := writable[c.ID]
 		if !ok {
 			continue
@@ -460,6 +542,16 @@ func (s *Store) GetGrant(ctx context.Context, user *User, connectionID string) (
 	c, err := s.GetConnection(ctx, connectionID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Nobody else reaches a personal connection, admins neither: it holds
+	// its owner's own account.
+	if c.OwnerID != "" {
+		if g, ok := s.personalGrant(user, c); ok {
+			return g, nil
+		}
+
+		return nil, ErrNotFound
 	}
 
 	if user.IsAdmin() {

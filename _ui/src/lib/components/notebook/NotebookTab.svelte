@@ -10,7 +10,7 @@
   import { ApiError } from '@/lib/api/client';
   import * as nb from '@/lib/api/notebooks';
   import { newCell, type NotebookCell, type NotebookResult } from '@/lib/api/notebooks';
-  import { connection, persist, closeTab, ws, type Tab } from '@/lib/stores/workspace.svelte';
+  import { connection, persist, closeTab, notebookConnections, ws, type Tab } from '@/lib/stores/workspace.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { toast, errorMessage } from '@/lib/stores/toast.svelte';
   import { download, formatDuration } from '@/lib/helper/format';
@@ -44,7 +44,7 @@
   function changed() { tab.dirty = true; if (note) tab.title = note.name || t('notebook.untitled'); persist(); }
   async function load() {
     if (!tab.savedId) {
-      if (!tab.notebook) tab.notebook = { id: '', owner_id: '', name: t('notebook.untitled'), path: `notebook-${Date.now()}`, document: { cells: [newCell(tab.connectionId || ws.connections[0]?.id, 1, tab.sql)], parameters: [] }, version: 0, published_version: 0, permission: 'owner', created_at: 0, updated_at: 0 };
+      if (!tab.notebook) tab.notebook = { id: '', owner_id: '', name: t('notebook.untitled'), path: `notebook-${Date.now()}`, document: { cells: [newCell(tab.connectionId || notebookConnections()[0]?.id, 1, tab.sql)], parameters: [] }, version: 0, published_version: 0, permission: 'owner', created_at: 0, updated_at: 0 };
       changed(); return;
     }
     loading = true; error = '';
@@ -78,7 +78,7 @@
   function addCell() {
     if (!note) return;
     let i = note.document.cells.length + 1; while (note.document.cells.some((c) => c.path === `cell${i}`)) i++;
-    note.document.cells.push(newCell(ws.connections[0]?.id, i)); changed();
+    note.document.cells.push(newCell(notebookConnections()[0]?.id, i)); changed();
   }
   function move(i: number, by: number) {
     if (!note) return; const cells = note.document.cells; [cells[i], cells[i + by]] = [cells[i + by], cells[i]]; changed();

@@ -156,8 +156,10 @@ func (s *Server) fromMCPDocument(ctx context.Context, caller *mcpCaller, existin
 			return "", fmt.Errorf("%s needs a connection; call dataport_list_connections", what)
 		}
 
-		g := findGrant(grants, name)
-		if g == nil {
+		// Agents may not put a notebook-only connection into a cell, which
+		// would let them run any SQL on it.
+		g := findGrant(mcpVisible(grants), name)
+		if g == nil || g.Connection.NotebookOnly || g.Connection.HideNotebooks {
 			return "", fmt.Errorf("%s: unknown connection %q; call dataport_list_connections", what, name)
 		}
 

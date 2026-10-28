@@ -86,6 +86,20 @@ export function connection(id: string): ConnectionView | undefined {
   return ws.connections.find((c) => c.id === id);
 }
 
+// Connections an admin keeps out of the workspace lists, such as
+// notebook-only ones, still open in notebooks.
+export function workspaceConnections(): ConnectionView[] {
+  return ws.connections.filter((c) => !c.hide_workspace && !c.notebook_only);
+}
+
+export function notebookConnections(): ConnectionView[] {
+  return ws.connections.filter((c) => !c.hide_notebooks);
+}
+
+export function mcpConnections(): ConnectionView[] {
+  return ws.connections.filter((c) => !c.hide_mcp && !c.notebook_only);
+}
+
 export function activeTab(): Tab | undefined {
   return ws.tabs.find((t) => t.id === ws.activeId);
 }

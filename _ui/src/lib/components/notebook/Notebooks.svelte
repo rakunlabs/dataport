@@ -3,7 +3,7 @@
   import { Plus, RefreshCw, Upload, NotebookPen } from 'lucide-svelte';
   import { listNotebooks, type Notebook } from '@/lib/api/notebooks';
   import { importNotebook } from '@/lib/helper/notebookImport';
-  import { openNotebook, persist, ws } from '@/lib/stores/workspace.svelte';
+  import { openNotebook, persist, notebookConnections, ws } from '@/lib/stores/workspace.svelte';
   import { fmtDateTime, t } from '@/lib/i18n/index.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
 
@@ -27,7 +27,7 @@
     try {
       if (file.size > 4 * 1024 * 1024) throw new Error('Notebook JSON must be smaller than 4 MiB.');
       const raw = JSON.parse(await file.text());
-      const imported = importNotebook(raw, ws.connections);
+      const imported = importNotebook(raw, notebookConnections());
       const saz = !!(raw.content || raw.data?.content);
       const tab = openNotebook();
       tab.notebook = imported;

@@ -6,7 +6,7 @@
   import ResultPanel from '@/lib/components/result/ResultPanel.svelte';
   import RunTimer from '@/lib/components/result/RunTimer.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
-  import { cancel, connection, endTx, persist, run, runInNewTab, saveTab, setManualTx, openNotebook, ws, type Tab } from '@/lib/stores/workspace.svelte';
+  import { cancel, connection, endTx, persist, run, runInNewTab, saveTab, setManualTx, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
   import { prefs } from '@/lib/stores/prefs.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';
   import TreeMenu, { type MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
@@ -179,7 +179,7 @@
     <label class="relative flex items-center">
       <span class="pointer-events-none absolute left-2 flex">{#if conn}<DbIcon type={conn.db_type} size={12} />{/if}</span>
       <select class="input h-[26px] w-auto max-w-64 pl-7 text-sm" value={tab.connectionId} onchange={changeConnection} disabled={tab.running || tab.txOpen} title={tab.txOpen ? t('tx.connectionLocked') : undefined} aria-label={t('query.connection')}>
-        {#each ws.connections as c (c.id)}
+        {#each workspaceConnections() as c (c.id)}
           <option value={c.id}>{c.name}</option>
         {/each}
       </select>

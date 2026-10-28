@@ -6,21 +6,34 @@
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { dbLabel } from '@/lib/helper/databases';
   import { api } from '@/lib/api/client';
-  import type { Access, Connection, Limits } from '@/lib/api/types';
+  import type { Access, Connection, DriverList, Limits } from '@/lib/api/types';
   import LimitsFields from '@/lib/components/ui/LimitsFields.svelte';
   import ConnectionAccess from '@/pages/admin/ConnectionAccess.svelte';
   import ConnectionSecurity from '@/pages/admin/ConnectionSecurity.svelte';
   import { admin } from '@/pages/admin/admin.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
 
+  // personal is a connection users create for themselves: a shared account,
+  // the server's pool defaults, and no access list or visibility options.
   let {
     connection,
+    personal = false,
     onclose,
     onsaved,
-  }: { connection: Connection | null; onclose: () => void; onsaved: () => void } = $props();
+  }: { connection: Connection | null; personal?: boolean; onclose: () => void; onsaved: () => void } = $props();
 
   // svelte-ignore state_referenced_locally
   const c = connection;
+  // svelte-ignore state_referenced_locally
+  const base = personal ? '/my-connections' : '/admin/connections';
+
+  // Users get the database types they may pick from their own endpoint.
+  let own = $state<DriverList | null>(null);
+  // svelte-ignore state_referenced_locally
+  if (personal) void api.get<DriverList>('/my-connections/drivers').then((v) => (own = v), (e) => (error = errorMessage(e)));
+  const drivers = $derived(personal ? (own?.drivers ?? []) : admin.drivers);
+  const filesEnabled = $derived(personal ? !!own?.files_enabled : admin.filesEnabled);
+  const odbcDialects = $derived(personal ? (own?.odbc_dialects ?? []) : admin.odbcDialects);
 
   let form = $state({
     name: c?.name ?? '',
@@ -40,6 +53,10 @@
     max_rows: c?.max_rows || ('' as number | ''),
     timeout_s: (c ? Math.round(c.timeout_ms / 1000) : 0) || ('' as number | ''),
     access: (c?.access ?? []).map((a) => ({ ...a })) as Access[],
+    hide_workspace: c?.hide_workspace ?? false,
+    hide_notebooks: c?.hide_notebooks ?? false,
+    hide_mcp: c?.hide_mcp ?? false,
+    notebook_only: c?.notebook_only ?? false,
   });
 
   // A new connection starts by choosing the database.
@@ -50,7 +67,7 @@
   let test = $state<{ ok: boolean; message?: string; duration_ms?: number } | null>(null);
   let error = $state('');
 
-  const driver = $derived(admin.drivers.find((d) => d.type === form.db_type));
+  const driver = $derived(drivers.find((d) => d.type === form.db_type));
   const target = $derived(driver?.target ?? 'network');
   // Trino, Oracle and the file databases call the database field differently.
   const databaseLabel = $derived(
@@ -67,7 +84,7 @@
   function choose() {
     // Options of another database type do not apply.
     if (form.db_type !== (c?.db_type ?? '')) form.options = {};
-    if (target === 'file') form.user_credentials = false;
+    if (target === 'file' || personal) form.user_credentials = false;
     step = 'details';
   }
   const colors = ['', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899'];
@@ -91,6 +108,10 @@
       max_rows: Number(form.max_rows) || 0,
       timeout_ms: (Number(form.timeout_s) || 0) * 1000,
       access: form.access,
+      hide_workspace: form.hide_workspace,
+      hide_notebooks: form.hide_notebooks,
+      hide_mcp: form.hide_mcp,
+      notebook_only: form.notebook_only,
     };
   }
 
@@ -98,7 +119,7 @@
     testing = true;
     test = null;
     try {
-      test = await api.post('/admin/connections/test', { ...body(), id: c?.id ?? '' });
+      test = await api.post(`${base}/test`, { ...body(), id: c?.id ?? '' });
     } catch (e) {
       test = { ok: false, message: errorMessage(e) };
     } finally {
@@ -111,8 +132,8 @@
     busy = true;
     error = '';
     try {
-      if (c) await api.put(`/admin/connections/${c.id}`, body());
-      else await api.post('/admin/connections', body());
+      if (c) await api.put(`${base}/${c.id}`, body());
+      else await api.post(base, body());
       toast(c ? t('admin.conn.updated') : t('admin.conn.created'), 'success');
       onsaved();
     } catch (err) {
@@ -129,7 +150,7 @@
   width={step === 'pick' ? 'max-w-3xl' : 'max-w-2xl'}
 >
   {#if step === 'pick'}
-    <DbPicker drivers={admin.drivers} filesEnabled={admin.filesEnabled} bind:selected={form.db_type} onnext={choose} />
+    <DbPicker {drivers} {filesEnabled} bind:selected={form.db_type} onnext={choose} />
   {:else}
   <form id="conn-form" onsubmit={submit} class="space-y-5">
     <section class="grid grid-cols-6 gap-3">
@@ -185,11 +206,11 @@
         <div class="col-span-3">
           <label class="label" for="c-dialect">{t('admin.conn.dialect')}</label>
           <select id="c-dialect" class="input" bind:value={form.options.dialect}>
-            {#each admin.odbcDialects as d (d)}<option value={d}>{d || t('admin.conn.dialectStandard')}</option>{/each}
+            {#each odbcDialects as d (d)}<option value={d}>{d || t('admin.conn.dialectStandard')}</option>{/each}
           </select>
         </div>
       {/if}
-      {#if target !== 'file'}
+      {#if target !== 'file' && !personal}
       <div class="col-span-6">
         <span class="label">{t('admin.conn.auth')}</span>
         <div class="grid grid-cols-2 gap-2">
@@ -199,7 +220,7 @@
                 ? 'border-accent bg-accent-soft'
                 : 'border-line hover:bg-hover'}"
             >
-              <input type="radio" name="c-auth" class="mt-0.5" checked={form.user_credentials === perUser} onchange={() => (form.user_credentials = perUser)} />
+              <input type="radio" name="c-auth" class="mt-0.5" checked={form.user_credentials === perUser} onchange={() => { form.user_credentials = perUser; if (perUser) form.notebook_only = false; }} />
               <span>
                 <span class="block font-medium">{perUser ? t('admin.conn.authPerUser') : t('admin.conn.authShared')}</span>
                 <span class="block text-xs text-muted">{perUser ? t('admin.conn.authPerUserHint') : t('admin.conn.authSharedHint')}</span>
@@ -266,7 +287,7 @@
         <span class="label">{t('admin.conn.mode')}</span>
         <label class="flex h-6 items-center gap-2 text-sm">
           <input type="checkbox" bind:checked={form.read_only} />
-          {t('admin.conn.readOnlyAll')}
+          {personal ? t('myConn.readOnly') : t('admin.conn.readOnlyAll')}
         </label>
         <label class="flex h-6 items-center gap-2 text-sm" title={t('admin.conn.productionHint')}>
           <input type="checkbox" bind:checked={form.production} disabled={form.read_only} />
@@ -283,6 +304,35 @@
       </div>
     </section>
 
+    {#if !personal}
+    <section>
+      <span class="label">{t('admin.conn.visibility')}</span>
+      <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+        <label class="flex items-center gap-2 text-sm" title={t('admin.conn.showWorkspaceHint')}>
+          <input type="checkbox" checked={!form.hide_workspace && !form.notebook_only} disabled={form.notebook_only} onchange={(e) => (form.hide_workspace = !e.currentTarget.checked)} />
+          {t('admin.conn.showWorkspace')}
+        </label>
+        <label class="flex items-center gap-2 text-sm" title={t('admin.conn.showNotebooksHint')}>
+          <input type="checkbox" checked={!form.hide_notebooks} disabled={form.notebook_only} onchange={(e) => (form.hide_notebooks = !e.currentTarget.checked)} />
+          {t('admin.conn.showNotebooks')}
+        </label>
+        <label class="flex items-center gap-2 text-sm" title={t('admin.conn.showMcpHint')}>
+          <input type="checkbox" checked={!form.hide_mcp && !form.notebook_only} disabled={form.notebook_only} onchange={(e) => (form.hide_mcp = !e.currentTarget.checked)} />
+          {t('admin.conn.showMcp')}
+        </label>
+        <label class="flex items-center gap-2 text-sm" title={form.user_credentials ? t('admin.conn.notebookOnlyShared') : t('admin.conn.notebookOnlyHint')}>
+          <input
+            type="checkbox"
+            bind:checked={form.notebook_only}
+            disabled={form.user_credentials}
+            onchange={() => form.notebook_only && (form.hide_notebooks = false)}
+          />
+          {t('admin.conn.notebookOnly')}
+        </label>
+      </div>
+      <p class="hint mt-1">{form.notebook_only ? t('admin.conn.notebookOnlyHint') : t('admin.conn.visibilityHint')}</p>
+    </section>
+
     <details class="group rounded-md border border-line" open={Object.values(form.limits).some(Boolean)}>
       <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm select-none hover:bg-hover">
         <ChevronRight size={14} class="text-faint disclosure-icon" />
@@ -296,6 +346,7 @@
     </details>
 
     <ConnectionAccess bind:access={form.access} readOnly={form.read_only} />
+    {/if}
 
     {#if error}<p class="rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{error}</p>{/if}
   </form>

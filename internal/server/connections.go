@@ -54,7 +54,7 @@ func (s *Server) listMyConnections(w http.ResponseWriter, r *http.Request) {
 }
 
 // grant loads the connection the request names and checks the user may use
-// it. It writes the response and returns nil on failure.
+// it outside notebooks. It writes the response and returns nil on failure.
 func (s *Server) grant(w http.ResponseWriter, r *http.Request) (*store.Grant, string) {
 	g, password, err := s.resolveGrant(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
@@ -72,12 +72,31 @@ type credentialsError struct{ msg string }
 
 func (e *credentialsError) Error() string { return e.msg }
 
-var errSecret = errors.New("connection secret cannot be read")
+var (
+	errSecret       = errors.New("connection secret cannot be read")
+	errNotebookOnly = errors.New("this connection can only be used in notebooks")
+)
 
 // resolveGrant returns the user's grant on a connection with the password
-// to connect with. For own-account connections the connection carries the
-// user's account.
+// to connect with, for any use but a notebook cell: notebook-only
+// connections are refused. For own-account connections the connection
+// carries the user's account.
 func (s *Server) resolveGrant(ctx context.Context, user *store.User, id string) (*store.Grant, string, error) {
+	g, password, err := s.resolveNotebookGrant(ctx, user, id)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if g.Connection.NotebookOnly {
+		return nil, "", errNotebookOnly
+	}
+
+	return g, password, nil
+}
+
+// resolveNotebookGrant is resolveGrant for a notebook cell, which may also
+// use notebook-only connections.
+func (s *Server) resolveNotebookGrant(ctx context.Context, user *store.User, id string) (*store.Grant, string, error) {
 	g, err := s.store.GetGrant(ctx, user, id)
 	if err != nil {
 		return nil, "", err
@@ -158,6 +177,12 @@ func (s *Server) setCredential(w http.ResponseWriter, r *http.Request) {
 	g, err := s.store.GetGrant(ctx, user, r.PathValue("id"))
 	if err != nil {
 		writeGrantError(w, err, "connection not found")
+
+		return
+	}
+
+	if g.Connection.NotebookOnly {
+		writeGrantError(w, errNotebookOnly, "")
 
 		return
 	}

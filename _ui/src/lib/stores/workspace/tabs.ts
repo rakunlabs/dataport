@@ -1,6 +1,6 @@
 import { t } from '@/lib/i18n/index.svelte';
 import { EditState } from '@/lib/stores/edits.svelte';
-import { connection, newId, ws, type Tab, type TabKind } from '@/lib/stores/workspace/state.svelte';
+import { connection, newId, workspaceConnections, ws, type Tab, type TabKind } from '@/lib/stores/workspace/state.svelte';
 import { loadConnections, loadSchemas } from '@/lib/stores/workspace/tree';
 import { loadPersisted, persist, persistedUser, setPersistedUser } from '@/lib/stores/workspace/persist';
 import { cancel, endTx, run, runTable, setRunElsewhere, syncTxs } from '@/lib/stores/workspace/run';
@@ -260,9 +260,10 @@ export async function startWorkspace(userId: string) {
 
   // A single connection opens by itself, unless it still needs the user's
   // own account: the sign-in dialog should follow a click, not the page load.
-  const only = ws.connections.length === 1 ? ws.connections[0] : undefined;
+  const visible = workspaceConnections();
+  const only = visible.length === 1 ? visible[0] : undefined;
   if (only && !(only.user_credentials && !only.credential_user)) ws.expanded[only.id] = true;
-  for (const c of ws.connections) if (ws.expanded[c.id]) void loadSchemas(c.id);
+  for (const c of visible) if (ws.expanded[c.id]) void loadSchemas(c.id);
 
   if (pendingSettings) {
     openSettings(pendingSettings);

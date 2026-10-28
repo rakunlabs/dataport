@@ -14,10 +14,14 @@ type meResponse struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	Role        string `json:"role"`
+	// CanCreateConnections is set while users may add their own
+	// connections.
+	CanCreateConnections bool `json:"can_create_connections"`
 }
 
-func toMe(u *store.User) meResponse {
-	return meResponse{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role}
+func (s *Server) toMe(u *store.User) meResponse {
+	return meResponse{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role,
+		CanCreateConnections: s.connectionsCfg().UserCreate}
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +56,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.setCookie(w, r, token, req.Remember)
-	writeJSON(w, http.StatusOK, toMe(user))
+	writeJSON(w, http.StatusOK, s.toMe(user))
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +74,7 @@ func (s *Server) about(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, toMe(currentUser(r)))
+	writeJSON(w, http.StatusOK, s.toMe(currentUser(r)))
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {

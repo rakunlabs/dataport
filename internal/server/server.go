@@ -58,8 +58,8 @@ type Server struct {
 	notebookStop       context.CancelFunc
 	notebookWorkers    sync.WaitGroup
 	// base is the configuration as loaded; cfg holds it with the settings
-	// admins saved over it. settingsMu guards cfg.Query, cfg.MCP and
-	// cfg.Notebook, which change while running.
+	// admins saved over it. settingsMu guards cfg.Query, cfg.MCP,
+	// cfg.Notebook and cfg.Connections, which change while running.
 	base       config.Config
 	settingsMu sync.RWMutex
 }
@@ -108,6 +108,12 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.GET("/about", s.about)
 	user.POST("/me/password", s.changePassword)
 	user.GET("/connections", s.listMyConnections)
+	user.GET("/my-connections", s.listPersonalConnections)
+	user.POST("/my-connections", s.createPersonalConnection)
+	user.POST("/my-connections/test", s.testPersonalConnection)
+	user.PUT("/my-connections/{id}", s.updatePersonalConnection)
+	user.DELETE("/my-connections/{id}", s.deletePersonalConnection)
+	user.GET("/my-connections/drivers", s.personalDrivers)
 	user.GET("/connections/{id}/schemas", s.schemas)
 	user.GET("/connections/{id}/objects", s.objects)
 	user.GET("/connections/{id}/columns", s.columns)

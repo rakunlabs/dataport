@@ -5,7 +5,7 @@
   import Modal from '@/lib/components/ui/Modal.svelte';
   import TablePicker from '@/lib/components/table/TablePicker.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
-  import { connection, loadSchemas, refreshConnection, refreshSchema, ws } from '@/lib/stores/workspace.svelte';
+  import { connection, loadSchemas, refreshConnection, refreshSchema, ws, workspaceConnections } from '@/lib/stores/workspace.svelte';
   import { closeToolDialog } from '@/lib/stores/dialogs.svelte';
   import { confirmProduction } from '@/lib/stores/confirm.svelte';
   import { askCredentials } from '@/lib/stores/credentials.svelte';
@@ -22,7 +22,7 @@
 
   let schema = $state(initialSchema);
   let selected = $state<string[]>([...tables]);
-  const targets = $derived(ws.connections.filter((c) => !c.read_only));
+  const targets = $derived(workspaceConnections().filter((c) => !c.read_only));
   let targetId = $state('');
   let targetSchema = $state('');
   let create = $state(true);

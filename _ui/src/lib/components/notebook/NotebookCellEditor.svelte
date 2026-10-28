@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Play, ArrowUp, ArrowDown, CopyPlus, Trash2, ChevronDown, ChevronRight } from 'lucide-svelte';
   import type { NotebookCell } from '@/lib/api/notebooks';
-  import { connection, ws, type Tab } from '@/lib/stores/workspace.svelte';
+  import { connection, notebookConnections, type Tab } from '@/lib/stores/workspace.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';
   import { prefs } from '@/lib/stores/prefs.svelte';
@@ -46,7 +46,7 @@
     <button class="icon-btn shrink-0" onclick={() => { cell.collapsed = !cell.collapsed; if (editable) changed(); }} title={t(cell.collapsed ? 'notebook.expand' : 'notebook.collapse')} aria-label={t(cell.collapsed ? 'notebook.expand' : 'notebook.collapse')} aria-expanded={!cell.collapsed}>{#if cell.collapsed}<ChevronRight size={14} />{:else}<ChevronDown size={14} />{/if}</button>
     <span class="w-5 shrink-0 text-center font-mono text-xs text-faint">{i + 1}</span>
     <input class="input w-32 shrink-0 font-mono text-xs" bind:value={cell.path} oninput={changed} readonly={!editable || busy || tab.running} aria-label={t('notebook.path')} />
-    <select class="input w-44 shrink-0 text-xs" bind:value={cell.connection_id} disabled={!editable || busy || tab.running} onchange={changed} aria-label={t('notebook.connection')}><option value="">{t('notebook.chooseConnection')}</option>{#each ws.connections as c}<option value={c.id}>{c.name}</option>{/each}</select>
+    <select class="input w-44 shrink-0 text-xs" bind:value={cell.connection_id} disabled={!editable || busy || tab.running} onchange={changed} aria-label={t('notebook.connection')}><option value="">{t('notebook.chooseConnection')}</option>{#each notebookConnections() as c}<option value={c.id}>{c.name}</option>{/each}</select>
     {#if conn?.production}<span class="pill-prod">{t('conn.prodShort')}</span>{/if}
     <span class={cell.write ? 'pill-rw' : 'pill-ro'}>{t(cell.write ? 'notebook.write' : 'notebook.readOnly')}</span>
     <div class="flex-1"></div>

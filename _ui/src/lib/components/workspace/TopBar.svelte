@@ -4,7 +4,7 @@
   import Logo from '@/lib/components/ui/Logo.svelte';
   import { logout, session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
-  import { activeTab, openQueryTab, openSettings, openNotebooks, openDocsHub, ws } from '@/lib/stores/workspace.svelte';
+  import { activeTab, openQueryTab, openSettings, openNotebooks, openDocsHub, ws, workspaceConnections } from '@/lib/stores/workspace.svelte';
   import { i18n, locales, setLocale, t, type Locale } from '@/lib/i18n/index.svelte';
   import PasswordDialog from '@/lib/components/dialogs/PasswordDialog.svelte';
 
@@ -28,7 +28,7 @@
   }
 
   function newQuery() {
-    const conn = activeTab()?.connectionId ?? ws.connections[0]?.id;
+    const conn = activeTab()?.connectionId ?? workspaceConnections()[0]?.id;
     if (conn) openQueryTab(conn);
   }
 
@@ -45,7 +45,7 @@
     dataport
   </a>
 
-  <button class="btn" onclick={newQuery} disabled={ws.connections.length === 0}>
+  <button class="btn" onclick={newQuery} disabled={workspaceConnections().length === 0}>
     <FilePlus2 size={14} /> {t('app.newQuery')}
   </button>
 

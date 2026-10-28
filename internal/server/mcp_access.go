@@ -102,6 +102,10 @@ func (s *Server) mcpAccessView(ctx context.Context, user *store.User) (*mcpAcces
 
 	for _, g := range grants {
 		c := g.Connection
+		if c.HideMCP || c.NotebookOnly {
+			continue
+		}
+
 		mode := store.MCPRead
 		if !g.ReadOnly {
 			mode = store.MCPDDL

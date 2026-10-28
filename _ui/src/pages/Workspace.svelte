@@ -17,7 +17,7 @@
   import Notebooks from '@/lib/components/notebook/Notebooks.svelte';
   import NotebookTab from '@/lib/components/notebook/NotebookTab.svelte';
   import { session } from '@/lib/stores/session.svelte';
-  import { activeTab, openQueryTab, startWorkspace, ws } from '@/lib/stores/workspace.svelte';
+  import { activeTab, openQueryTab, startWorkspace, ws, workspaceConnections } from '@/lib/stores/workspace.svelte';
 
   let sidebarWidth = $state(Number(localStorage.getItem('dataport.sidebar')) || 264);
   // A collapsed sidebar leaves a thin strip with the button that opens it.
@@ -110,9 +110,9 @@
               </h2>
               <p class="mt-1 text-sm text-muted">{t('welcome.body')}</p>
 
-              {#if ws.connections.length}
+              {#if workspaceConnections().length}
                 <div class="mt-5 overflow-hidden rounded-lg border border-line">
-                  {#each ws.connections as c (c.id)}
+                  {#each workspaceConnections() as c (c.id)}
                     <button
                       class="flex h-9 w-full items-center gap-2.5 border-b border-line-soft px-3 text-left text-sm last:border-0 hover:bg-hover"
                       onclick={() => openQueryTab(c.id)}

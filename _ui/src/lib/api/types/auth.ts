@@ -5,6 +5,8 @@ export interface Me {
   username: string;
   display_name: string;
   role: Role;
+  // Users may add connections of their own.
+  can_create_connections?: boolean;
 }
 
 export interface AuthInfo {

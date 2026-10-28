@@ -52,13 +52,28 @@ type Config struct {
 	// DataDir holds the SQLite database.
 	DataDir string `cfg:"data_dir" default:"./data"`
 
-	Server    Server      `cfg:"server"`
-	Store     Store       `cfg:"store"`
-	Auth      Auth        `cfg:"auth"`
-	Query     Query       `cfg:"query"`
-	MCP       MCP         `cfg:"mcp"`
-	Notebook  Notebook    `cfg:"notebook"`
-	Telemetry tell.Config `cfg:"telemetry,noprefix"`
+	Server Server `cfg:"server"`
+	Store  Store  `cfg:"store"`
+	Auth   Auth   `cfg:"auth"`
+	Query  Query  `cfg:"query"`
+	// Query (but its file directory), MCP, Notebook and Connections are not
+	// read from the environment or a file: admins set them under Settings →
+	// Server limits, and the defaults of their fields apply until they do.
+	MCP         MCP         `cfg:"-" log:"-"`
+	Notebook    Notebook    `cfg:"-" log:"-"`
+	Connections Connections `cfg:"-" log:"-"`
+	Telemetry   tell.Config `cfg:"telemetry,noprefix"`
+}
+
+// Connections are the rules for personal connections, which users create
+// for themselves next to the ones an admin shares.
+type Connections struct {
+	// UserCreate lets users add their own connections. Turned off, the
+	// existing ones are kept but hidden and refused.
+	UserCreate bool `cfg:"user_create"`
+	// UserFiles also lets them open database files (SQLite, DuckDB) in the
+	// server's file directory.
+	UserFiles bool `cfg:"user_files"`
 }
 
 type Notebook struct {
@@ -128,25 +143,28 @@ type Auth struct {
 	SecureCookie bool `cfg:"secure_cookie"`
 }
 
+// Query holds the query and pool settings. Only FileDir is configured; the
+// others are set by admins under Settings → Server limits, starting from the
+// defaults below.
 type Query struct {
-	DefaultMaxRows int `cfg:"default_max_rows" default:"200"`
+	DefaultMaxRows int `cfg:"-" log:"-" default:"200"`
 	// DefaultTimeout limits a run when the connection sets no timeout; zero
 	// means no limit. Users may still stop a run, or choose a limit per tab.
-	DefaultTimeout time.Duration `cfg:"default_timeout" default:"0s"`
+	DefaultTimeout time.Duration `cfg:"-" log:"-" default:"0s"`
 	// MaxTimeout caps any timeout a connection or a user chooses; zero
 	// means no cap.
-	MaxTimeout time.Duration `cfg:"max_timeout" default:"0s"`
+	MaxTimeout time.Duration `cfg:"-" log:"-" default:"0s"`
 	// MaxRowsLimit caps any per-connection override the admin sets.
-	MaxRowsLimit int `cfg:"max_rows_limit" default:"100000"`
+	MaxRowsLimit int `cfg:"-" log:"-" default:"100000"`
 	// Pool defaults for connections that leave a limit empty. Each
 	// connection, and each user of an own-account connection, has its own
 	// pool.
-	PoolMaxOpen     int           `cfg:"pool_max_open" default:"5"`
-	PoolMaxIdle     int           `cfg:"pool_max_idle" default:"5"`
-	PoolMaxLifetime time.Duration `cfg:"pool_max_lifetime" default:"1h"`
-	PoolMaxIdleTime time.Duration `cfg:"pool_max_idle_time" default:"5m"`
+	PoolMaxOpen     int           `cfg:"-" log:"-" default:"5"`
+	PoolMaxIdle     int           `cfg:"-" log:"-" default:"5"`
+	PoolMaxLifetime time.Duration `cfg:"-" log:"-" default:"1h"`
+	PoolMaxIdleTime time.Duration `cfg:"-" log:"-" default:"5m"`
 	// PoolIdleTimeout closes idle target pools after this duration.
-	PoolIdleTimeout time.Duration `cfg:"pool_idle_timeout" default:"10m"`
+	PoolIdleTimeout time.Duration `cfg:"-" log:"-" default:"10m"`
 	// FileDir is the directory file databases (SQLite, DuckDB) are opened
 	// from. Empty disables them. The data directory is always refused.
 	FileDir string `cfg:"file_dir"`
