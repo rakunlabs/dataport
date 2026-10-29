@@ -245,6 +245,7 @@ const zhTW: Messages = {
     apply: '套用',
     editHint: '或按兩下該值',
     invalidJson: '不是有效的 JSON：{error}',
+    errorAt: '第 {line} 行，第 {col} 欄：',
   },
   calc: {
     title: '計算機',

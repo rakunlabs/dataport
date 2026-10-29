@@ -6,7 +6,8 @@
   import { formatRows } from '@/lib/helper/copy';
   import { copyText } from '@/lib/helper/clipboard';
   import DataGridHeader from '@/lib/components/result/DataGridHeader.svelte';
-  import { display, isNumeric } from '@/lib/components/result/grid';
+  import { display, isJsonType, isNumeric } from '@/lib/components/result/grid';
+  import JsonEditor from '@/lib/components/editor/JsonEditor.svelte';
   import type { Paint } from '@/lib/helper/rowColors';
 
   let {
@@ -81,6 +82,8 @@
   let anchorCol = -1;
   // Set while the mouse drags a selection from a cell.
   let dragging = false;
+  // Set while the mouse drags over row numbers.
+  let rowDragging = false;
 
   $effect(() => {
     const rs = [...selectedRows].sort((a, b) => a - b);
@@ -177,7 +180,7 @@
 
   function dragStart(e: MouseEvent, r: number, c: number) {
     if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey) return;
-    if ((e.target as HTMLElement).closest('input, textarea')) return;
+    if ((e.target as HTMLElement).closest('input, textarea, .cm-editor')) return;
     // No text selection while dragging over cells; the grid keeps the keys.
     e.preventDefault();
     if (editing) commitEdit();
@@ -243,6 +246,45 @@
     const col = cols.has(c) ? c : selected && cols.has(selected.col) ? selected.col : Math.min(...cols);
     selected = { row: selected && cols.has(selected.col) ? selected.row : 0, col };
     scroller.focus();
+  }
+
+  // selectRow selects whole rows from the row number: Shift selects from
+  // the last row picked, Ctrl or Cmd adds a row or takes it away, and a
+  // drag over the numbers selects the rows passed.
+  function selectRow(e: MouseEvent, r: number) {
+    if (e.button !== 0 || !columns.length) return;
+    e.preventDefault();
+    if (editing) commitEdit();
+    const all = range(0, columns.length - 1);
+    const col = selected?.col ?? 0;
+    if (e.shiftKey && anchor >= 0) {
+      selectedRows = range(anchor, r);
+    } else if (e.metaKey || e.ctrlKey) {
+      const next = new Set(selectedRows);
+      if (next.has(r) && selectedCols.size === columns.length) next.delete(r);
+      else next.add(r);
+      selectedRows = next;
+      anchor = r;
+    } else {
+      selectedRows = new Set([r]);
+      anchor = r;
+      rowDragging = true;
+      const up = () => {
+        rowDragging = false;
+        window.removeEventListener('mouseup', up);
+      };
+      window.addEventListener('mouseup', up);
+    }
+    selectedCols = all;
+    anchorCol = 0;
+    selected = { row: r, col };
+    scroller.focus();
+  }
+
+  function rowDragOver(r: number) {
+    if (!rowDragging || anchor < 0) return;
+    selectedRows = range(anchor, r);
+    selected = { row: r, col: selected?.col ?? 0 };
   }
 
   // selectedColumns lists the selected columns, at least the selected cell's.
@@ -461,8 +503,12 @@
           tabindex="-1"
         >
           <div
-            class="sticky left-0 z-[1] flex items-center justify-end border-r border-line pr-2 text-2xs tabular-nums no-underline
-              {added ? 'bg-row-new font-semibold text-row-new-fg' : removed ? 'bg-row-deleted text-danger' : edit?.dirty.has(r) ? 'bg-grid-head font-semibold text-row-dirty-fg' : rowSel ? 'bg-row-active text-fg' : 'bg-grid-head text-faint'}"
+            class="sticky left-0 z-[1] flex cursor-pointer items-center justify-end border-r border-line pr-2 text-2xs tabular-nums no-underline select-none
+              {added ? 'bg-row-new font-semibold text-row-new-fg' : removed ? 'bg-row-deleted text-danger' : edit?.dirty.has(r) ? 'bg-grid-head font-semibold text-row-dirty-fg' : rowSel ? 'bg-row-active text-fg' : 'bg-grid-head text-faint hover:text-fg'}"
+            onmousedown={(e) => selectRow(e, r)}
+            onmouseenter={() => rowDragOver(r)}
+            role="rowheader"
+            tabindex="-1"
           >
             {added ? '+' : rowOffset + r + 1}
           </div>
@@ -485,7 +531,7 @@
                 dragStart(e, r, c);
               }}
               onmouseenter={() => dragOver(r, c)}
-              ondblclick={() => beginEdit(r, c)}
+              ondblclick={(e) => !(e.target as HTMLElement).closest('input, textarea, .cm-editor') && beginEdit(r, c)}
               role="gridcell"
               data-col={c}
               tabindex="-1"
@@ -493,7 +539,11 @@
               title={text.length > 60 ? text.slice(0, 2000) : undefined}
             >
               {#if editing && editing.row === r && editing.col === c}
-                {#if editing.value.includes('\n') || editing.value.length > 80}
+                {#if isJsonType(column.type)}
+                  <div class="absolute top-0 left-0 z-20 h-48 w-[max(100%,32rem)] resize overflow-hidden rounded-md border border-focus bg-bg shadow-dialog">
+                    <JsonEditor bind:value={editing.value} cursor={editing.typed ? 'end' : 'all'} onapply={commitEdit} oncancel={cancelEdit} onblur={commitEdit} />
+                  </div>
+                {:else if editing.value.includes('\n') || editing.value.length > 80}
                   <textarea
                     class="absolute top-0 left-0 z-20 h-40 w-[max(100%,28rem)] resize rounded-md border border-focus bg-bg p-2 font-mono text-xs text-fg shadow-dialog outline-none"
                     bind:value={editing.value}

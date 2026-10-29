@@ -133,7 +133,9 @@ export function keepEdits(results: { edit?: EditState }[] | undefined): boolean 
 
 function sameValue(a: unknown, b: unknown): boolean {
   if (a === null || a === undefined) return b === null || b === undefined;
-  return String(a) === String(b);
+  // JSON values arrive as objects and are edited as their text.
+  const text = (v: unknown) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v));
+  return text(a) === text(b);
 }
 
 export async function previewEdits(connectionId: string, schema: string, table: string, edits: RowEdit[]) {

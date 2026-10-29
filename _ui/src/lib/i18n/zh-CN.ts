@@ -245,6 +245,7 @@ const zhCN: Messages = {
     apply: '应用',
     editHint: '或双击该值',
     invalidJson: '不是有效的 JSON：{error}',
+    errorAt: '第 {line} 行，第 {col} 列：',
   },
   calc: {
     title: '计算器',

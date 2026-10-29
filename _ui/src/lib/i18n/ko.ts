@@ -245,6 +245,7 @@ const ko: Messages = {
     apply: '적용',
     editHint: '또는 값을 더블 클릭하세요',
     invalidJson: '유효한 JSON이 아닙니다: {error}',
+    errorAt: '{line}행 {col}열:',
   },
   calc: {
     title: '계산기',

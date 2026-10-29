@@ -256,6 +256,7 @@ const tr: Messages = {
     apply: 'Uygula',
     editHint: 'ya da değere çift tıklayın',
     invalidJson: 'Geçerli JSON değil: {error}',
+    errorAt: 'Satır {line}, sütun {col}:',
   },
   calc: {
     title: 'Hesap',

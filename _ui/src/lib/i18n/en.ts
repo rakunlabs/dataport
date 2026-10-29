@@ -254,6 +254,7 @@ const en = {
     apply: 'Apply',
     editHint: 'or double-click the value',
     invalidJson: 'Not valid JSON: {error}',
+    errorAt: 'Line {line}, col {col}:',
   },
   calc: {
     title: 'Calculator',

@@ -19,18 +19,32 @@ export async function loadConnections() {
 // Reload forces a load; 'failed' retries a failed node but keeps a loaded one.
 type Reload = boolean | 'failed';
 
+// Loads in progress, so a second caller can wait for the same one.
+const inflight = new WeakMap<object, Map<string, Promise<void>>>();
+
 // loadNode is called from effects: it reads the node untracked, so writing
 // it does not rerun the caller. A failed node loads again only when forced,
 // or with 'failed', which callers pass on an explicit open.
 async function loadNode<T>(map: Record<string, TreeNode<T>>, key: string, fetcher: () => Promise<T[]>, force: Reload = false) {
   const node = untrack(() => map[key]);
-  if (node && (node.loading || (force !== true && (node.loaded || (node.error && force !== 'failed'))))) return;
+  if (node?.loading) return inflight.get(map)?.get(key);
+  if (node && force !== true && (node.loaded || (node.error && force !== 'failed'))) return;
   map[key] = { loading: true, loaded: false, error: '', items: node?.items ?? [] };
+  const run = (async () => {
+    try {
+      const items = await fetcher();
+      map[key] = { loading: false, loaded: true, error: '', items };
+    } catch (e) {
+      map[key] = { loading: false, loaded: false, error: errorMessage(e), items: [] };
+    }
+  })();
+  let pending = inflight.get(map);
+  if (!pending) inflight.set(map, (pending = new Map()));
+  pending.set(key, run);
   try {
-    const items = await fetcher();
-    map[key] = { loading: false, loaded: true, error: '', items };
-  } catch (e) {
-    map[key] = { loading: false, loaded: false, error: errorMessage(e), items: [] };
+    await run;
+  } finally {
+    if (pending.get(key) === run) pending.delete(key);
   }
 }
 

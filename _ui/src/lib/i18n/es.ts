@@ -245,6 +245,7 @@ const es: Messages = {
     apply: 'Aplicar',
     editHint: 'o haz doble clic en el valor',
     invalidJson: 'JSON no válido: {error}',
+    errorAt: 'Línea {line}, col. {col}:',
   },
   calc: {
     title: 'Calculadora',

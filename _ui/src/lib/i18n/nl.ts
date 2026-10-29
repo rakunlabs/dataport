@@ -245,6 +245,7 @@ const nl: Messages = {
     apply: 'Toepassen',
     editHint: 'of dubbelklik op de waarde',
     invalidJson: 'Geen geldige JSON: {error}',
+    errorAt: 'Regel {line}, kol. {col}:',
   },
   calc: {
     title: 'Rekenmachine',

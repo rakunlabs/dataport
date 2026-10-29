@@ -8,7 +8,10 @@
   import ResultPanel from '@/lib/components/result/ResultPanel.svelte';
   import RunTimer from '@/lib/components/result/RunTimer.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
-  import { cancel, cancelPending, connection, endTx, explain, explainOptions, persist, run, runInNewTab, saveExplainOptions, saveTab, setManualTx, setSelfReadOnly, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
+  import { cancel, cancelPending, connection, endTx, explain, explainOptions, loadColumns, loadObjects, loadSchemas, persist, run, runInNewTab, saveExplainOptions, saveTab, setManualTx, setSelfReadOnly, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
+  import type { SqlCatalog } from '@/lib/components/editor/editorSetup';
+  import { defaultSchemas } from '@/lib/helper/sourceTable';
+  import { qualifiers, tableRefs } from '@/lib/helper/sqlTables';
   import type { ExplainOptions } from '@/lib/api/types';
   import { prefs } from '@/lib/stores/prefs.svelte';
   import { session } from '@/lib/stores/session.svelte';
@@ -65,6 +68,66 @@
     }
     return ns as SQLNamespace;
   });
+
+  // The catalog completes tables and columns, loading what a script names
+  // when it is asked for.
+  const catalog: SqlCatalog = {
+    defaultSchema,
+    tables: () => ws.objects[`${tab.connectionId}|${defaultSchema()}`]?.items ?? [],
+    schemas: () => ws.schemas[tab.connectionId]?.items ?? [],
+    columns: (schema, table) => {
+      const found = resolveTable(schema, table);
+      return found ? ws.columns[`${tab.connectionId}|${found.schema}|${found.table}`]?.items : undefined;
+    },
+    prepare: async (sql) => {
+      const id = tab.connectionId;
+      const c = connection(id);
+      // Own-account connections without an account would ask for one.
+      if (!c || (c.user_credentials && !c.credential_user)) return;
+      await loadSchemas(id);
+      const schemas = ws.schemas[id]?.items ?? [];
+      const wanted = new Set([defaultSchema(), ...qualifiers(sql).map((q) => matchName(schemas, q)).filter((s): s is string => !!s)]);
+      await Promise.all([...wanted].filter(Boolean).map((s) => loadObjects(id, s)));
+      const tables = tableRefs(sql)
+        .map((r) => resolveTable(r.schema, r.table))
+        .filter((r): r is { schema: string; table: string } => !!r);
+      await Promise.all(tables.slice(0, 12).map((r) => loadColumns(id, r.schema, r.table)));
+    },
+  };
+
+  // The schema names without one are looked for in: the database's usual
+  // one when the connection has it, else the first listed, which the
+  // server puts first for the current schema.
+  function defaultSchema(): string {
+    const list = ws.schemas[tab.connectionId]?.items ?? [];
+    const db = conn?.database ?? '';
+    for (const s of [...defaultSchemas(conn?.db_type ?? ''), db]) {
+      const m = s && matchName(list, s);
+      if (m) return m;
+    }
+    return list[0] ?? '';
+  }
+
+  function matchName(list: string[], name: string): string | undefined {
+    return list.find((x) => x === name) ?? list.find((x) => x.toLowerCase() === name.toLowerCase());
+  }
+
+  // resolveTable finds a written table among the loaded ones: in its
+  // schema, or without one in the default schema, then in any other.
+  function resolveTable(schema: string, table: string): { schema: string; table: string } | undefined {
+    const id = tab.connectionId;
+    const schemas = ws.schemas[id]?.items ?? [];
+    const look = (s: string) => {
+      const name = matchName((ws.objects[`${id}|${s}`]?.items ?? []).map((o) => o.name), table);
+      return name ? { schema: s, table: name } : undefined;
+    };
+    if (schema) {
+      const s = matchName(schemas, schema);
+      return s ? look(s) : undefined;
+    }
+    const first = defaultSchema();
+    return (first ? look(first) : undefined) ?? schemas.filter((s) => s !== first).map(look).find(Boolean);
+  }
 
   function onchange(v: string) {
     tab.sql = v;
@@ -322,6 +385,7 @@
       value={tab.sql}
       dbType={conn?.db_type ?? 'postgres'}
       {schema}
+      {catalog}
       {onchange}
       onrun={(sql, append) => run(tab.id, sql, append ? 'append' : 'replace')}
       onrunstatement={prefs.statementRun ? runStatement : undefined}

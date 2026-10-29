@@ -38,6 +38,20 @@ func TestOAuthBehindPrefixProxy(t *testing.T) {
 	if meta["registration_endpoint"] != "https://tools.example.com/dataport/oauth/register" || meta["issuer"] != "https://tools.example.com/dataport" {
 		t.Fatalf("metadata: %d %v", w.Code, meta)
 	}
+	if _, ok := meta["jwks_uri"]; ok {
+		t.Fatalf("oauth metadata has OIDC fields: %v", meta)
+	}
+
+	// The OpenID form carries the fields its schema requires.
+	w = do(http.MethodGet, "/.well-known/openid-configuration", "")
+	meta = nil
+	_ = json.Unmarshal(w.Body.Bytes(), &meta)
+	if meta["jwks_uri"] != "https://tools.example.com/dataport/oauth/jwks" || meta["subject_types_supported"] == nil || meta["id_token_signing_alg_values_supported"] == nil || meta["token_endpoint"] == nil {
+		t.Fatalf("openid metadata: %d %v", w.Code, meta)
+	}
+	if w := do(http.MethodGet, "/oauth/jwks", ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"keys":[]`) {
+		t.Fatalf("jwks: %d %s", w.Code, w.Body)
+	}
 
 	body := `{"client_name":"Claude Code (dataport)","redirect_uris":["http://localhost:53280/callback"],"token_endpoint_auth_method":"none","application_type":"native"}`
 	for _, path := range []string{"/oauth/register", "/register"} {

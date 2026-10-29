@@ -4,6 +4,10 @@ export function display(v: unknown): string {
   return String(v);
 }
 
+export function isJsonType(type: string) {
+  return /json/i.test(type);
+}
+
 export function isNumeric(type: string) {
   if (type.endsWith('[]')) return false;
   return /^(u?int|integer|bigint|smallint|tinyint|mediumint|numeric|decimal|real|double|float|serial|bigserial|money|int2|int4|int8|float4|float8|nullable\((u?int|decimal|float))/i.test(type);

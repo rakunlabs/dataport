@@ -8,16 +8,19 @@
   import { indentUnit } from '@codemirror/language';
   import { defaultOptions, type EditorOptions } from '@/lib/helper/editorOptions';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-  import { sql, type SQLNamespace } from '@codemirror/lang-sql';
+  import { sql, schemaCompletionSource, type SQLNamespace } from '@codemirror/lang-sql';
+  import type { CompletionContext } from '@codemirror/autocomplete';
+  import { quoteIdent } from '@/lib/helper/copy';
   import { syntaxHighlighting, bracketMatching, indentOnInput } from '@codemirror/language';
   import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-  import { dialect, editorTheme, highlight, placeholderMarks, runGutterExtension, statementFields } from '@/lib/components/editor/editorSetup';
+  import { catalogCompletion, dialect, editorTheme, highlight, placeholderMarks, runGutterExtension, statementFields, statementText, type SqlCatalog } from '@/lib/components/editor/editorSetup';
 
   let {
     value,
     dbType,
     schema = {},
+    catalog,
     onchange,
     onrun,
     onsave,
@@ -29,6 +32,8 @@
     value: string;
     dbType: string;
     schema?: SQLNamespace;
+    // Tables and columns for completion without a schema or alias in front.
+    catalog?: SqlCatalog;
     onchange?: (v: string) => void;
     // append is set for Ctrl+\\, which keeps the results already shown.
     onrun?: (sql: string, append?: boolean) => void;
@@ -91,8 +96,37 @@
     return list.find((x) => pos >= x.from && pos <= x.to + 1)?.text;
   }
 
+  // The dotted completion is built again only when the tables or the
+  // default schema change, not on every key.
+  let dotted: { schema: SQLNamespace; def: string; dialect: unknown; source: ReturnType<typeof schemaCompletionSource> } | undefined;
+
+  function dottedSource(d: ReturnType<typeof dialect>) {
+    const def = catalog?.defaultSchema() ?? '';
+    if (!dotted || dotted.schema !== schema || dotted.def !== def || dotted.dialect !== d) {
+      dotted = { schema, def, dialect: d, source: schemaCompletionSource({ dialect: d, schema, defaultSchema: def || undefined }) };
+    }
+    return dotted.source;
+  }
+
   function langExt() {
-    return sql({ dialect: dialect(dbType), schema, upperCaseKeywords: true });
+    const d = dialect(dbType);
+    return [
+      sql({ dialect: d, upperCaseKeywords: true }),
+      // Names after a dot (schema.table, alias.column) come from the SQL
+      // language's schema completion; the rest from the catalog. Both may
+      // load what is missing first.
+      d.language.data.of({
+        autocomplete: async (ctx: CompletionContext) => {
+          const word = ctx.matchBefore(/[\p{L}\p{N}_$]*$/u);
+          const at = word ? word.from : ctx.pos;
+          if (!/\.\s*$/.test(ctx.state.sliceDoc(Math.max(0, at - 2), at))) return null;
+          await catalog?.prepare(statementText(ctx.state.doc.toString(), ctx.pos, dbType));
+          if (ctx.aborted) return null;
+          return dottedSource(d)(ctx);
+        },
+      }),
+      catalog ? d.language.data.of({ autocomplete: catalogCompletion(catalog, () => dbType, (n) => quoteIdent(dbType, n)) }) : [],
+    ];
   }
 
   // Run the selection if there is one, otherwise the whole editor.
@@ -143,7 +177,7 @@
           history(),
           indentOnInput(),
           bracketMatching(),
-          autocompletion(),
+          autocompletion({ icons: true }),
           highlightSelectionMatches(),
           placeholder(tr('query.placeholder')),
           keymap.of([
@@ -186,9 +220,11 @@
     }
   });
 
+  // schema and catalog are read when completing, so they need no
+  // reconfiguring when tables load.
   $effect(() => {
     void dbType;
-    void schema;
+    void catalog;
     view?.dispatch({ effects: [lang.reconfigure(langExt()), runGutter.reconfigure(runExtension())] });
   });
 

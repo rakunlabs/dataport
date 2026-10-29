@@ -83,15 +83,21 @@ func (s *Server) registerOAuth() {
 
 	// Metadata is public and read by clients from anywhere.
 	asm := withCORS(http.HandlerFunc(s.oauthServerMetadata))
+	oidc := withCORS(http.HandlerFunc(s.openIDMetadata))
 	prm := withCORS(http.HandlerFunc(s.protectedResourceMetadata))
 
 	// Clients look for the server metadata at the root with the base path
 	// inserted (RFC 8414) or under the base path (OpenID style); dataport
 	// answers both, so it works behind a proxy that only forwards the base.
-	for _, p := range uniq("/.well-known/oauth-authorization-server"+base, base+"/.well-known/oauth-authorization-server",
-		"/.well-known/openid-configuration"+base, base+"/.well-known/openid-configuration") {
+	for _, p := range uniq("/.well-known/oauth-authorization-server"+base, base+"/.well-known/oauth-authorization-server") {
 		s.mux.Handle(p, asm)
 	}
+
+	for _, p := range uniq("/.well-known/openid-configuration"+base, base+"/.well-known/openid-configuration") {
+		s.mux.Handle(p, oidc)
+	}
+
+	s.mux.Handle(base+"/oauth/jwks", withCORS(http.HandlerFunc(s.oauthJWKS)))
 
 	for _, p := range uniq("/.well-known/oauth-protected-resource"+base+"/mcp", base+"/.well-known/oauth-protected-resource/mcp") {
 		s.mux.Handle(p, prm)
@@ -144,9 +150,30 @@ func withCORS(next http.Handler) http.Handler {
 }
 
 func (s *Server) oauthServerMetadata(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.serverMetadata(r))
+}
+
+// openIDMetadata is the server metadata in OpenID Connect discovery form.
+// Clients validate documents found at openid-configuration against the
+// OIDC schema, so it carries the fields that schema requires; dataport
+// issues no ID tokens and its key set is empty.
+func (s *Server) openIDMetadata(w http.ResponseWriter, r *http.Request) {
+	meta := s.serverMetadata(r)
+	meta["jwks_uri"] = s.publicBase(r) + "/oauth/jwks"
+	meta["subject_types_supported"] = []string{"public"}
+	meta["id_token_signing_alg_values_supported"] = []string{"RS256"}
+
+	writeJSON(w, http.StatusOK, meta)
+}
+
+func (s *Server) oauthJWKS(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"keys": []any{}})
+}
+
+func (s *Server) serverMetadata(r *http.Request) map[string]any {
 	base := s.publicBase(r)
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"issuer":                                base,
 		"authorization_endpoint":                base + "/oauth/authorize",
 		"token_endpoint":                        base + "/oauth/token",
@@ -159,7 +186,7 @@ func (s *Server) oauthServerMetadata(w http.ResponseWriter, r *http.Request) {
 		// The redirect carries iss (RFC 9207), so a client can tell this
 		// server's codes from another's.
 		"authorization_response_iss_parameter_supported": true,
-	})
+	}
 }
 
 // protectedResourceMetadata describes an MCP endpoint (RFC 9728): which

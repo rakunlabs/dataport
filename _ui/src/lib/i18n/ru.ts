@@ -245,6 +245,7 @@ const ru: Messages = {
     apply: 'Применить',
     editHint: 'или дважды щёлкните по значению',
     invalidJson: 'Некорректный JSON: {error}',
+    errorAt: 'Строка {line}, столбец {col}:',
   },
   calc: {
     title: 'Калькулятор',

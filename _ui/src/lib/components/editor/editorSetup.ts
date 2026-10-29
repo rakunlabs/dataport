@@ -1,10 +1,12 @@
 import { t as tr } from '@/lib/i18n/index.svelte';
 import { StateField, RangeSet, type Extension } from '@codemirror/state';
 import { EditorView, gutter, GutterMarker, Decoration, MatchDecorator, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view';
-import { HighlightStyle } from '@codemirror/language';
-import { PostgreSQL, MySQL, MariaSQL, MSSQL, PLSQL, SQLite, StandardSQL } from '@codemirror/lang-sql';
+import { HighlightStyle, syntaxTree } from '@codemirror/language';
+import { PostgreSQL, MySQL, MariaSQL, MSSQL, PLSQL, SQLite, StandardSQL, type SQLDialect } from '@codemirror/lang-sql';
+import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import { tags as t } from '@lezer/highlight';
 import { statements, type Statement } from '@/lib/helper/statements';
+import { tableRefs } from '@/lib/helper/sqlTables';
 
 // ////////////////////////////////////////////
 // run buttons next to statements
@@ -136,6 +138,15 @@ export const highlight = HighlightStyle.define([
   { tag: t.special(t.name), color: 'var(--cm-ident)' },
 ]);
 
+// JSON in the colours of the value panel's tree.
+export const jsonHighlight = HighlightStyle.define([
+  { tag: t.propertyName, color: 'var(--color-json-key)' },
+  { tag: t.string, color: 'var(--color-json-str)' },
+  { tag: t.number, color: 'var(--color-json-num)' },
+  { tag: [t.bool, t.null], color: 'var(--color-json-kw)' },
+  { tag: [t.separator, t.brace, t.squareBracket], color: 'var(--color-muted)' },
+]);
+
 export const editorTheme = EditorView.theme({
   '&': { height: '100%', fontSize: '13px', backgroundColor: 'var(--color-bg)', color: 'var(--color-fg)' },
   '.cm-scroller': { lineHeight: '20px' },
@@ -182,7 +193,85 @@ export const editorTheme = EditorView.theme({
   '.cm-vim-panel': { fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '0 6px' },
 });
 
-export function dialect(type: string) {
+// ////////////////////////////////////////////
+// completion of tables and columns
+
+// What the editor knows of the connection's tables, as far as loaded.
+export interface SqlCatalog {
+  // The schema names without one are looked for in first.
+  defaultSchema: () => string;
+  // Tables of the default schema, offered where a table is expected.
+  tables: () => { name: string; kind: string }[];
+  // Schemas, offered with the tables.
+  schemas: () => string[];
+  // The columns of a table, once loaded; schema is empty when not written.
+  columns: (schema: string, table: string) => { name: string; type: string }[] | undefined;
+  // Loads what the script names and is not loaded yet: the default
+  // schema's tables, the schemas written before a dot and the columns of
+  // the tables used.
+  prepare: (sql: string) => Promise<void>;
+}
+
+// statementText is the statement under the cursor, or the one before it,
+// so completion reads and loads only what that statement names.
+export function statementText(doc: string, pos: number, dbType: string): string {
+  const list = statements(doc, dbType);
+  const s = list.find((x) => pos >= x.from && pos <= x.to + 1) ?? [...list].reverse().find((x) => x.to < pos);
+  return s?.text ?? doc;
+}
+
+const wordBefore = /[\p{L}_][\p{L}\p{N}_$]*$/u;
+// Where the statement expects a table: after FROM, JOIN and the like, or
+// after a comma in a FROM list.
+const tablePlace = /\b(from|join|update|into|table)\s+(?:[^\s,;()]+(?:\s+(?:as\s+)?[\p{L}_][\p{L}\p{N}_]*)?\s*,\s*)*$/iu;
+const skipNodes = new Set(['String', 'LineComment', 'BlockComment', 'QuotedIdentifier', 'SpecialVar']);
+
+// catalogCompletion completes table names where a table is expected, even
+// before a letter is typed, and the columns of the tables the statement
+// under the cursor names, without a table in front. Names after a dot are
+// left to the SQL language's own completion.
+export function catalogCompletion(catalog: SqlCatalog, dbType: () => string, quote: (name: string) => string) {
+  const plain = (name: string) => (dbType() === 'postgres' ? /^[a-z_][a-z0-9_]*$/ : /^[A-Za-z_][A-Za-z0-9_]*$/).test(name);
+  const nameApply = (name: string) => (plain(name) ? undefined : quote(name));
+
+  return async (ctx: CompletionContext): Promise<CompletionResult | null> => {
+    const node = syntaxTree(ctx.state).resolveInner(ctx.pos, -1);
+    if (skipNodes.has(node.name)) return null;
+    const word = ctx.matchBefore(wordBefore);
+    const from = word ? word.from : ctx.pos;
+    if (ctx.state.sliceDoc(from - 1, from) === '.') return null;
+    const before = ctx.state.sliceDoc(Math.max(0, from - 400), from);
+    const atTable = tablePlace.test(before);
+    if (!atTable && !word && !ctx.explicit) return null;
+
+    const stmt = statementText(ctx.state.doc.toString(), ctx.pos, dbType());
+    await catalog.prepare(stmt);
+    if (ctx.aborted) return null;
+
+    if (atTable) {
+      const options: Completion[] = [
+        ...catalog.tables().map((t) => ({ label: t.name, type: t.kind === 'table' ? 'type' : 'class', detail: t.kind.replace('_', ' '), apply: nameApply(t.name), boost: 2 })),
+        ...catalog.schemas().map((s) => ({ label: s, type: 'namespace', detail: 'schema', apply: nameApply(s), boost: 1 })),
+      ];
+      return options.length ? { from, options, validFor: wordBefore } : null;
+    }
+
+    const refs = tableRefs(stmt);
+    const seen = new Set<string>();
+    const options: Completion[] = [];
+    for (const ref of refs) {
+      const key = `${ref.schema}.${ref.table}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (const c of catalog.columns(ref.schema, ref.table) ?? []) {
+        options.push({ label: c.name, type: 'property', detail: `${ref.alias || ref.table} · ${c.type}`, apply: nameApply(c.name), boost: 1 });
+      }
+    }
+    return options.length ? { from, options, validFor: wordBefore } : null;
+  };
+}
+
+export function dialect(type: string): SQLDialect {
   if (type === 'mysql' || type === 'clickhouse') return MySQL;
   if (type === 'mariadb') return MariaSQL;
   if (type === 'mssql') return MSSQL;

@@ -245,6 +245,7 @@ const ja: Messages = {
     apply: '適用',
     editHint: 'または値をダブルクリック',
     invalidJson: '有効な JSON ではありません：{error}',
+    errorAt: '{line} 行 {col} 列：',
   },
   calc: {
     title: '計算',

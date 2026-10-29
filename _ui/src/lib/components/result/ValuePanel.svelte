@@ -7,6 +7,7 @@
   import { Copy, X, Braces, WrapText, Check, Undo2, ChevronsUpDown, ChevronsDownUp, FileText } from 'lucide-svelte';
   import { toast } from '@/lib/stores/toast.svelte';
   import JsonTree from '@/lib/components/result/json/JsonTree.svelte';
+  import JsonEditor from '@/lib/components/editor/JsonEditor.svelte';
   import { isContainer, parseJson, type TreeControl } from '@/lib/components/result/json/jsonTree';
 
   let {
@@ -50,6 +51,9 @@
     return r.ok && isContainer(r.value) ? r.value : undefined;
   });
 
+  // JSON columns, or values that are JSON, edit as JSON.
+  const isJsonValue = $derived(json !== undefined || /json/i.test(type));
+
   const text = $derived.by(() => {
     if (isNull) return '';
     if (json !== undefined) {
@@ -78,7 +82,7 @@
   function apply() {
     if (draft === null) return;
     let v: unknown = draft;
-    if (json !== undefined || /json/i.test(type)) {
+    if (isJsonValue) {
       try {
         v = JSON.stringify(JSON.parse(draft));
       } catch (e) {
@@ -121,7 +125,9 @@
   </div>
 
   <div class="min-h-0 flex-1 overflow-auto">
-    {#if draft !== null}
+    {#if draft !== null && isJsonValue}
+      <JsonEditor bind:value={draft} {wrap} onapply={apply} oncancel={() => (draft = null)} />
+    {:else if draft !== null}
       <textarea
         class="block h-full w-full resize-none bg-bg p-3 font-mono text-xs outline-none {wrap ? '' : 'whitespace-pre'}"
         bind:value={draft}
@@ -158,7 +164,7 @@
         <button class="btn h-6 text-xs" onclick={() => (draft = text)}>{t('common.edit')}</button>
         <span class="text-2xs text-faint">{t('valuePanel.editHint')}</span>
       {:else}
-        {#if json !== undefined || /json/i.test(type)}
+        {#if isJsonValue}
           <button class="btn h-6 text-xs" onclick={format}><Braces size={12} /> {t('valuePanel.format')}</button>
         {/if}
         <div class="flex-1"></div>
