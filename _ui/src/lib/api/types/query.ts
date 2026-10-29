@@ -1,3 +1,5 @@
+import type { EditState } from '@/lib/stores/edits.svelte';
+
 export interface Column {
   name: string;
   type: string;
@@ -19,6 +21,11 @@ export interface ResultSet {
   transactional?: boolean;
   // The run went into a manual transaction that was still open after it.
   inTx?: boolean;
+  // Set while a run started into a new result (Ctrl+\) is still going; the
+  // result shows its timer and stop button until the run's results replace it.
+  pending?: { queryId: string; startedAt: number; cancelling: boolean };
+  // Pending edits of a query result read from one table.
+  edit?: EditState;
 }
 
 export interface ExecResult {

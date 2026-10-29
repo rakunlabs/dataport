@@ -1,9 +1,9 @@
 import { t } from '@/lib/i18n/index.svelte';
-import { EditState } from '@/lib/stores/edits.svelte';
+import { EditState, pendingEdits } from '@/lib/stores/edits.svelte';
 import { connection, newId, workspaceConnections, ws, type Tab, type TabKind } from '@/lib/stores/workspace/state.svelte';
 import { loadConnections, loadSchemas } from '@/lib/stores/workspace/tree';
 import { loadPersisted, persist, persistedUser, setPersistedUser } from '@/lib/stores/workspace/persist';
-import { cancel, endTx, run, runTable, setRunElsewhere, syncTxs } from '@/lib/stores/workspace/run';
+import { cancel, cancelPending, endTx, run, runTable, setRunElsewhere, syncTxs } from '@/lib/stores/workspace/run';
 import { prefs } from '@/lib/stores/prefs.svelte';
 import { loadSaved } from '@/lib/stores/workspace/saved';
 import { session } from '@/lib/stores/session.svelte';
@@ -208,7 +208,10 @@ export function closeTab(id: string) {
   if (tab.kind === 'notebook' && tab.dirty && !confirm(t('notebook.closeConfirm'))) return;
   if (tab.kind === 'notebook') tab.notebookAbort?.abort();
   if (tab.txOpen && !confirm(t('tx.closeConfirm', { n: tab.txStatements }))) return;
+  const edits = pendingEdits(tab);
+  if (edits && !confirm(t('edit.discardConfirm', { count: edits }))) return;
   if (tab.running) void cancel(tab.id);
+  cancelPending(tab);
   if (tab.txOpen) void endTx(tab, false, true);
   ws.tabs.splice(i, 1);
   if (ws.activeId === id) {

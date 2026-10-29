@@ -7,6 +7,7 @@
   import { copyText } from '@/lib/helper/clipboard';
   import DataGridHeader from '@/lib/components/result/DataGridHeader.svelte';
   import { display, isNumeric } from '@/lib/components/result/grid';
+  import type { Paint } from '@/lib/helper/rowColors';
 
   let {
     columns,
@@ -20,6 +21,8 @@
     editable = false,
     oncontext,
     onselect,
+    onrange,
+    paint,
   }: {
     columns: Column[];
     rows: unknown[][];
@@ -34,6 +37,10 @@
     oncontext?: (e: MouseEvent, row: number, col: number) => void;
     // Called when the selected cell changes, for the value panel.
     onselect?: (row: number, col: number) => void;
+    // Called when the selected rows or columns change, for the calculator.
+    onrange?: (rows: number[], cols: number[]) => void;
+    // The colours of a row, from row colour rules.
+    paint?: (row: number) => Paint | null;
   } = $props();
 
   const rowHeight = 26;
@@ -66,9 +73,26 @@
   export function canEditCell(r: number): boolean {
     return !!canEdit(r);
   }
-  // Selected rows for delete and clone, by display index.
+  // Selected rows for delete and clone, by display index; with the
+  // selected columns they make the cells the calculator reads.
   let selectedRows = $state(new Set<number>());
+  let selectedCols = $state(new Set<number>());
   let anchor = -1;
+  let anchorCol = -1;
+  // Set while the mouse drags a selection from a cell.
+  let dragging = false;
+
+  $effect(() => {
+    const rs = [...selectedRows].sort((a, b) => a - b);
+    const cs = [...selectedCols].sort((a, b) => a - b);
+    untrack(() => onrange?.(rs, cs));
+  });
+
+  const range = (a: number, b: number) => {
+    const out = new Set<number>();
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) out.add(i);
+    return out;
+  };
   // typed is true when editing started by typing a character, so the
   // editor keeps it instead of selecting it.
   let editing = $state<{ row: number; col: number; value: string; isNull: boolean; typed: boolean } | null>(null);
@@ -87,6 +111,7 @@
     });
     selected = null;
     selectedRows = new Set();
+    selectedCols = new Set();
     editing = null;
   });
 
@@ -127,22 +152,72 @@
   // ////////////////////////////////////////////
   // selection
 
+  // Shift selects the rectangle from the anchor; Ctrl adds or removes a row
+  // and adds the column.
   function selectCell(e: MouseEvent, r: number, c: number) {
     selected = { row: r, col: c };
     if (e.shiftKey && anchor >= 0) {
-      const next = new Set<number>();
-      for (let i = Math.min(anchor, r); i <= Math.max(anchor, r); i++) next.add(i);
-      selectedRows = next;
+      selectedRows = range(anchor, r);
+      selectedCols = range(anchorCol < 0 ? c : anchorCol, c);
     } else if (e.metaKey || e.ctrlKey) {
       const next = new Set(selectedRows);
       if (next.has(r)) next.delete(r);
       else next.add(r);
       selectedRows = next;
+      selectedCols = new Set([...selectedCols, c]);
       anchor = r;
+      anchorCol = c;
     } else {
       selectedRows = new Set([r]);
+      selectedCols = new Set([c]);
       anchor = r;
+      anchorCol = c;
     }
+  }
+
+  function dragStart(e: MouseEvent, r: number, c: number) {
+    if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey) return;
+    if ((e.target as HTMLElement).closest('input, textarea')) return;
+    // No text selection while dragging over cells; the grid keeps the keys.
+    e.preventDefault();
+    if (editing) commitEdit();
+    scroller.focus();
+    dragging = true;
+    const up = () => {
+      dragging = false;
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mouseup', up);
+    selectCell(e, r, c);
+  }
+
+  function dragOver(r: number, c: number) {
+    if (!dragging || anchor < 0) return;
+    selected = { row: r, col: c };
+    selectedRows = range(anchor, r);
+    selectedCols = range(anchorCol, c);
+  }
+
+  export function selectAll() {
+    if (!total || !columns.length) return;
+    selectedRows = range(0, total - 1);
+    selectedCols = range(0, columns.length - 1);
+    if (!selected) selected = { row: 0, col: 0 };
+  }
+
+  // selectedColumns lists the selected columns, at least the selected cell's.
+  export function selectedColumns(): number[] {
+    const cs = [...selectedCols].sort((a, b) => a - b);
+    return cs.length ? cs : selected ? [selected.col] : [];
+  }
+
+  // rowValues is a row as shown, edits included.
+  export function rowValues(r: number): unknown[] {
+    return columns.map((_, c) => cellValue(r, c));
+  }
+
+  export function rowCount(): number {
+    return total;
   }
 
   export function selection(): { existing: number[]; added: number[] } {
@@ -160,13 +235,17 @@
     return { rows: list.map((r) => columns.map((_, c) => cellValue(r, c))), col: selected?.col ?? 0 };
   }
 
-  export function focusCell(row: number, col = 0) {
+  // focusCell selects a cell and scrolls to it; with focus, the grid also
+  // takes the keyboard.
+  export function focusCell(row: number, col = 0, focus = true) {
     selected = { row, col };
     selectedRows = new Set([row]);
+    selectedCols = new Set([col]);
     anchor = row;
+    anchorCol = col;
     const top = row * rowHeight;
     if (top < scroller.scrollTop || top > scroller.scrollTop + viewport - rowHeight * 2) scroller.scrollTop = Math.max(0, top - viewport / 2);
-    scroller.focus();
+    if (focus) scroller.focus();
   }
 
   // ////////////////////////////////////////////
@@ -241,22 +320,37 @@
     const nc = Math.min(Math.max(c, 0), columns.length - 1);
     selected = { row: nr, col: nc };
     selectedRows = new Set([nr]);
+    selectedCols = new Set([nc]);
     anchor = nr;
+    anchorCol = nc;
     const top = nr * rowHeight;
     if (top < scroller.scrollTop) scroller.scrollTop = top;
     else if (top + rowHeight > scroller.scrollTop + viewport - rowHeight) scroller.scrollTop = top - viewport + rowHeight * 2;
   }
 
   function onkeydown(e: KeyboardEvent) {
+    // Keys typed after the first, before its editor took the focus, go on
+    // into it instead of being lost.
+    if (editing?.typed && e.target === scroller && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      editing.value += e.key;
+      e.preventDefault();
+      return;
+    }
     if (!selected || editing) return;
     const { row, col } = selected;
     const handled = () => e.preventDefault();
 
     if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
-      // Several rows copy as TSV, which pastes into spreadsheets; one row
-      // copies the selected cell.
-      if (selectedRows.size > 1) void copyText(formatRows('tsv', { columns, rows: selectedValues().rows, dbType: '' }));
-      else void copyText(display(cellValue(row, col)));
+      // Several cells copy as TSV, the selected columns of the selected
+      // rows, which pastes into spreadsheets; one copies its value.
+      if (selectedRows.size > 1 || selectedCols.size > 1) {
+        const cs = selectedColumns();
+        const picked = selectedValues().rows.map((r) => cs.map((c) => r[c]));
+        void copyText(formatRows('tsv', { columns: cs.map((c) => columns[c]), rows: picked, dbType: '' }));
+      } else void copyText(display(cellValue(row, col)));
+      handled();
+    } else if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+      selectAll();
       handled();
     } else if (e.key === 'ArrowDown') {
       move(row + 1, col);
@@ -300,11 +394,13 @@
         {@const added = isNew(r)}
         {@const removed = !added && !!edit?.deleted.has(r)}
         {@const rowSel = selectedRows.has(r)}
+        {@const colors = paint?.(r)}
+        {@const multi = selectedRows.size > 1 || selectedCols.size > 1}
         <div
           class="absolute right-0 left-0 grid border-b border-line-soft
             {added ? 'bg-row-new' : removed ? 'bg-row-deleted text-faint line-through' : rowSel ? 'bg-row-active' : r % 2 ? 'bg-row-stripe' : 'bg-bg'}
             {added || removed || rowSel ? '' : 'hover:bg-hover/70'}"
-          style="grid-template-columns:{template}; height:{rowHeight}px; transform:translateY({r * rowHeight}px)"
+          style="grid-template-columns:{template}; height:{rowHeight}px; transform:translateY({r * rowHeight}px){colors?.row && !added && !removed && !rowSel ? `; background-image:linear-gradient(${colors.row}, ${colors.row})` : ''}"
           oncontextmenu={(e) => {
             if (!oncontext) return;
             e.preventDefault();
@@ -312,7 +408,11 @@
             const col = cell ? Number(cell.dataset.col) : (selected?.col ?? 0);
             if (!selectedRows.has(r)) {
               selectedRows = new Set([r]);
+              selectedCols = new Set([col]);
               anchor = r;
+              anchorCol = col;
+            } else if (!selectedCols.has(col)) {
+              selectedCols = new Set([...selectedCols, col]);
             }
             selected = { row: r, col };
             oncontext(e, r, col);
@@ -321,7 +421,7 @@
           tabindex="-1"
         >
           <div
-            class="sticky left-0 flex items-center justify-end border-r border-line pr-2 text-2xs tabular-nums no-underline
+            class="sticky left-0 z-[1] flex items-center justify-end border-r border-line pr-2 text-2xs tabular-nums no-underline
               {added ? 'bg-row-new font-semibold text-row-new-fg' : removed ? 'bg-row-deleted text-danger' : edit?.dirty.has(r) ? 'bg-grid-head font-semibold text-row-dirty-fg' : rowSel ? 'bg-row-active text-fg' : 'bg-grid-head text-faint'}"
           >
             {added ? '+' : rowOffset + r + 1}
@@ -331,13 +431,20 @@
             {@const isSel = selected?.row === r && selected?.col === c}
             {@const dirty = !added && !!edit?.isDirty(r, c)}
             {@const text = display(value)}
+            {@const inRange = multi && rowSel && selectedCols.has(c)}
+            {@const cellColor = colors?.cells?.[c]}
             <div
               class="relative flex min-w-0 items-center border-r border-line-soft px-2 font-mono text-xs
-                {dirty ? 'bg-cell-dirty' : ''}
+                {dirty ? 'bg-cell-dirty' : inRange ? 'bg-accent/15' : ''}
                 {isSel ? 'outline-2 -outline-offset-2 outline-focus' : ''}
                 {isNumeric(column.type) ? 'justify-end tabular-nums' : ''}"
-              onclick={(e) => selectCell(e, r, c)}
-              onmousedown={(e) => e.shiftKey && e.preventDefault()}
+              style={cellColor && !dirty && !inRange ? `background:${cellColor}` : undefined}
+              onclick={(e) => (e.shiftKey || e.metaKey || e.ctrlKey) && selectCell(e, r, c)}
+              onmousedown={(e) => {
+                if (e.shiftKey) e.preventDefault();
+                dragStart(e, r, c);
+              }}
+              onmouseenter={() => dragOver(r, c)}
               ondblclick={() => beginEdit(r, c)}
               role="gridcell"
               data-col={c}

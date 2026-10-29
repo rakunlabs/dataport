@@ -189,3 +189,20 @@ INSERT INTO customers VALUES (1, 'Ada'), (2, 'Linus');`); err != nil {
 		t.Fatalf("edit: %v %+v", err, edit)
 	}
 }
+
+func TestPostgresLocks(t *testing.T) {
+	for stmt, want := range map[string]bool{
+		"SELECT * FROM t FOR UPDATE":                    true,
+		"select * from t for no key update skip locked": true,
+		"SELECT * FROM t FOR SHARE OF t":                true,
+		"SELECT * FROM t FOR KEY SHARE;":                true,
+		"SELECT * FROM t":                               false,
+		"SELECT 'for update' FROM t":                    false,
+		"SELECT * FROM t -- for update":                 false,
+		"SELECT * FROM t FOR READ ONLY":                 false,
+	} {
+		if got := locks(stmt); got != want {
+			t.Errorf("locks(%q) = %v, want %v", stmt, got, want)
+		}
+	}
+}

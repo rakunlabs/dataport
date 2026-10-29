@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { PlugZap, LoaderCircle, CircleCheck, CircleX, ChevronRight, ChevronLeft } from 'lucide-svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
@@ -241,7 +242,7 @@
       <div class="col-span-2">
         <label class="label" for="c-pass">{form.user_credentials ? t('admin.conn.testPassword') : t('admin.conn.password')}</label>
         {#if changePassword || form.user_credentials}
-          <input id="c-pass" class="input font-mono" type="password" bind:value={form.password} autocomplete="new-password" />
+          <PasswordInput id="c-pass" class="input font-mono" bind:value={form.password} autocomplete="new-password" />
         {:else}
           <button type="button" class="input text-left text-muted" onclick={() => (changePassword = true)}>
             {c?.has_password ? t('admin.unchanged') : t('admin.notSet')}

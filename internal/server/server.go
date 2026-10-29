@@ -117,6 +117,7 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.GET("/connections/{id}/schemas", s.schemas)
 	user.GET("/connections/{id}/objects", s.objects)
 	user.GET("/connections/{id}/columns", s.columns)
+	user.GET("/connections/{id}/resolve-table", s.resolveTable)
 	user.GET("/connections/{id}/structure", s.structure)
 	user.GET("/connections/{id}/routines", s.routines)
 	user.GET("/connections/{id}/definition", s.definition)

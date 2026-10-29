@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const ko: Messages = {
   common: {
+    showPassword: '비밀번호 표시',
+    hidePassword: '비밀번호 숨기기',
     clear: '지우기',
     cancel: '취소',
     close: '닫기',
@@ -51,6 +53,7 @@ const ko: Messages = {
     continueWith: '{name}(으)로 계속',
     passwordDisabled: '조직 계정으로 로그인하세요.',
     localLogin: '로컬 로그인',
+    ssoNoAnswer: '로그인 공급자가 응답하지 않았습니다. 관리자에게 인증 URL을 확인해 달라고 요청하세요.',
   },
   password: {
     title: '비밀번호 변경',
@@ -273,6 +276,11 @@ const ko: Messages = {
     note_mssqlDefault: 'SQL Server는 이전 기본값을 이름이 지정된 제약 조건에 보관합니다. 먼저 해당 제약 조건을 삭제하세요.',
   },
   edit: {
+    queryEditing: '{table} 편집 중',
+    queryHint: '셀을 두 번 클릭하거나 입력해 변경합니다. 행은 기본 키로 찾습니다. Ctrl+S로 저장합니다.',
+    queryReadOnly: '{table}은(는) 여기서 편집할 수 없습니다',
+    queryNeedsKey: '결과에 기본 키의 모든 열이 있어야 하며, 테이블의 열만 각각 한 번씩 있어야 합니다.',
+    queryTx: '수동 트랜잭션이 열려 있는 동안에는 안 됩니다. 먼저 커밋하거나 롤백하세요.',
     addRow: '행 추가',
     addRowHint: '행 추가 (Ctrl+Shift+Enter)',
     clone: '새 행으로 복제',

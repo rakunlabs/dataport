@@ -87,7 +87,7 @@ restart.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Queries: rows per statement | `200` | Rows returned per statement; users may ask for more per tab, up to the limit below |
+| Queries: rows per statement | `100` | Rows returned per statement; users may ask for more per tab, up to the limit below |
 | Queries: most rows a user may ask for | `100000` | Most rows a user may ask one statement for; `0` means no limit |
 | Queries: default time limit | `0` | Time limit of a run when the connection sets none; `0` means no limit. Users may pick one per tab and can always stop a run |
 | Queries: time limit cap | `0` | Cap on any time limit, also on runs without one; `0` means no cap |

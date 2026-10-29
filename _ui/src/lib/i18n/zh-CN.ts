@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const zhCN: Messages = {
   common: {
+    showPassword: '显示密码',
+    hidePassword: '隐藏密码',
     clear: '清除',
     cancel: '取消',
     close: '关闭',
@@ -51,6 +53,7 @@ const zhCN: Messages = {
     continueWith: '使用 {name} 继续',
     passwordDisabled: '请使用你的组织账户登录。',
     localLogin: '本地登录',
+    ssoNoAnswer: '登录提供方没有响应。请让管理员检查其授权 URL。',
   },
   password: {
     title: '修改密码',
@@ -273,6 +276,11 @@ const zhCN: Messages = {
     note_mssqlDefault: 'SQL Server 将旧的默认值保存在命名约束中，请先删除该约束。',
   },
   edit: {
+    queryEditing: '正在编辑 {table}',
+    queryHint: '双击单元格或直接输入即可修改；行按主键定位。Ctrl+S 保存。',
+    queryReadOnly: '{table} 无法在此编辑',
+    queryNeedsKey: '结果必须包含所有主键列，并且只包含该表的列，每列一次。',
+    queryTx: '手动事务打开时不可编辑：请先提交或回滚。',
     addRow: '添加行',
     addRowHint: '添加一行（Ctrl+Shift+Enter）',
     clone: '克隆为新行',

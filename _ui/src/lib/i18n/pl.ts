@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const pl: Messages = {
   common: {
+    showPassword: 'Pokaż hasło',
+    hidePassword: 'Ukryj hasło',
     clear: 'Wyczyść',
     cancel: 'Anuluj',
     close: 'Zamknij',
@@ -51,6 +53,7 @@ const pl: Messages = {
     continueWith: 'Kontynuuj przez {name}',
     passwordDisabled: 'Zaloguj się kontem organizacji.',
     localLogin: 'Logowanie lokalne',
+    ssoNoAnswer: 'Dostawca logowania nie odpowiedział. Poproś administratora o sprawdzenie adresu URL autoryzacji.',
   },
   password: {
     title: 'Zmiana hasła',
@@ -273,6 +276,11 @@ const pl: Messages = {
     note_mssqlDefault: 'SQL Server przechowuje starą wartość domyślną w nazwanym ograniczeniu; najpierw usuń to ograniczenie.',
   },
   edit: {
+    queryEditing: 'Edycja {table}',
+    queryHint: 'Kliknij dwukrotnie lub pisz, aby zmienić komórkę; wiersze są odnajdywane po kluczu głównym. Ctrl+S zapisuje.',
+    queryReadOnly: '{table} nie można tu edytować',
+    queryNeedsKey: 'Wynik musi zawierać wszystkie kolumny klucza głównego i tylko kolumny tabeli, każdą raz.',
+    queryTx: 'Nie przy otwartej ręcznej transakcji: najpierw commit lub rollback.',
     addRow: 'Dodaj wiersz',
     addRowHint: 'Dodaj wiersz (Ctrl+Shift+Enter)',
     clone: 'Klonuj jako nowy wiersz',

@@ -69,6 +69,13 @@ func GetDriver(dbType string) (Driver, error) {
 	return d, nil
 }
 
+// TableResolver is implemented by drivers that can tell the schema a table
+// named without one is found in, as the session's search path resolves it.
+// It returns "" when no such table is found.
+type TableResolver interface {
+	ResolveTable(ctx context.Context, q Querier, table string) (string, error)
+}
+
 // Specializer is implemented by drivers whose behaviour depends on the
 // connection, such as ODBC, where an option names the catalog dialect.
 type Specializer interface {

@@ -20,13 +20,15 @@
     ListTree,
     FileCode,
     PanelRight,
+    TableProperties,
+    Palette,
+    Calculator,
   } from 'lucide-svelte';
   import TableStructure from '@/lib/components/table/TableStructure.svelte';
   import ConditionInput from '@/lib/components/table/ConditionInput.svelte';
   import ExportMenu from '@/lib/components/result/ExportMenu.svelte';
   import ResultPanel from '@/lib/components/result/ResultPanel.svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
-  import { ApiError } from '@/lib/api/client';
   import {
     connection,
     loadColumns,
@@ -40,8 +42,7 @@
     ws,
     type Tab,
   } from '@/lib/stores/workspace.svelte';
-  import { previewEdits, saveEdits } from '@/lib/stores/edits.svelte';
-  import { confirmProduction } from '@/lib/stores/confirm.svelte';
+  import { commitEdits, previewEdits } from '@/lib/stores/edits.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import { fmtNumber, t } from '@/lib/i18n/index.svelte';
   import { formatDuration } from '@/lib/helper/format';
@@ -121,23 +122,15 @@
   }
 
   function cloneRows() {
-    const grid = panel?.grid();
-    const sel = grid?.selection();
+    const sel = panel?.grid()?.selection();
     if (!sel || !current?.rows) return;
-    // Key columns are cleared so the database assigns new ones.
-    const keyIdx = new Set(meta.filter((c) => c.primary_key).map((c) => columnNames().indexOf(c.name)));
-    for (const r of sel.existing) {
-      const row = current.rows[r].map((v, i) => (keyIdx.has(i) ? null : tab.edit.value(r, i, v)));
-      tab.edit.addRow(row.length, row);
-    }
-    for (const i of sel.added) tab.edit.addRow(columnNames().length, [...tab.edit.inserted[i]]);
+    const names = columnNames();
+    tab.edit.clone(current.rows, sel, names.length, new Set(meta.filter((c) => c.primary_key).map((c) => names.indexOf(c.name))));
   }
 
   function deleteRows() {
     const sel = panel?.grid()?.selection();
-    if (!sel) return;
-    for (const i of sel.added) tab.edit.removeNew(i);
-    if (sel.existing.length) tab.edit.toggleDelete(sel.existing);
+    if (sel) tab.edit.remove(sel);
   }
 
   function edits() {
@@ -152,30 +145,15 @@
     }
   }
 
-  async function save(confirmed = false) {
+  async function save() {
     if (saving || !pending) return;
     saving = true;
     try {
-      const res = await saveEdits(tab.connectionId, tab.schema, tab.table, edits(), confirmed);
-      toast(t('edit.saved', { count: res.affected }), 'success');
-      preview = null;
-      await runTable(tab.id);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409 && e.data?.confirmation_required) {
-        saving = false;
-        let sql = preview?.join(';\n');
-        if (!sql) {
-          try {
-            sql = (await previewEdits(tab.connectionId, tab.schema, tab.table, edits())).statements.join(';\n');
-          } catch {
-            sql = '';
-          }
-        }
-        if (await confirmProduction({ connection: conn?.name ?? '', sql: sql ?? '', risk: 'write' })) return save(true);
-        return;
+      const target = { connectionId: tab.connectionId, connectionName: conn?.name ?? '', schema: tab.schema, table: tab.table };
+      if (await commitEdits(target, edits(), preview)) {
+        preview = null;
+        await runTable(tab.id);
       }
-      // Pending changes stay so the user can fix and retry.
-      toast(errorMessage(e), 'error', 8000);
     } finally {
       saving = false;
     }
@@ -247,7 +225,10 @@
         <button class="btn" onclick={addRow} title={t('edit.addRowHint')}><Plus size={14} /> {t('edit.addRow')}</button>
       {/if}
       <div class="toolbar-sep"></div>
-      <button class="icon-btn" aria-pressed={valuePanel.open} onclick={() => setValuePanel(!valuePanel.open)} title={t('valuePanel.toggle')} aria-label={t('valuePanel.toggle')}>
+      <button class="icon-btn" aria-pressed={tab.layout === 'record'} onclick={() => panel?.toggleRecord()} title={t('record.toggle')} aria-label={t('record.toggle')}><TableProperties size={14} /></button>
+      <button class="icon-btn" onclick={() => panel?.manageColors()} title={t('rowColors.manage')} aria-label={t('rowColors.manage')}><Palette size={14} /></button>
+      <button class="icon-btn" aria-pressed={valuePanel.open && valuePanel.view === 'calc'} onclick={() => panel?.toggleCalc()} title={t('calc.toggle')} aria-label={t('calc.toggle')}><Calculator size={14} /></button>
+      <button class="icon-btn" aria-pressed={valuePanel.open && valuePanel.view === 'value'} onclick={() => setValuePanel(!(valuePanel.open && valuePanel.view === 'value'), 'value')} title={t('valuePanel.toggle')} aria-label={t('valuePanel.toggle')}>
         <PanelRight size={14} />
       </button>
       <button class="btn" onclick={() => openQueryTab(tab.connectionId, tableSQL(tab, false) + ';', `${tab.table} query`)} title={t('table.openSql')}>

@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const ru: Messages = {
   common: {
+    showPassword: 'Показать пароль',
+    hidePassword: 'Скрыть пароль',
     clear: 'Очистить',
     cancel: 'Отмена',
     close: 'Закрыть',
@@ -51,6 +53,7 @@ const ru: Messages = {
     continueWith: 'Продолжить через {name}',
     passwordDisabled: 'Войдите с учётной записью вашей организации.',
     localLogin: 'Локальный вход',
+    ssoNoAnswer: 'Провайдер входа не ответил. Попросите администратора проверить URL авторизации.',
   },
   password: {
     title: 'Смена пароля',
@@ -273,6 +276,11 @@ const ru: Messages = {
     note_mssqlDefault: 'SQL Server хранит старое значение по умолчанию в именованном ограничении; сначала удалите это ограничение.',
   },
   edit: {
+    queryEditing: 'Редактирование {table}',
+    queryHint: 'Дважды щёлкните или начните ввод, чтобы изменить ячейку; строки находятся по первичному ключу. Ctrl+S сохраняет.',
+    queryReadOnly: '{table} здесь нельзя редактировать',
+    queryNeedsKey: 'В результате должны быть все столбцы первичного ключа и только столбцы таблицы, каждый один раз.',
+    queryTx: 'Не при открытой ручной транзакции: сначала выполните commit или rollback.',
     addRow: 'Добавить строку',
     addRowHint: 'Добавить строку (Ctrl+Shift+Enter)',
     clone: 'Клонировать как новую строку',

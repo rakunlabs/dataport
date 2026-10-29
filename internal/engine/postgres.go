@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"strconv"
@@ -118,6 +119,13 @@ func (postgresDriver) Prepare(ctx context.Context, tx Runner, timeout time.Durat
 }
 
 func (postgresDriver) Query(ctx context.Context, tx Runner, stmt string, maxRows int) (*ResultSet, error) {
+	if cursorable(tx, stmt) {
+		rs, err, ok := queryCursor(ctx, tx, stmt, maxRows)
+		if ok {
+			return rs, err
+		}
+	}
+
 	rows, err := tx.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -125,6 +133,121 @@ func (postgresDriver) Query(ctx context.Context, tx Runner, stmt string, maxRows
 	defer func() { _ = rows.Close() }()
 
 	return scanRows(rows, maxRows)
+}
+
+// A plain query stops reading at the row limit, but closing it makes the
+// server produce and send every remaining row first: a large table is read
+// whole for the first rows, and an error or the time limit in a row past the
+// limit fails the transaction, so its commit turns into a rollback. A cursor
+// fetches only the rows shown and the server computes no more. As with a
+// client that fetches in batches, such as DBeaver, functions in the select
+// list then run only for the rows read.
+
+const cursorName = "dataport_rows"
+
+// cursorable reports a statement that may run through a cursor: a read of
+// its own inside a transaction, without bound parameters.
+func cursorable(tx Runner, stmt string) bool {
+	if ar, ok := tx.(argumentRunner); ok {
+		if len(ar.args) > 0 {
+			return false
+		}
+
+		tx = ar.Runner
+	}
+
+	if _, ok := tx.(*sql.Tx); !ok {
+		return false
+	}
+
+	// A locking read locks rows as they are fetched; it runs whole so every
+	// row it names is locked.
+	if locks(stmt) {
+		return false
+	}
+
+	switch kw := FirstKeyword(stmt, DialectPostgres); kw {
+	case "SELECT", "VALUES", "TABLE":
+		return true
+	case "WITH":
+		return !writesInCTE(stmt, kw)
+	}
+
+	return false
+}
+
+// locks reports FOR UPDATE, FOR NO KEY UPDATE, FOR SHARE or FOR KEY SHARE.
+func locks(stmt string) bool {
+	fields := strings.Fields(strings.ToUpper(codeOnly(stmt, DialectPostgres)))
+	for i := 0; i+1 < len(fields); i++ {
+		if fields[i] != "FOR" {
+			continue
+		}
+
+		switch strings.TrimRight(fields[i+1], ";,)") {
+		case "UPDATE", "SHARE", "NO", "KEY":
+			return true
+		}
+	}
+
+	return false
+}
+
+// queryCursor reads the rows through a cursor. ok is false when the
+// statement cannot be a cursor's query (such as SELECT INTO), so it runs as
+// a plain query instead; a savepoint keeps the transaction usable.
+func queryCursor(ctx context.Context, tx Runner, stmt string, maxRows int) (rs *ResultSet, err error, ok bool) {
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT dataport_cursor"); err != nil {
+		return nil, nil, false
+	}
+
+	if _, err := tx.ExecContext(ctx, "DECLARE "+cursorName+" NO SCROLL CURSOR FOR "+strings.TrimRight(strings.TrimSpace(stmt), "; \t\r\n")); err != nil {
+		if _, rbErr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT dataport_cursor"); rbErr != nil {
+			return nil, err, true
+		}
+
+		return nil, nil, false
+	}
+
+	// One row more than shown tells whether the result was cut. FETCH takes
+	// a 32-bit count; beyond it everything is read.
+	fetch := "FETCH ALL FROM " + cursorName
+	if maxRows < math.MaxInt32-1 {
+		fetch = "FETCH FORWARD " + strconv.Itoa(maxRows+1) + " FROM " + cursorName
+	}
+
+	// A failed read leaves the transaction as it was before the cursor, so a
+	// manual transaction can go on and the next read declares it again.
+	fail := func(err error) (*ResultSet, error, bool) {
+		if ctx.Err() == nil {
+			_, _ = tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT dataport_cursor")
+			_, _ = tx.ExecContext(ctx, "RELEASE SAVEPOINT dataport_cursor")
+		}
+
+		return nil, err, true
+	}
+
+	rows, err := tx.QueryContext(ctx, fetch)
+	if err != nil {
+		return fail(err)
+	}
+
+	rs, err = scanRows(rows, maxRows)
+	_ = rows.Close()
+
+	if err != nil {
+		return fail(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "CLOSE "+cursorName); err != nil {
+		return fail(err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT dataport_cursor"); err != nil {
+		return fail(err)
+	}
+
+	return rs, nil, true
 }
 
 // CheckReadOnly has nothing to add: a READ ONLY transaction in PostgreSQL

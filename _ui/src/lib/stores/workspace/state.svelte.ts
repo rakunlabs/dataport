@@ -35,6 +35,8 @@ export interface Tab {
   hasMore: boolean;
   edit: EditState;
   view: 'data' | 'structure' | 'ddl';
+  // How a result shows its rows: the grid, or one row as columns and values.
+  layout?: 'grid' | 'record';
   // Rows asked for per statement: 0 is the connection's default, -1 all
   // the server allows.
   maxRows: number;

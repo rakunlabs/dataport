@@ -1,6 +1,9 @@
-import { api } from '@/lib/api/client';
+import { api, ApiError } from '@/lib/api/client';
 import { withCredentials } from '@/lib/stores/credentials.svelte';
-import type { ColumnInfo } from '@/lib/api/types';
+import { confirmProduction } from '@/lib/stores/confirm.svelte';
+import { errorMessage, toast } from '@/lib/stores/toast.svelte';
+import { t } from '@/lib/i18n/index.svelte';
+import type { ColumnInfo, ExecResult } from '@/lib/api/types';
 
 // Pending changes of one table tab, kept until saved or discarded. Rows are
 // addressed by their index in the loaded result; new rows live apart.
@@ -61,6 +64,20 @@ export class EditState {
     this.inserted.splice(index, 1);
   }
 
+  // clone adds the selected rows again as new rows, as shown; key columns
+  // are cleared so the database assigns new ones.
+  clone(rows: unknown[][], sel: { existing: number[]; added: number[] }, width: number, keyCols: Set<number>) {
+    for (const r of sel.existing) this.addRow(width, rows[r].map((v, i) => (keyCols.has(i) ? null : this.value(r, i, v))));
+    for (const i of sel.added) this.addRow(width, [...this.inserted[i]]);
+  }
+
+  // remove drops selected new rows and marks or unmarks the others for
+  // deletion. added must be in descending order.
+  remove(sel: { existing: number[]; added: number[] }) {
+    for (const i of sel.added) this.removeNew(i);
+    if (sel.existing.length) this.toggleDelete(sel.existing);
+  }
+
   value(row: number, col: number, original: unknown): unknown {
     const cols = this.dirty.get(row);
     return cols?.has(col) ? cols.get(col) : original;
@@ -99,6 +116,21 @@ export class EditState {
   }
 }
 
+// pendingEdits counts the unsaved changes of a tab: its table's, and those
+// of query results read from one table.
+export function pendingEdits(t: { edit: EditState; result: ExecResult | null }): number {
+  let n = t.edit.count;
+  for (const r of t.result?.results ?? []) n += r.edit?.count ?? 0;
+  return n;
+}
+
+// keepEdits asks before results with unsaved edits are dropped; true means
+// go on.
+export function keepEdits(results: { edit?: EditState }[] | undefined): boolean {
+  const n = (results ?? []).reduce((sum, r) => sum + (r.edit?.count ?? 0), 0);
+  return !n || confirm(t('edit.discardConfirm', { count: n }));
+}
+
 function sameValue(a: unknown, b: unknown): boolean {
   if (a === null || a === undefined) return b === null || b === undefined;
   return String(a) === String(b);
@@ -108,6 +140,44 @@ export async function previewEdits(connectionId: string, schema: string, table: 
   return withCredentials(connectionId, () =>
     api.post<{ statements: string[] }>(`/connections/${connectionId}/edits/preview`, { schema, table, edits }),
   );
+}
+
+export interface EditTarget {
+  connectionId: string;
+  // Named in the production confirmation.
+  connectionName: string;
+  schema: string;
+  table: string;
+}
+
+// commitEdits saves edits in one transaction, asking first on a production
+// database, and tells the outcome in a toast. It reports whether they were
+// saved; failed edits stay pending so the user can fix and retry.
+export async function commitEdits(to: EditTarget, edits: RowEdit[], preview?: string[] | null): Promise<boolean> {
+  let confirmed = false;
+  for (;;) {
+    try {
+      const res = await saveEdits(to.connectionId, to.schema, to.table, edits, confirmed);
+      toast(t('edit.saved', { count: res.affected }), 'success');
+      return true;
+    } catch (e) {
+      if (!confirmed && e instanceof ApiError && e.status === 409 && e.data?.confirmation_required) {
+        let sql = preview?.join(';\n') ?? '';
+        if (!sql) {
+          try {
+            sql = (await previewEdits(to.connectionId, to.schema, to.table, edits)).statements.join(';\n');
+          } catch {
+            // The confirmation then shows no statements.
+          }
+        }
+        if (!(await confirmProduction({ connection: to.connectionName, sql, risk: 'write' }))) return false;
+        confirmed = true;
+        continue;
+      }
+      toast(errorMessage(e), 'error', 8000);
+      return false;
+    }
+  }
 }
 
 export async function saveEdits(connectionId: string, schema: string, table: string, edits: RowEdit[], confirm: boolean) {

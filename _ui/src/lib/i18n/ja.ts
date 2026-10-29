@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const ja: Messages = {
   common: {
+    showPassword: 'パスワードを表示',
+    hidePassword: 'パスワードを隠す',
     clear: 'クリア',
     cancel: 'キャンセル',
     close: '閉じる',
@@ -51,6 +53,7 @@ const ja: Messages = {
     continueWith: '{name} で続行',
     passwordDisabled: '組織のアカウントでサインインしてください。',
     localLogin: 'ローカルログイン',
+    ssoNoAnswer: 'サインインプロバイダーが応答しませんでした。管理者に認可 URL の確認を依頼してください。',
   },
   password: {
     title: 'パスワード変更',
@@ -273,6 +276,11 @@ const ja: Messages = {
     note_mssqlDefault: 'SQL Server では古い既定値が名前付き制約に残っています。先にその制約を削除してください。',
   },
   edit: {
+    queryEditing: '{table} を編集中',
+    queryHint: 'セルをダブルクリックするか入力して変更します。行は主キーで特定されます。Ctrl+S で保存。',
+    queryReadOnly: '{table} はここでは編集できません',
+    queryNeedsKey: '結果に主キーのすべての列が含まれ、テーブルの列だけがそれぞれ 1 回ずつ含まれている必要があります。',
+    queryTx: '手動トランザクションが開いている間はできません。先にコミットかロールバックしてください。',
     addRow: '行を追加',
     addRowHint: '行を追加（Ctrl+Shift+Enter）',
     clone: '新しい行として複製',

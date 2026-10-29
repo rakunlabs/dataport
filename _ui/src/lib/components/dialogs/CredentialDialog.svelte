@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { KeyRound, LoaderCircle, ChevronRight, RotateCcw } from 'lucide-svelte';
   import LimitsFields from '@/lib/components/ui/LimitsFields.svelte';
   import type { Limits } from '@/lib/api/types';
@@ -68,10 +69,8 @@
       <div>
         <label class="label" for="cred-pass">{t('credentials.password')}</label>
         <!-- svelte-ignore a11y_autofocus -->
-        <input
+        <PasswordInput
           id="cred-pass"
-          class="input"
-          type="password"
           bind:value={password}
           autocomplete="new-password"
           autofocus={!!username}

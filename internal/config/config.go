@@ -147,7 +147,7 @@ type Auth struct {
 // others are set by admins under Settings → Server limits, starting from the
 // defaults below.
 type Query struct {
-	DefaultMaxRows int `cfg:"-" log:"-" default:"200"`
+	DefaultMaxRows int `cfg:"-" log:"-" default:"100"`
 	// DefaultTimeout limits a run when the connection sets no timeout; zero
 	// means no limit. Users may still stop a run, or choose a limit per tab.
 	DefaultTimeout time.Duration `cfg:"-" log:"-" default:"0s"`

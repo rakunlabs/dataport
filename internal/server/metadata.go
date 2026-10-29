@@ -56,6 +56,25 @@ func (s *Server) columns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+// resolveTable names the schema a table without one is read from, so a
+// query result can be edited in the right table. Unknown means the driver
+// cannot tell; an empty schema that there is no such table.
+func (s *Server) resolveTable(w http.ResponseWriter, r *http.Request) {
+	g, password := s.grant(w, r)
+	if g == nil {
+		return
+	}
+
+	schema, ok, err := s.engine.ResolveTable(r.Context(), g.Connection, password, r.URL.Query().Get("table"))
+	if err != nil {
+		writeEngineError(w, r, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"schema": schema, "known": ok})
+}
+
 func (s *Server) routines(w http.ResponseWriter, r *http.Request) {
 	g, password := s.grant(w, r)
 	if g == nil {

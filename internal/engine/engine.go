@@ -225,6 +225,24 @@ func (m *Manager) Objects(ctx context.Context, c *store.Connection, password, sc
 	return list, err
 }
 
+// ResolveTable names the schema a table without one is read from. ok is
+// false when the driver cannot tell.
+func (m *Manager) ResolveTable(ctx context.Context, c *store.Connection, password, table string) (schema string, ok bool, err error) {
+	err = m.meta(ctx, c, password, func(ctx context.Context, d Driver, conn *sql.Conn) error {
+		r, can := d.(TableResolver)
+		if !can {
+			return nil
+		}
+
+		ok = true
+		schema, err = r.ResolveTable(ctx, conn, table)
+
+		return err
+	})
+
+	return schema, ok, err
+}
+
 func (m *Manager) Columns(ctx context.Context, c *store.Connection, password, schema, table string) ([]ColumnInfo, error) {
 	var list []ColumnInfo
 

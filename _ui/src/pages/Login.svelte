@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { push, router } from 'svelte-spa-router';
   import { LogIn, ExternalLink, Languages, TriangleAlert, LoaderCircle, Sun, Moon, Monitor, KeyRound, ChevronDown, ChevronRight } from 'lucide-svelte';
   import Logo from '@/lib/components/ui/Logo.svelte';
@@ -63,6 +64,33 @@
     if (e.persisted) leaving = '';
   }
 
+  // A provider that answers the redirect with an empty response (such as a
+  // 204 from a proxy for an unknown path) leaves the browser on this page;
+  // stop waiting and say so instead of spinning forever.
+  let leaveTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function go(e: MouseEvent, name: string) {
+    // Opened in a new tab or window, this page does not leave.
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    leaving = name;
+    error = '';
+    arm();
+  }
+
+  // A hidden page waits on, as the provider may be asking the user; it is
+  // checked again once it shows.
+  function arm() {
+    clearTimeout(leaveTimer);
+    leaveTimer = setTimeout(() => {
+      if (!leaving) return;
+      if (document.visibilityState !== 'visible') return arm();
+      leaving = '';
+      error = t('login.ssoNoAnswer');
+    }, 60000);
+  }
+
+  $effect(() => () => clearTimeout(leaveTimer));
+
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (busy) return;
@@ -81,7 +109,7 @@
 
 <svelte:window onpageshow={onPageShow} />
 
-<div class="flex h-full flex-col items-center overflow-auto bg-panel px-4 pt-[12vh]">
+<div class="flex h-full flex-col items-center overflow-auto bg-sunken px-4 pt-[12vh]">
   <div class="w-full max-w-sm">
     <div class="relative rounded-lg border border-line bg-raised p-8 shadow-dialog">
       {#if info?.version}
@@ -148,7 +176,7 @@
             </div>
             <div>
               <label class="label" for="password">{t('login.password')}</label>
-              <input id="password" class="input h-9" type="password" autocomplete="current-password" bind:value={password} required />
+              <PasswordInput id="password" class="input h-9" autocomplete="current-password" bind:value={password} required />
             </div>
             {@render rememberBox()}
             <button class="btn-primary h-9 w-full justify-center" disabled={busy}>
@@ -170,9 +198,9 @@
             {#each info.providers as p (p.name)}
               <a
                 href={ssoHref(p.name)}
-                class="btn-outline h-9 w-full justify-center bg-panel font-medium {leaving ? 'pointer-events-none opacity-50' : ''}"
+                class="btn-outline h-9 w-full justify-center bg-sunken font-medium hover:bg-hover {leaving ? 'pointer-events-none opacity-50' : ''}"
                 aria-disabled={!!leaving}
-                onclick={() => (leaving = p.name)}
+                onclick={(e) => go(e, p.name)}
               >
                 {#if leaving === p.name}<LoaderCircle size={14} class="animate-spin" />{:else}<ExternalLink size={14} />{/if}
                 {t('login.continueWith', { name: p.label })}

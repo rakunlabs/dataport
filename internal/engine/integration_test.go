@@ -534,3 +534,60 @@ func TestIntegrationNoTimeoutCancel(t *testing.T) {
 		t.Fatalf("not cancelled: %q after %v", res.FirstError(), time.Since(start))
 	}
 }
+
+// A read past the row limit must not fail the run: the rows not shown are
+// never produced, so an error in one of them cannot turn the commit into a
+// rollback, and a large table is not read whole.
+func TestIntegrationPostgresRowLimit(t *testing.T) {
+	m := NewManager(store.Limits{MaxOpen: 2}, time.Minute)
+	defer m.Close()
+
+	c := &store.Connection{ID: "pg", DBType: "postgres", Host: "127.0.0.1", Port: 55432, Database: "postgres", Username: "postgres",
+		Options: map[string]string{"sslmode": "disable"}, UpdatedAt: 1}
+	pw := env("PG_PASSWORD", "pw")
+
+	if err := m.Test(context.Background(), c, pw); err != nil {
+		t.Skip("postgres is not reachable:", err)
+	}
+
+	run(t, m, c, pw, "DROP VIEW IF EXISTS dp_late_error; CREATE VIEW dp_late_error AS SELECT g, 1 / (g - 5000) AS x FROM generate_series(1, 10000) g", false)
+
+	res := run(t, m, c, pw, "SELECT * FROM dp_late_error", false)
+	if rs := res.Results; len(rs) != 1 || rs[0].Error != "" || !rs[0].Truncated || len(rs[0].Rows) != 100 || !res.Committed {
+		t.Fatalf("read past the limit: %+v committed=%v", rs, res.Committed)
+	}
+
+	// A statement that cannot be a cursor still runs, and writes commit.
+	res = run(t, m, c, pw, "DROP TABLE IF EXISTS dp_rows; SELECT 1 AS a INTO dp_rows; WITH x AS (INSERT INTO dp_rows VALUES (2) RETURNING a) SELECT * FROM x", false)
+	if !res.Committed || res.Results[2].Error != "" || len(res.Results[2].Rows) != 1 {
+		t.Fatalf("writes: %+v", res.Results)
+	}
+
+	if n := run(t, m, c, pw, "SELECT count(*) FROM dp_rows", true).Results[0].Rows[0][0]; n != int64(2) {
+		t.Fatalf("count %v", n)
+	}
+
+	// An error in the rows shown still fails the statement.
+	res = run(t, m, c, pw, "SELECT * FROM dp_late_error WHERE g >= 4990", false)
+	if res.Results[0].Error == "" || res.Committed {
+		t.Fatalf("error in shown rows: %+v", res.Results)
+	}
+
+	// A locking read runs whole, locking every row, so it reaches the error
+	// past the limit and the run does not commit.
+	run(t, m, c, pw, "DROP TABLE IF EXISTS dp_lock; CREATE TABLE dp_lock AS SELECT g FROM generate_series(1, 300) g", false)
+	res = run(t, m, c, pw, "SELECT 1 / (g - 250) FROM dp_lock FOR UPDATE", false)
+	if res.Committed && res.Results[0].Error == "" {
+		t.Fatalf("locking read: %+v committed=%v", res.Results[0], res.Committed)
+	}
+
+	// A table without a schema is found where the search path reads it.
+	run(t, m, c, pw, "CREATE SCHEMA IF NOT EXISTS dp_other; CREATE TABLE IF NOT EXISTS dp_other.dp_lock (g int)", false)
+	if s, ok, err := m.ResolveTable(context.Background(), c, pw, "dp_lock"); err != nil || !ok || s != "public" {
+		t.Fatalf("resolve: %q %v %v", s, ok, err)
+	}
+	if s, ok, err := m.ResolveTable(context.Background(), c, pw, "dp_missing"); err != nil || !ok || s != "" {
+		t.Fatalf("resolve missing: %q %v %v", s, ok, err)
+	}
+	run(t, m, c, pw, "DROP SCHEMA dp_other CASCADE; DROP TABLE dp_lock", false)
+}

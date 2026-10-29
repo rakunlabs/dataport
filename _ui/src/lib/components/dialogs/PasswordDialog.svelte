@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import { api } from '@/lib/api/client';
@@ -36,15 +37,15 @@
   <form id="password-form" onsubmit={submit} class="space-y-3">
     <div>
       <label class="label" for="pw-current">{t('password.current')}</label>
-      <input id="pw-current" class="input" type="password" autocomplete="current-password" bind:value={current} required />
+      <PasswordInput id="pw-current" autocomplete="current-password" bind:value={current} required />
     </div>
     <div>
       <label class="label" for="pw-new">{t('password.new')}</label>
-      <input id="pw-new" class="input" type="password" autocomplete="new-password" minlength="8" bind:value={next} required />
+      <PasswordInput id="pw-new" autocomplete="new-password" minlength={8} bind:value={next} required />
     </div>
     <div>
       <label class="label" for="pw-confirm">{t('password.repeat')}</label>
-      <input id="pw-confirm" class="input" type="password" autocomplete="new-password" bind:value={confirm} required />
+      <PasswordInput id="pw-confirm" autocomplete="new-password" bind:value={confirm} required />
     </div>
     {#if error}<p class="text-xs text-danger">{error}</p>{/if}
   </form>

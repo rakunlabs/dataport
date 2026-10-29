@@ -1,7 +1,7 @@
 import en from '@/lib/i18n/en';
 
 // Sections a translation may leave out; t() falls back to English for them.
-type Optional = 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn';
+type Optional = 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn' | 'calc' | 'record' | 'rowColors';
 
 // Messages added after a translation was written may be missing from it;
 // t() falls back to English for them too. A string names leaf messages,
@@ -13,6 +13,7 @@ type Later = {
     docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' };
   result: 'elapsed' | 'cancelling' | 'runningFor';
   query: 'runParallel';
+  valuePanel: 'tab' | 'pick';
 };
 
 type Sections<K> = { [P in keyof K]: K[P] extends true ? P : never }[keyof K];

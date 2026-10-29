@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const de: Messages = {
   common: {
+    showPassword: 'Passwort anzeigen',
+    hidePassword: 'Passwort verbergen',
     clear: 'Leeren',
     cancel: 'Abbrechen',
     close: 'Schließen',
@@ -51,6 +53,7 @@ const de: Messages = {
     continueWith: 'Weiter mit {name}',
     passwordDisabled: 'Melden Sie sich mit Ihrem Organisationskonto an.',
     localLogin: 'Lokale Anmeldung',
+    ssoNoAnswer: 'Der Anmeldeanbieter hat nicht geantwortet. Bitten Sie einen Admin, seine Autorisierungs-URL zu prüfen.',
   },
   password: {
     title: 'Passwort ändern',
@@ -273,6 +276,11 @@ const de: Messages = {
     note_mssqlDefault: 'SQL Server speichert den alten Standardwert in einem benannten Constraint; löschen Sie diesen Constraint zuerst.',
   },
   edit: {
+    queryEditing: '{table} wird bearbeitet',
+    queryHint: 'Doppelklicken oder tippen, um eine Zelle zu ändern; Zeilen werden über den Primärschlüssel gefunden. Strg+S speichert.',
+    queryReadOnly: '{table} kann hier nicht bearbeitet werden',
+    queryNeedsKey: 'Das Ergebnis muss alle Primärschlüsselspalten enthalten, nur Spalten der Tabelle, jede einmal.',
+    queryTx: 'Nicht, solange eine manuelle Transaktion offen ist: zuerst Commit oder Rollback.',
     addRow: 'Zeile hinzufügen',
     addRowHint: 'Zeile hinzufügen (Ctrl+Shift+Enter)',
     clone: 'Als neue Zeile klonen',

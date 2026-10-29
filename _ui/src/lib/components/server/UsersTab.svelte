@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, UserRound, UsersRound, Lock, Plus, KeyRound, ShieldCheck, ShieldOff, Trash2, LockOpen } from 'lucide-svelte';
   import { api, qs } from '@/lib/api/client';
@@ -198,7 +199,7 @@
           {/if}
           <div>
             <label class="label" for="u-pw">{t('users.password')}</label>
-            <input id="u-pw" type="password" class="input" bind:value={newPassword} autocomplete="new-password" />
+            <PasswordInput id="u-pw" bind:value={newPassword} autocomplete="new-password" />
           </div>
           <p class="text-xs text-muted">{t('users.reviewHint')}</p>
           <div class="flex gap-2">

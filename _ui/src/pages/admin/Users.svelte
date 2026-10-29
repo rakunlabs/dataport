@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { Plus, Pencil, Trash2, ShieldCheck, KeyRound } from 'lucide-svelte';
   import Page from '@/pages/admin/Page.svelte';
@@ -145,7 +146,7 @@
       </div>
       <div>
         <label class="label" for="u-pass">{editing ? t('admin.user.newPassword') : t('admin.user.password')}</label>
-        <input id="u-pass" class="input" type="password" bind:value={form.password} minlength="8" required={!editing} autocomplete="new-password" />
+        <PasswordInput id="u-pass" bind:value={form.password} minlength={8} required={!editing} autocomplete="new-password" />
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>

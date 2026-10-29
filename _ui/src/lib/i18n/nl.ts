@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const nl: Messages = {
   common: {
+    showPassword: 'Wachtwoord tonen',
+    hidePassword: 'Wachtwoord verbergen',
     clear: 'Wissen',
     cancel: 'Annuleren',
     close: 'Sluiten',
@@ -51,6 +53,7 @@ const nl: Messages = {
     continueWith: 'Doorgaan met {name}',
     passwordDisabled: 'Meld je aan met je organisatieaccount.',
     localLogin: 'Lokaal aanmelden',
+    ssoNoAnswer: 'De aanmeldprovider gaf geen antwoord. Vraag een beheerder de autorisatie-URL te controleren.',
   },
   password: {
     title: 'Wachtwoord wijzigen',
@@ -273,6 +276,11 @@ const nl: Messages = {
     note_mssqlDefault: 'SQL Server bewaart de oude standaardwaarde in een benoemde constraint; verwijder die constraint eerst.',
   },
   edit: {
+    queryEditing: '{table} bewerken',
+    queryHint: 'Dubbelklik of typ om een cel te wijzigen; rijen worden teruggevonden via de primaire sleutel. Ctrl+S slaat op.',
+    queryReadOnly: '{table} kan hier niet worden bewerkt',
+    queryNeedsKey: 'Het resultaat moet alle kolommen van de primaire sleutel bevatten, en alleen kolommen van de tabel, elk één keer.',
+    queryTx: 'Niet zolang een handmatige transactie open is: eerst commit of rollback.',
     addRow: 'Rij toevoegen',
     addRowHint: 'Een rij toevoegen (Ctrl+Shift+Enter)',
     clone: 'Klonen als nieuwe rij',

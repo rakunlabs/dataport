@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keepEdits } from '@/lib/stores/edits.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2 } from 'lucide-svelte';
   import type { SQLNamespace } from '@codemirror/lang-sql';
@@ -6,7 +7,7 @@
   import ResultPanel from '@/lib/components/result/ResultPanel.svelte';
   import RunTimer from '@/lib/components/result/RunTimer.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
-  import { cancel, connection, endTx, persist, run, runInNewTab, saveTab, setManualTx, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
+  import { cancel, cancelPending, connection, endTx, persist, run, runInNewTab, saveTab, setManualTx, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
   import { prefs } from '@/lib/stores/prefs.svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';
@@ -23,6 +24,10 @@
   let container: HTMLDivElement;
 
   const conn = $derived(connection(tab.connectionId));
+
+  // Ctrl+\ runs into a result of its own, side by side with others, except
+  // in a manual transaction, which runs one statement at a time.
+  const besideRuns = $derived(!(tab.manualTx && conn?.manual_tx));
 
   // Table names of the loaded tree feed the editor's autocompletion.
   const schema = $derived.by(() => {
@@ -90,7 +95,7 @@
         y: e.clientY,
         items: [
           { label: t('editor.runHere'), icon: Play, action: here },
-          { label: t('editor.runNewResult'), icon: CopyPlus, hidden: !tab.result, action: beside },
+          { label: t('editor.runNewResult'), icon: CopyPlus, hidden: !tab.result && !besideRuns, action: beside },
           { label: t('editor.runNewTab'), icon: SquareArrowOutUpRight, action: elsewhere },
         ],
       };
@@ -129,7 +134,13 @@
   }
 
   function changeConnection(e: Event) {
-    tab.connectionId = (e.target as HTMLSelectElement).value;
+    const select = e.target as HTMLSelectElement;
+    if (!keepEdits(tab.result?.results)) {
+      select.value = tab.connectionId;
+      return;
+    }
+    cancelPending(tab);
+    tab.connectionId = select.value;
     tab.result = null;
     persist();
   }
@@ -156,6 +167,11 @@
       <button class="btn" onclick={() => run(tab.id, editor?.currentSQL())} disabled={!tab.sql.trim()} title={t('query.runParallel')}>
         <Play size={12} fill="currentColor" /> {t('query.run')}
       </button>
+      {#if besideRuns}
+        <button class="btn" onclick={() => run(tab.id, editor?.currentSQL(), 'append')} disabled={!tab.sql.trim()} title="{t('query.runNewResult')} (Ctrl+\)" aria-label={t('query.runNewResult')}>
+          <CopyPlus size={13} />
+        </button>
+      {/if}
     {:else}
       <div class="flex">
         <button class="btn-primary rounded-r-none" onclick={() => run(tab.id, editor?.currentSQL())} disabled={!tab.sql.trim()} title="{t('query.run')} (Ctrl+Enter)">
@@ -164,7 +180,7 @@
         <button
           class="btn-primary rounded-l-none border-l border-white/25 px-1.5"
           onclick={() => run(tab.id, editor?.currentSQL(), 'append')}
-          disabled={!tab.sql.trim() || !tab.result}
+          disabled={!tab.sql.trim() || (!tab.result && !besideRuns)}
           title="{t('query.runNewResult')} (Ctrl+\)"
           aria-label={t('query.runNewResult')}
         >

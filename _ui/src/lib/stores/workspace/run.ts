@@ -157,7 +157,8 @@ function place(t: Tab, res: ExecResult, list: ResultSet[], mode: RunMode, active
   }
   let at = old.length;
   let next = [...old, ...list];
-  if (mode === 'replace') {
+  // A result whose run is still going keeps its place.
+  if (mode === 'replace' && !old[t.activeResult]?.pending) {
     const current = old[t.activeResult]?.run;
     const first = old.findIndex((r) => r.run === current);
     if (first >= 0) {
@@ -176,7 +177,8 @@ function place(t: Tab, res: ExecResult, list: ResultSet[], mode: RunMode, active
 // open it becomes one more result, so they stay; otherwise the panel shows
 // the error alone.
 function fail(t: Tab, sql: string, run: number, msg: string, mode: RunMode) {
-  const others = (t.result?.results ?? []).length > 0 && (mode === 'append' || new Set(t.result!.results.map((r) => r.run)).size > 1);
+  const old = t.result?.results ?? [];
+  const others = old.length > 0 && (mode === 'append' || new Set(old.map((r) => r.run)).size > 1 || old.some((r) => r.pending));
   if (t.kind === 'query' && others) {
     const rs: ResultSet = { statement: sql, kind: 'exec', rows_affected: 0, truncated: false, duration_ms: 0, error: msg, run };
     place(t, { ...t.result!, results: [] }, [rs], mode, 0);
@@ -186,15 +188,151 @@ function fail(t: Tab, sql: string, run: number, msg: string, mode: RunMode) {
   t.result = null;
 }
 
+// ////////////////////////////////////////////
+// runs into a new result
+
+// A run into a new result (Ctrl+\) shows up at once as a result of its own,
+// with its timer and stop button, and leaves the tab free: several can run
+// side by side and the user moves between them. Runs in a manual transaction
+// keep to one at a time, as the transaction does.
+// With at, the run reads one result again in its place, as after saving
+// its edits.
+async function executeBeside(t: Tab, sql: string, at = -1): Promise<void> {
+  t.error = '';
+  if (!t.result) t.result = { results: [], duration_ms: 0, committed: false, transactional: false };
+  const again = at >= 0 && at < t.result.results.length;
+  // A run of its own, even when it reads a result again: a run that
+  // replaces the results of the old run then leaves this one be.
+  const run = ++runSeq;
+  const placeholder: ResultSet = {
+    statement: sql,
+    kind: 'exec',
+    rows_affected: 0,
+    truncated: false,
+    duration_ms: 0,
+    run,
+    pending: { queryId: newId(), startedAt: Date.now(), cancelling: false },
+  };
+  if (again) {
+    t.result.results[at] = placeholder;
+  } else {
+    t.result.results.push(placeholder);
+    t.activeResult = t.result.results.length - 1;
+  }
+
+  // The result is found again by its run each time: the user may have
+  // closed, moved past or replaced others meanwhile.
+  const slot = () => t.result?.results.findIndex((r) => r.run === run && r.pending) ?? -1;
+  const pending = () => t.result?.results[slot()]?.pending;
+
+  let confirm = false;
+  for (;;) {
+    const p = pending();
+    if (!p) return;
+    try {
+      const res = await api.post<ExecResult>(`/connections/${t.connectionId}/query`, {
+        sql,
+        query_id: p.queryId,
+        confirm,
+        max_rows: t.maxRows,
+        timeout_sec: t.timeoutSec >= 0 ? t.timeoutSec : undefined,
+      });
+      for (const r of res.results) {
+        r.run = run;
+        r.committed = res.committed;
+        r.transactional = res.transactional;
+      }
+      const firstError = res.results.findIndex((r) => r.error);
+      const lastRows = res.results.map((r) => r.kind).lastIndexOf('rows');
+      settle(t, slot(), res.results, firstError >= 0 ? firstError : Math.max(lastRows, 0));
+      return;
+    } catch (e) {
+      if (!pending()) return;
+      if (needsCredentials(e)) {
+        if (await askCredentials(t.connectionId, (e as ApiError).message)) {
+          restart(pending());
+          continue;
+        }
+      } else if (e instanceof ApiError && e.status === 409 && e.data?.confirmation_required) {
+        const conn = connection(t.connectionId);
+        if (await confirmProduction({ connection: conn?.name ?? '', sql, risk: String(e.data.risk ?? 'write') })) {
+          confirm = true;
+          restart(pending());
+          continue;
+        }
+        settle(t, slot(), [], 0);
+        return;
+      }
+      const rs: ResultSet = { statement: sql, kind: 'exec', rows_affected: 0, truncated: false, duration_ms: 0, error: errorMessage(e), run };
+      settle(t, slot(), [rs], 0);
+      return;
+    }
+  }
+}
+
+function restart(p: ResultSet['pending']) {
+  if (!p) return;
+  p.queryId = newId();
+  p.startedAt = Date.now();
+  p.cancelling = false;
+}
+
+// settle replaces the result of a finished run with what it returned; the
+// result being looked at stays the same, or moves to the run's own result.
+function settle(t: Tab, at: number, list: ResultSet[], active: number) {
+  if (!t.result || at < 0) return;
+  const viewing = t.activeResult === at;
+  t.result.results.splice(at, 1, ...list);
+  if (!t.result.results.length) {
+    t.result = null;
+    t.activeResult = 0;
+    return;
+  }
+  if (viewing) t.activeResult = Math.min(at + active, t.result.results.length - 1);
+  else if (t.activeResult > at) t.activeResult += list.length - 1;
+}
+
+// reloadResult reads one query result again, in its place.
+export function reloadResult(id: string, index: number) {
+  const t = findTab(id);
+  const r = t?.result?.results[index];
+  if (!t || !r || r.pending) return;
+  return executeBeside(t, r.statement, index);
+}
+
+// cancelResult stops the run behind one result of a tab.
+export async function cancelResult(id: string, index: number) {
+  const p = findTab(id)?.result?.results[index]?.pending;
+  if (!p || p.cancelling) return;
+  p.cancelling = true;
+  try {
+    await api.post(`/queries/${p.queryId}/cancel`);
+  } catch {
+    // The query may have finished in the meantime.
+  }
+}
+
+// cancelPending stops every run of a tab started into a new result, before
+// its results are thrown away.
+export function cancelPending(t: Tab) {
+  for (const r of t.result?.results ?? []) {
+    if (r.pending) void api.post(`/queries/${r.pending.queryId}/cancel`).catch(() => {});
+  }
+}
+
 export async function run(id: string, sql?: string, mode: RunMode = 'replace') {
   const t = findTab(id);
   if (!t) return;
   let text = (sql ?? t.sql).trim();
   if (!text) return;
 
+  // In a manual transaction one run goes at a time, as the transaction does.
+  const beside = mode === 'append' && t.kind === 'query' && !(t.manualTx && connection(t.connectionId)?.manual_tx);
+
   // A tab runs one thing at a time; another run while it is busy goes to a
-  // tab of its own, so both run side by side.
-  if (t.running && t.kind === 'query') {
+  // tab of its own, so both run side by side. A run into a new result gets
+  // a result of its own instead.
+  if (t.running && t.kind === 'query' && !beside) {
     runElsewhere?.(t.connectionId, text, t.maxRows, t.timeoutSec);
     return;
   }
@@ -214,6 +352,16 @@ export async function run(id: string, sql?: string, mode: RunMode = 'replace') {
     }
     text = substitute(scope, syn, given, dbType);
     if (!text) return;
+  }
+
+  if (beside) return executeBeside(t, text);
+
+  // Replacing the results looked at drops their unsaved edits.
+  if (t.kind === 'query' && mode === 'replace' && !t.result?.results[t.activeResult]?.pending) {
+    const old = t.result?.results ?? [];
+    const current = old[t.activeResult]?.run;
+    const lost = old.filter((r) => r.run === current).reduce((n, r) => n + (r.edit?.count ?? 0), 0);
+    if (lost && !confirm(tr('edit.discardConfirm', { count: lost }))) return;
   }
 
   return execute(t, text, false, mode);

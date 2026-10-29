@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const fr: Messages = {
   common: {
+    showPassword: 'Afficher le mot de passe',
+    hidePassword: 'Masquer le mot de passe',
     clear: 'Effacer',
     cancel: 'Annuler',
     close: 'Fermer',
@@ -51,6 +53,7 @@ const fr: Messages = {
     continueWith: 'Continuer avec {name}',
     passwordDisabled: 'Connectez-vous avec le compte de votre organisation.',
     localLogin: 'Connexion locale',
+    ssoNoAnswer: "Le fournisseur de connexion n'a pas répondu. Demandez à un administrateur de vérifier son URL d'autorisation.",
   },
   password: {
     title: 'Changer le mot de passe',
@@ -273,6 +276,11 @@ const fr: Messages = {
     note_mssqlDefault: "SQL Server conserve l'ancienne valeur par défaut dans une contrainte nommée ; supprimez d'abord cette contrainte.",
   },
   edit: {
+    queryEditing: 'Modification de {table}',
+    queryHint: 'Double-cliquez ou tapez pour modifier une cellule ; les lignes sont retrouvées par la clé primaire. Ctrl+S enregistre.',
+    queryReadOnly: '{table} ne peut pas être modifiée ici',
+    queryNeedsKey: 'Le résultat doit contenir toutes les colonnes de la clé primaire, et seulement des colonnes de la table, chacune une fois.',
+    queryTx: "Pas tant qu'une transaction manuelle est ouverte : validez-la ou annulez-la d'abord.",
     addRow: 'Ajouter une ligne',
     addRowHint: 'Ajouter une ligne (Ctrl+Shift+Enter)',
     clone: 'Cloner en nouvelle ligne',

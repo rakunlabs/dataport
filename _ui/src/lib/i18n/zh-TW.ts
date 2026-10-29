@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const zhTW: Messages = {
   common: {
+    showPassword: '顯示密碼',
+    hidePassword: '隱藏密碼',
     clear: '清除',
     cancel: '取消',
     close: '關閉',
@@ -51,6 +53,7 @@ const zhTW: Messages = {
     continueWith: '使用 {name} 繼續',
     passwordDisabled: '請使用您的組織帳號登入。',
     localLogin: '本機登入',
+    ssoNoAnswer: '登入提供者沒有回應。請管理員檢查其授權 URL。',
   },
   password: {
     title: '變更密碼',
@@ -273,6 +276,11 @@ const zhTW: Messages = {
     note_mssqlDefault: 'SQL Server 會將舊的預設值保留在具名條件約束中，請先刪除該條件約束。',
   },
   edit: {
+    queryEditing: '正在編輯 {table}',
+    queryHint: '雙擊儲存格或直接輸入即可修改；資料列依主鍵定位。Ctrl+S 儲存。',
+    queryReadOnly: '{table} 無法在此編輯',
+    queryNeedsKey: '結果必須包含所有主鍵欄位，且只包含該資料表的欄位，每欄一次。',
+    queryTx: '手動交易開啟時無法編輯：請先提交或回復。',
     addRow: '新增列',
     addRowHint: '新增一列（Ctrl+Shift+Enter）',
     clone: '複製為新列',

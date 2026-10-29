@@ -2,6 +2,8 @@ import type { Messages } from '@/lib/i18n/index.svelte';
 
 const es: Messages = {
   common: {
+    showPassword: 'Mostrar contraseña',
+    hidePassword: 'Ocultar contraseña',
     clear: 'Limpiar',
     cancel: 'Cancelar',
     close: 'Cerrar',
@@ -51,6 +53,7 @@ const es: Messages = {
     continueWith: 'Continuar con {name}',
     passwordDisabled: 'Inicia sesión con la cuenta de tu organización.',
     localLogin: 'Inicio de sesión local',
+    ssoNoAnswer: 'El proveedor de inicio de sesión no respondió. Pide a un administrador que revise su URL de autorización.',
   },
   password: {
     title: 'Cambiar contraseña',
@@ -273,6 +276,11 @@ const es: Messages = {
     note_mssqlDefault: 'SQL Server guarda el valor predeterminado anterior en una restricción con nombre; elimina antes esa restricción.',
   },
   edit: {
+    queryEditing: 'Editando {table}',
+    queryHint: 'Haz doble clic o escribe para cambiar una celda; las filas se localizan por la clave primaria. Ctrl+S guarda.',
+    queryReadOnly: '{table} no se puede editar aquí',
+    queryNeedsKey: 'El resultado debe incluir todas las columnas de la clave primaria, y solo columnas de la tabla, cada una una vez.',
+    queryTx: 'No con una transacción manual abierta: haz commit o rollback primero.',
     addRow: 'Añadir fila',
     addRowHint: 'Añadir una fila (Ctrl+Shift+Enter)',
     clone: 'Clonar como fila nueva',

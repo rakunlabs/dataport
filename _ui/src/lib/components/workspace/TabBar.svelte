@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { pendingEdits } from '@/lib/stores/edits.svelte';
   import { t as tr } from '@/lib/i18n/index.svelte';
   import { X, Table2, FileCode2, Settings, Network, Activity, UsersRound, BookOpen, NotebookPen } from 'lucide-svelte';
   import { closeOthers, closeTab, connection, ws } from '@/lib/stores/workspace.svelte';
@@ -19,7 +20,7 @@
   {#each ws.tabs as t (t.id)}
     {@const active = t.id === ws.activeId}
     {@const conn = connection(t.connectionId)}
-    {@const unsaved = (['query', 'notebook'].includes(t.kind) && t.dirty) || t.edit.count > 0}
+    {@const unsaved = (['query', 'notebook'].includes(t.kind) && t.dirty) || pendingEdits(t) > 0}
     <div
       class="group relative flex max-w-72 min-w-32 shrink-0 cursor-pointer items-center gap-1.5 border-r border-line-soft pr-1.5 pl-3
         {active ? 'bg-bg text-fg' : 'text-muted hover:bg-hover hover:text-fg-2'}"
@@ -58,7 +59,7 @@
       </span>
       <span class="relative flex size-[18px] shrink-0 items-center justify-center">
         {#if unsaved}
-          <span class="size-2 rounded-full {t.edit.count ? 'bg-warn' : 'bg-fg-2'} group-hover:hidden"></span>
+          <span class="size-2 rounded-full {pendingEdits(t) ? 'bg-warn' : 'bg-fg-2'} group-hover:hidden"></span>
         {/if}
         <button
           class="absolute inset-0 items-center justify-center rounded-sm text-faint hover:bg-active hover:text-fg

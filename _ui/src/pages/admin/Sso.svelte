@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { Plus, Pencil, Trash2, Copy, KeyRound, TriangleAlert, X } from 'lucide-svelte';
   import Page from '@/pages/admin/Page.svelte';
@@ -203,7 +204,7 @@
         <div>
           <label class="label" for="s-secret">{t('admin.ssoPage.clientSecret')}</label>
           {#if changeSecret}
-            <input id="s-secret" class="input font-mono" type="password" bind:value={secret} autocomplete="new-password" />
+            <PasswordInput id="s-secret" class="input font-mono" bind:value={secret} autocomplete="new-password" />
           {:else}
             <button type="button" class="input text-left text-muted" onclick={() => (changeSecret = true)}>
               {editing?.has_secret ? t('admin.unchanged') : t('admin.notSet')}
