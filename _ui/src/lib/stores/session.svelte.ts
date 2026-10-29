@@ -43,6 +43,11 @@ export function keepReturn(to: string) {
   sessionStorage.setItem(returnKey, to);
 }
 
+// pendingReturn reads the kept page without taking it.
+export function pendingReturn(): string {
+  return sessionStorage.getItem(returnKey) ?? '';
+}
+
 export function takeReturn(): string {
   const to = sessionStorage.getItem(returnKey) ?? '';
   sessionStorage.removeItem(returnKey);

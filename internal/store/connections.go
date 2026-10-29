@@ -118,9 +118,13 @@ type ConnectionView struct {
 	Database    string `json:"database"`
 	Color       string `json:"color"`
 	ReadOnly    bool   `json:"read_only"`
-	Production  bool   `json:"production"`
-	MaxRows     int    `json:"max_rows"`
-	TimeoutMS   int    `json:"timeout_ms"`
+	// CanWrite is set when the user's grants allow writes, so the user may
+	// turn their own read-only choice off; SelfReadOnly is that choice.
+	CanWrite     bool `json:"can_write"`
+	SelfReadOnly bool `json:"self_read_only"`
+	Production   bool `json:"production"`
+	MaxRows      int  `json:"max_rows"`
+	TimeoutMS    int  `json:"timeout_ms"`
 	// UserCredentials is set when the user signs in with their own database
 	// account; CredentialUser is the stored username, empty until saved.
 	UserCredentials bool   `json:"user_credentials"`
@@ -385,8 +389,14 @@ func (s *Store) setConnectionAccess(ctx context.Context, tx *sql.Tx, id string, 
 type Grant struct {
 	Connection *Connection
 	// ReadOnly is true unless the connection itself and at least one of the
-	// user's grants (direct or through a group) allow writes.
+	// user's grants (direct or through a group) allow writes, and the user
+	// did not choose to use it read-only.
 	ReadOnly bool
+	// CanWrite is what the grants allow before the user's own choice, so
+	// the user can turn writes back on.
+	CanWrite bool
+	// SelfReadOnly is set when the user chose read-only.
+	SelfReadOnly bool
 }
 
 func (g *Grant) View() ConnectionView {
@@ -400,9 +410,12 @@ func (g *Grant) View() ConnectionView {
 		Database:    c.Database,
 		Color:       c.Color,
 		ReadOnly:    g.ReadOnly,
-		Production:  c.Production,
-		MaxRows:     c.MaxRows,
-		TimeoutMS:   c.TimeoutMS,
+		CanWrite:    g.CanWrite,
+		// The user's own read-only choice.
+		SelfReadOnly: g.SelfReadOnly,
+		Production:   c.Production,
+		MaxRows:      c.MaxRows,
+		TimeoutMS:    c.TimeoutMS,
 
 		UserCredentials: c.UserCredentials,
 		Personal:        c.OwnerID != "",
@@ -486,8 +499,35 @@ func (s *Store) userWritable(ctx context.Context, userID string) (map[string]boo
 }
 
 // ListGrants returns every connection the user may use. Admins get every
-// connection with the connection's own read-only setting.
+// connection with the connection's own read-only setting. Connections the
+// user chose to use read-only come back read-only.
 func (s *Store) ListGrants(ctx context.Context, user *User) ([]*Grant, error) {
+	grants, err := s.listGrants(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+
+	self, err := s.SelfReadOnly(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, g := range grants {
+		g.applySelf(self[g.Connection.ID])
+	}
+
+	return grants, nil
+}
+
+// applySelf records what the grant allows and narrows it to the user's
+// own read-only choice.
+func (g *Grant) applySelf(self bool) {
+	g.CanWrite = !g.ReadOnly
+	g.SelfReadOnly = self && g.CanWrite
+	g.ReadOnly = g.ReadOnly || g.SelfReadOnly
+}
+
+func (s *Store) listGrants(ctx context.Context, user *User) ([]*Grant, error) {
 	conns, err := s.ListConnections(ctx)
 	if err != nil {
 		return nil, err
@@ -539,8 +579,24 @@ func (s *Store) ListGrants(ctx context.Context, user *User) ([]*Grant, error) {
 
 // GetGrant returns the user's permission on one connection, or ErrNotFound
 // when the user has none. A missing connection and a missing grant look the
-// same to the caller on purpose.
+// same to the caller on purpose. The user's own read-only choice applies.
 func (s *Store) GetGrant(ctx context.Context, user *User, connectionID string) (*Grant, error) {
+	g, err := s.getGrant(ctx, user, connectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	self, err := s.isSelfReadOnly(ctx, user.ID, connectionID)
+	if err != nil {
+		return nil, err
+	}
+
+	g.applySelf(self)
+
+	return g, nil
+}
+
+func (s *Store) getGrant(ctx context.Context, user *User, connectionID string) (*Grant, error) {
 	c, err := s.GetConnection(ctx, connectionID)
 	if err != nil {
 		return nil, err
@@ -571,6 +627,51 @@ func (s *Store) GetGrant(ctx context.Context, user *User, connectionID string) (
 	}
 
 	return &Grant{Connection: c, ReadOnly: c.ReadOnly || !w}, nil
+}
+
+// SelfReadOnly returns the connections the user chose to use read-only.
+func (s *Store) SelfReadOnly(ctx context.Context, userID string) (map[string]bool, error) {
+	rows, err := s.query(ctx, "SELECT connection_id FROM "+s.t("user_read_only")+" WHERE user_id = ?", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[string]bool{}
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+
+		out[id] = true
+	}
+
+	return out, rows.Err()
+}
+
+func (s *Store) isSelfReadOnly(ctx context.Context, userID, connectionID string) (bool, error) {
+	var n int
+
+	err := s.queryRow(ctx, "SELECT COUNT(*) FROM "+s.t("user_read_only")+" WHERE user_id = ? AND connection_id = ?", userID, connectionID).Scan(&n)
+
+	return n > 0, err
+}
+
+// SetSelfReadOnly turns the user's own read-only choice on a connection on
+// or off.
+func (s *Store) SetSelfReadOnly(ctx context.Context, userID, connectionID string, on bool) error {
+	if !on {
+		_, err := s.exec(ctx, "DELETE FROM "+s.t("user_read_only")+" WHERE user_id = ? AND connection_id = ?", userID, connectionID)
+
+		return err
+	}
+
+	_, err := s.exec(ctx, "INSERT INTO "+s.t("user_read_only")+" (user_id, connection_id, created_at) VALUES (?, ?, ?) ON CONFLICT (user_id, connection_id) DO NOTHING",
+		userID, connectionID, now())
+
+	return err
 }
 
 func nonNil(m map[string]string) map[string]string {

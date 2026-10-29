@@ -218,6 +218,10 @@ func (s *Server) reloadSettings(ctx context.Context) {
 			if err := s.loadSettings(ctx, false); err != nil && ctx.Err() == nil {
 				slog.Error("reload server settings", "error", err)
 			}
+
+			if err := s.loadExternalURL(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("reload external URL", "error", err)
+			}
 		}
 	}
 }

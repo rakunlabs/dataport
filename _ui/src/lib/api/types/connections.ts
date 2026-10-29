@@ -6,6 +6,10 @@ export interface ConnectionView {
   database: string;
   color: string;
   read_only: boolean;
+  // The user's grants allow writes; self_read_only is set while they chose
+  // to use the connection read-only anyway.
+  can_write?: boolean;
+  self_read_only?: boolean;
   production: boolean;
   max_rows: number;
   timeout_ms: number;

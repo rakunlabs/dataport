@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
   import Page from '@/pages/admin/Page.svelte';
+  import ExternalUrl from '@/pages/admin/ExternalUrl.svelte';
   import { api } from '@/lib/api/client';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
 
@@ -158,4 +159,6 @@
     {#if pageError}<p role="alert" class="text-xs text-danger">{pageError}</p>{/if}
     <button type="submit" class="btn-primary" disabled={!pageDirty || pageSaving}>{pageSaving ? t('common.loading') : t('common.save')}</button>
   </form>
+
+  <ExternalUrl />
 </Page>

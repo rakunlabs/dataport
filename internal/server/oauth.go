@@ -27,10 +27,11 @@ const (
 )
 
 // publicBase is the URL dataport is reached at, with the base path: the
-// configured external URL, or the host the request came to.
+// configured external URL, or the host the request came to. Behind a proxy
+// that strips a path prefix, X-Forwarded-Prefix puts it back.
 func (s *Server) publicBase(r *http.Request) string {
-	if s.cfg.Auth.ExternalURL != "" {
-		return strings.TrimRight(s.cfg.Auth.ExternalURL, "/") + s.cfg.Server.BasePath
+	if ext := s.externalURL(); ext != "" {
+		return ext + s.cfg.Server.BasePath
 	}
 
 	scheme := "http"
@@ -38,7 +39,30 @@ func (s *Server) publicBase(r *http.Request) string {
 		scheme = "https"
 	}
 
-	return scheme + "://" + requestHost(r) + s.cfg.Server.BasePath
+	return scheme + "://" + requestHost(r) + forwardedPrefix(r) + s.cfg.Server.BasePath
+}
+
+// publicPath is the path part of publicBase, for redirects within dataport.
+func (s *Server) publicPath(r *http.Request) string {
+	u, err := url.Parse(s.publicBase(r))
+	if err != nil {
+		return s.cfg.Server.BasePath
+	}
+
+	return strings.TrimRight(u.Path, "/")
+}
+
+// forwardedPrefix is the path a proxy removed before passing the request
+// on, as Traefik and others report it; only a clean path is taken.
+func forwardedPrefix(r *http.Request) string {
+	p, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Prefix"), ",")
+	p = strings.TrimRight(strings.TrimSpace(p), "/")
+
+	if p == "" || !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.ContainsAny(p, "?#\\ ") || strings.Contains(p, "..") {
+		return ""
+	}
+
+	return p
 }
 
 // requestHost is the host the client sent the request to: the first entry
@@ -74,9 +98,18 @@ func (s *Server) registerOAuth() {
 		s.mux.Handle(p+"/{conn}", prm)
 	}
 
-	s.mux.Handle(base+"/oauth/register", withCORS(limitBody(64<<10)(http.HandlerFunc(s.oauthRegister))))
-	s.mux.Handle(base+"/oauth/token", withCORS(limitBody(64<<10)(http.HandlerFunc(s.oauthToken))))
-	s.mux.Handle(base+"/oauth/authorize", http.HandlerFunc(s.oauthAuthorizeRedirect))
+	register := withCORS(limitBody(64 << 10)(http.HandlerFunc(s.oauthRegister)))
+	token := withCORS(limitBody(64 << 10)(http.HandlerFunc(s.oauthToken)))
+	authorize := http.HandlerFunc(s.oauthAuthorizeRedirect)
+
+	// Clients that find no metadata fall back to /register, /token and
+	// /authorize at the root of the server (MCP 2025-03-26), so those
+	// answer as well as dataport's own paths.
+	for _, p := range uniq(base+"/oauth", base, "") {
+		s.mux.Handle(p+"/register", register)
+		s.mux.Handle(p+"/token", token)
+		s.mux.Handle(p+"/authorize", authorize)
+	}
 }
 
 func uniq(list ...string) []string {
@@ -261,4 +294,28 @@ func randomSecret(prefix string) (string, error) {
 	}
 
 	return prefix + strings.TrimPrefix(raw, dpauth.TokenPrefix), nil
+}
+
+// ////////////////////////////////////////////
+// admin
+
+func (s *Server) adminListOAuthClients(w http.ResponseWriter, r *http.Request) {
+	list, err := s.store.ListOAuthClients(r.Context())
+	if err != nil {
+		writeStoreError(w, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) adminDeleteOAuthClient(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteOAuthClient(r.Context(), r.PathValue("id")); err != nil {
+		writeStoreError(w, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

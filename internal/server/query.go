@@ -267,6 +267,11 @@ func (s *Server) endTx(w http.ResponseWriter, r *http.Request) {
 	// Writes on production were confirmed when they ran.
 	user := currentUser(r)
 
+	// A connection the user since made read-only keeps no earlier writes.
+	if g.ReadOnly {
+		req.Commit = false
+	}
+
 	end, err := s.engine.EndTx(r.Context(), user.ID, req.TxID, g.Connection.ID, req.Commit)
 
 	entry := &store.QueryLog{

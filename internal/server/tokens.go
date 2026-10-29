@@ -32,7 +32,7 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 		"mcp_path":      s.cfg.Server.BasePath + "/mcp",
 		"max_ttl_days":  int(s.mcpCfg().TokenTTL.Hours() / 24),
 		"default_rows":  s.mcpCfg().MaxRows,
-		"external_base": strings.TrimRight(s.cfg.Auth.ExternalURL, "/"),
+		"external_base": s.externalURL(),
 		"base_url":      s.publicBase(r),
 	})
 }

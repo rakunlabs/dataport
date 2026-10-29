@@ -144,7 +144,7 @@ func (s *Server) userCredential(ctx context.Context, user *store.User, g *store.
 	c.Owner = user.ID
 	c.Limits = c.Limits.Merge(cred.Limits)
 
-	return &store.Grant{Connection: &c, ReadOnly: g.ReadOnly}, password, nil
+	return &store.Grant{Connection: &c, ReadOnly: g.ReadOnly, CanWrite: g.CanWrite, SelfReadOnly: g.SelfReadOnly}, password, nil
 }
 
 // setCredential saves the user's own account for a connection after a
@@ -266,4 +266,40 @@ func (s *Server) deleteCredential(w http.ResponseWriter, r *http.Request) {
 
 func writeCredentialsRequired(w http.ResponseWriter, msg string) {
 	writeJSON(w, http.StatusPreconditionRequired, map[string]any{"message": msg, "credentials_required": true})
+}
+
+// setSelfReadOnly lets the user use a connection read-only although their
+// grants allow writes, or allow writes again. It applies everywhere the
+// user acts: the workspace, notebooks and MCP.
+func (s *Server) setSelfReadOnly(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ReadOnly bool `json:"read_only"`
+	}
+
+	if !readJSON(w, r, &req) {
+		return
+	}
+
+	user := currentUser(r)
+
+	g, err := s.store.GetGrant(r.Context(), user, r.PathValue("id"))
+	if err != nil {
+		writeGrantError(w, err, "connection not found")
+
+		return
+	}
+
+	if !g.CanWrite {
+		writeError(w, http.StatusBadRequest, "this connection is read-only for you already")
+
+		return
+	}
+
+	if err := s.store.SetSelfReadOnly(r.Context(), user.ID, g.Connection.ID, req.ReadOnly); err != nil {
+		writeStoreError(w, err)
+
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"read_only": req.ReadOnly || !g.CanWrite, "self_read_only": req.ReadOnly, "can_write": g.CanWrite})
 }

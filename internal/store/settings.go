@@ -34,3 +34,10 @@ func (s *Store) SetSetting(ctx context.Context, name, value string) error {
 
 	return err
 }
+
+// DeleteSetting drops a stored setting; a missing one is no error.
+func (s *Store) DeleteSetting(ctx context.Context, name string) error {
+	_, err := s.exec(ctx, "DELETE FROM "+s.t("settings")+" WHERE name = ?", name)
+
+	return err
+}

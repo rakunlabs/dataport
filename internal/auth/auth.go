@@ -297,6 +297,8 @@ func (a *Auth) Janitor(ctx context.Context) {
 			_, _ = a.store.DeleteExpiredSessions(ctx)
 			_, _ = a.store.DeleteExpiredOAuthCodes(ctx)
 			_, _ = a.store.DeleteExpiredAccessTokens(ctx)
+			// Registrations never approved within a day are dropped.
+			_, _ = a.store.DeleteUnusedOAuthClients(ctx, time.Now().Add(-24*time.Hour).UnixMilli())
 			a.limiter.cleanup()
 		}
 	}

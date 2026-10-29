@@ -11,12 +11,16 @@ type Later = {
     server: true;
     docsExport: true;
     docAccess: true;
+    oauthClients: true;
+    externalUrl: true;
     user: 'search' | 'searchGroups' | 'allGroups' | 'count' | 'noMatch';
     group: 'search' | 'noMatch' | 'more' | 'allMembers' | 'selected' | 'onlyMembers' | 'addMatching' | 'removeMatching' | 'features' | 'featureNotebooks' | 'featureNotebooksHint' | 'featureDocs' | 'featureDocsHint' | 'featureOpen';
     cluster: true;
     conn: 'visibility' | 'visibilityHint' | 'showWorkspace' | 'showWorkspaceHint' | 'showNotebooks' | 'showNotebooksHint' | 'showMcp' | 'showMcpHint' | 'notebookOnly' | 'notebookOnlyHint' | 'notebookOnlyShared' | 'notebookOnlyChip' | 'personalTitle' | 'personalHint' | 'owner';
     docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' };
   grid: 'sortBy';
+  login: 'forClient';
+  conn: 'useReadOnly' | 'allowWrites' | 'selfReadOnlyOn' | 'selfReadOnlyOff' | 'selfReadOnlyHint' | 'writeToggleHint' | 'selfReadOnlyTx';
   processes: 'mine' | 'mineHint';
   docs: 'hubReadOnly' | 'snapshotReadOnly';
   result: 'elapsed' | 'cancelling' | 'runningFor';

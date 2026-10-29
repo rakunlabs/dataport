@@ -90,8 +90,11 @@ type Manager struct {
 	cipher   *crypto.Cipher
 	basePath string
 	// externalURL is the public origin used for redirect URIs, such as
-	// "https://dataport.example.com". Empty derives it from the request.
+	// "https://dataport.example.com", and prefix the path a proxy serves
+	// dataport under before the base path, such as "/tools". Both empty
+	// derive the address from the request.
 	externalURL string
+	prefix      string
 
 	mu         sync.RWMutex
 	providers  []Provider
@@ -102,25 +105,55 @@ type Manager struct {
 }
 
 func New(st *store.Store, ci *crypto.Cipher, basePath, externalURL string) *Manager {
-	return &Manager{store: st, cipher: ci, basePath: basePath, externalURL: origin(externalURL)}
+	m := &Manager{store: st, cipher: ci, basePath: basePath}
+	m.externalURL, m.prefix = split(externalURL)
+
+	return m
 }
 
-// origin keeps only the scheme and host of the external URL: ada refuses a
-// callback origin with a path, and the base path is added separately.
-func origin(raw string) string {
+// split cuts the external URL into its origin, which ada takes for the
+// callback, and its path, which goes before the base path.
+func split(raw string) (string, string) {
 	raw = strings.TrimSpace(raw)
 
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return strings.TrimSuffix(raw, "/")
+		return strings.TrimSuffix(raw, "/"), ""
 	}
 
-	return u.Scheme + "://" + u.Host
+	return u.Scheme + "://" + u.Host, strings.TrimRight(u.Path, "/")
+}
+
+// origin keeps only the scheme and host of the external URL.
+func origin(raw string) string {
+	o, _ := split(raw)
+
+	return o
+}
+
+// SetExternalURL changes the public address, as an admin saved it, and
+// builds the providers again with the new redirect URIs.
+func (m *Manager) SetExternalURL(ctx context.Context, raw string) error {
+	o, p := split(raw)
+
+	m.mu.Lock()
+	changed := o != m.externalURL || p != m.prefix
+	m.externalURL, m.prefix = o, p
+	m.mu.Unlock()
+
+	if !changed {
+		return nil
+	}
+
+	return m.Load(ctx)
 }
 
 // CallbackPath is where providers redirect back to, without the origin.
 func (m *Manager) CallbackPath(name string) string {
-	return m.basePath + "/api/v1/auth/sso/callback/" + name
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.prefix + m.basePath + "/api/v1/auth/sso/callback/" + name
 }
 
 // Load reads the providers from the store and builds their strategies.
@@ -204,14 +237,20 @@ func (m *Manager) build(ctx context.Context, p Provider) (*oauth2.Strategy, erro
 		cfg.IssuerURL = p.IssuerURL
 	}
 
+	m.mu.RLock()
+	external, prefix := m.externalURL, m.prefix
+	m.mu.RUnlock()
+
 	opts := oauth2.Options{
-		Label:            p.DisplayName,
-		CallbackBasePath: m.basePath + "/api/v1/auth/sso/callback",
-		CallbackBaseURL:  m.externalURL,
+		Label: p.DisplayName,
+		// The public path: a proxy may serve dataport under a prefix it
+		// strips, so the provider redirects back through it.
+		CallbackBasePath: prefix + m.basePath + "/api/v1/auth/sso/callback",
+		CallbackBaseURL:  external,
 		// Without an external URL the redirect URI is built from the request;
 		// behind a proxy that is the forwarded host, as elsewhere in dataport.
-		UnsafeTrustAllForwardedHeaders: m.externalURL == "",
-		FlowCookie:                     cookie.Options{Path: m.basePath + "/api/v1/auth/sso/"},
+		UnsafeTrustAllForwardedHeaders: external == "",
+		FlowCookie:                     cookie.Options{Path: prefix + m.basePath + "/api/v1/auth/sso/"},
 	}
 
 	return oauth2.NewWithContext(ctx, p.Name, cfg, opts)
@@ -410,7 +449,7 @@ func (m *Manager) Views() []View {
 }
 
 func (m *Manager) view(p Provider) View {
-	v := View{Provider: p, HasSecret: p.ClientSecretEnc != "", CallbackURL: m.externalURL + m.CallbackPath(p.Name)}
+	v := View{Provider: p, HasSecret: p.ClientSecretEnc != "", CallbackURL: m.externalURL + m.prefix + m.basePath + "/api/v1/auth/sso/callback/" + p.Name}
 	v.ClientSecretEnc = nil
 
 	return v

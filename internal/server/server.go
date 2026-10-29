@@ -70,6 +70,8 @@ type Server struct {
 	// cfg.Notebook and cfg.Connections, which change while running.
 	base       config.Config
 	settingsMu sync.RWMutex
+	// external is the public address in use, guarded by settingsMu.
+	external string
 }
 
 // New builds the server. rt, when not nil, is the cluster the engine's work
@@ -85,6 +87,10 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 
 	if err := s.loadSettings(ctx, true); err != nil {
 		return nil, fmt.Errorf("load server settings; %w", err)
+	}
+
+	if err := s.loadExternalURL(ctx); err != nil {
+		return nil, fmt.Errorf("load external URL; %w", err)
 	}
 
 	s.notebookContext, s.notebookStop = context.WithCancel(context.Background())
@@ -144,6 +150,7 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.POST("/connections/{id}/explain", s.explainQuery)
 	user.POST("/connections/{id}/count", s.countQuery)
 	user.POST("/connections/{id}/disconnect", s.disconnect)
+	user.PUT("/connections/{id}/read-only", s.setSelfReadOnly)
 	user.GET("/connections/{id}/processes", s.processes)
 	user.POST("/connections/{id}/processes/kill", s.killProcess)
 	user.GET("/connections/{id}/users", s.dbUsers)
@@ -212,6 +219,8 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	admin.PUT("/settings", s.adminSetSettings)
 	admin.GET("/sessions/lifetime", s.adminGetSessionLifetime)
 	admin.PUT("/sessions/lifetime", s.adminSetSessionLifetime)
+	admin.GET("/external-url", s.adminGetExternalURL)
+	admin.PUT("/external-url", s.adminSetExternalURL)
 	admin.GET("/login-page", s.adminGetLoginPage)
 	admin.PUT("/login-page", s.adminSetLoginPage)
 	admin.GET("/notebook-access", s.adminGetNotebookAccess)
@@ -224,6 +233,8 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	admin.GET("/docs/export", s.adminGetDocExport)
 	admin.PUT("/docs/export", s.adminSetDocExport)
 	admin.POST("/docs/export/run", s.adminRunDocExport)
+	admin.GET("/oauth/clients", s.adminListOAuthClients)
+	admin.DELETE("/oauth/clients/{id}", s.adminDeleteOAuthClient)
 	admin.GET("/sso", s.adminListSSO)
 	admin.POST("/sso", s.adminSaveSSO)
 	admin.PUT("/sso/{name}", s.adminSaveSSO)

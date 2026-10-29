@@ -339,6 +339,15 @@ and 300 tables. All replicas need the same application store and encryption
 key. Protect store backups: documentation contains schema details, comments
 and definitions, though no table rows or connection passwords.
 
+**Using a connection read-only by choice**
+
+A user who may write on a connection can use it read-only for themselves:
+*Use read-only* in the connection's menu, or a click on the **RW** pill of a
+query tab. It holds in the workspace, notebooks and MCP, survives signing
+out, and is undone the same way (*Allow writes again*, or the **RO** pill).
+Turning it on rolls back the tab's open transaction; a transaction left open
+elsewhere can only be rolled back, not committed.
+
 **Who may build documentation**
 
 Under *Settings → Documentation → Who may build documentation* (or per group,
@@ -774,8 +783,25 @@ claude mcp add --transport http dataport https://dataport.example.com/mcp \
 ```
 
 Both kinds show under *Your tokens* and can be revoked there. Behind a
-reverse proxy set `DATAPORT_AUTH_EXTERNAL_URL`, so the OAuth addresses
-dataport announces are the public ones.
+reverse proxy set the external URL under *Settings → Sessions → External
+URL* (or `DATAPORT_AUTH_EXTERNAL_URL`, which the saved value overrides), so
+the OAuth and SSO addresses dataport announces are the public ones. Give it
+with any path the proxy serves dataport under, such as
+`https://example.com/tools`; the base path is added after it. It applies at
+once, on every replica within a minute. Without it, dataport builds them
+from `X-Forwarded-Proto`, `X-Forwarded-Host` and, for a proxy that serves
+dataport under a path it strips, `X-Forwarded-Prefix`; a proxy that strips
+a path and sends no prefix makes clients register at an address that does
+not exist, which Claude Code reports as "dynamic client registration
+rejected (HTTP 404)". Clients that find no metadata may also register at
+`/register`, `/token` and `/authorize`, which dataport answers.
+
+A signed-out user who starts a sign-in is sent to the sign-in page (also
+through SSO) and then back to the approval. A client the user chose to
+remember is approved at once after signing in. Admins see every registered
+client under *Settings → MCP clients*, with its redirect URI, tokens and
+last use, and can remove one, which revokes its tokens and approvals.
+Registrations never approved are removed after a day.
 
 An agent acts as its user and gets nothing more:
 

@@ -13,13 +13,14 @@
   import Groups from '@/pages/admin/Groups.svelte';
   import Logs from '@/pages/admin/Logs.svelte';
   import Sso from '@/pages/admin/Sso.svelte';
+  import OAuthClients from '@/pages/admin/OAuthClients.svelte';
   import DocsSchedule from '@/pages/admin/Docs.svelte';
   import Sessions from '@/pages/admin/Sessions.svelte';
   import ServerSettings from '@/pages/admin/ServerSettings.svelte';
   import Cluster from '@/pages/admin/Cluster.svelte';
   import MyConnections from '@/pages/settings/MyConnections.svelte';
 
-  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'myConnections' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'sessions' | 'server' | 'cluster' | 'docs' | 'logs';
+  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'myConnections' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'oauthClients' | 'sessions' | 'server' | 'cluster' | 'docs' | 'logs';
 
   const isAdmin = $derived(session.user?.role === 'admin');
 
@@ -39,6 +40,7 @@
     { key: 'users', label: 'admin.users', icon: Users },
     { key: 'groups', label: 'admin.groups', icon: UsersRound },
     { key: 'sso', label: 'admin.sso', icon: KeyRound },
+    { key: 'oauthClients', label: 'admin.oauthClients.title', icon: Bot },
     { key: 'sessions', label: 'admin.sessions.title', icon: Timer },
     { key: 'server', label: 'admin.server.title', icon: SlidersHorizontal },
     { key: 'cluster', label: 'admin.cluster.title', icon: Network },
@@ -118,6 +120,8 @@
       <Groups />
     {:else if section === 'sso'}
       <Sso />
+    {:else if section === 'oauthClients'}
+      <OAuthClients />
     {:else if section === 'sessions'}
       <Sessions />
     {:else if section === 'server'}

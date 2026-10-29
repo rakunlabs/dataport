@@ -3,7 +3,7 @@
   import { push, router } from 'svelte-spa-router';
   import { LogIn, ExternalLink, Languages, TriangleAlert, LoaderCircle, Sun, Moon, Monitor, KeyRound, ChevronDown, ChevronRight } from 'lucide-svelte';
   import Logo from '@/lib/components/ui/Logo.svelte';
-  import { login, session, takeReturn } from '@/lib/stores/session.svelte';
+  import { login, pendingReturn, session, takeReturn } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
   import { api } from '@/lib/api/client';
   import type { AuthInfo } from '@/lib/api/types';
@@ -24,7 +24,10 @@
   // SSO failures come back as #/login?error=...
   let error = $state(serverMessage(new URLSearchParams(router.querystring ?? '').get('error') ?? ''));
 
-  if (session.user) void push('/');
+  if (session.user) void push(takeReturn() || '/');
+
+  // Signing in on the way to an MCP client's approval comes back to it.
+  const forClient = pendingReturn().startsWith('/oauth/authorize');
 
   api
     .get<AuthInfo>('/auth/info')
@@ -149,6 +152,9 @@
         </div>
       </div>
 
+      {#if forClient && !error}
+        <p class="mb-4 rounded-md border border-line bg-panel p-3 text-sm text-fg-2">{t('login.forClient')}</p>
+      {/if}
       {#if error}
         <p class="mb-4 flex items-start gap-2 rounded-md border border-danger/30 bg-danger-soft p-3 text-sm text-danger" role="alert">
           <TriangleAlert size={14} class="mt-0.5 shrink-0" />{error}

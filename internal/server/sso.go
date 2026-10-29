@@ -107,11 +107,13 @@ func (s *Server) ssoLogin(w http.ResponseWriter, r *http.Request) {
 	_ = s.store.TouchUserLogin(r.Context(), user.ID)
 
 	s.setCookie(w, r, token, remember)
-	http.Redirect(w, r, s.cookiePath(), http.StatusSeeOther)
+	// The app's start page takes the user on to the page kept before
+	// signing in, such as an MCP client's approval.
+	http.Redirect(w, r, s.publicPath(r)+"/", http.StatusSeeOther)
 }
 
 func (s *Server) redirectLogin(w http.ResponseWriter, r *http.Request, msg string) {
-	http.Redirect(w, r, s.cookiePath()+"#/login?error="+url.QueryEscape(msg), http.StatusSeeOther)
+	http.Redirect(w, r, s.publicPath(r)+"/#/login?error="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 // ////////////////////////////////////////////

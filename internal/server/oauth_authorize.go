@@ -14,9 +14,10 @@ import (
 )
 
 // oauthAuthorizeRedirect sends the browser to the approval page of the app,
-// which signs the user in first when needed.
+// which signs the user in first when needed and comes back to it. The path
+// is the public one, so a proxy that strips a prefix keeps working.
 func (s *Server) oauthAuthorizeRedirect(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, s.cookiePath()+"#/oauth/authorize?"+r.URL.RawQuery, http.StatusFound)
+	http.Redirect(w, r, s.publicPath(r)+"/#/oauth/authorize?"+r.URL.RawQuery, http.StatusFound)
 }
 
 type authorizeParams struct {

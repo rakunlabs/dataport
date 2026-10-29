@@ -27,6 +27,8 @@ import {
   Scissors,
   Eraser,
   Trash2,
+  Lock,
+  LockOpen,
 } from 'lucide-svelte';
 import type { MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
 import {
@@ -42,6 +44,7 @@ import {
   ws,
   disconnect,
   openTool,
+  setSelfReadOnly,
 } from '@/lib/stores/workspace.svelte';
 import { openToolDialog } from '@/lib/stores/dialogs.svelte';
 import { supportsUsers } from '@/lib/helper/userSql';
@@ -104,6 +107,16 @@ async function review(c: ConnectionView, title: string, sql: string, danger: boo
   }
 }
 
+async function toggleReadOnly(c: ConnectionView) {
+  const on = !c.self_read_only;
+  try {
+    await setSelfReadOnly(c.id, on);
+    toast(t(on ? 'conn.selfReadOnlyOn' : 'conn.selfReadOnlyOff', { name: c.name }), 'success', 1800);
+  } catch (err) {
+    toast(errorMessage(err), 'error');
+  }
+}
+
 async function closeConnection(c: ConnectionView) {
   try {
     await disconnect(c.id);
@@ -137,6 +150,12 @@ export function connectionMenu(c: ConnectionView): MenuItem[] {
     { label: t('tree.copyName'), icon: Copy, action: () => copyText(c.name) },
     { label: t('sidebar.refresh'), icon: RefreshCw, action: () => refreshConnection(c.id) },
     { label: t('tree.disconnect'), icon: Unplug, hidden: !connected, action: () => closeConnection(c) },
+    {
+      label: t(c.self_read_only ? 'conn.allowWrites' : 'conn.useReadOnly'),
+      icon: c.self_read_only ? LockOpen : Lock,
+      hidden: !c.can_write,
+      action: () => toggleReadOnly(c),
+    },
     { sep: true },
     { label: t('tree.processes'), icon: Activity, hidden: !processTypes.has(c.db_type), action: () => openTool('processes', c.id) },
     { label: t('tree.users'), icon: UsersRound, hidden: !supportsUsers(c.db_type), action: () => openTool('users', c.id) },

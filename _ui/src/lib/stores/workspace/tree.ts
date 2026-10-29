@@ -97,6 +97,13 @@ export function toggle(key: string, value?: boolean) {
   ws.expanded[key] = value ?? !ws.expanded[key];
 }
 
+// setSelfReadOnly lets the user use a writable connection read-only, in
+// the workspace, notebooks and MCP alike, or allow writes again.
+export async function setSelfReadOnly(connId: string, readOnly: boolean) {
+  await api.put(`/connections/${connId}/read-only`, { read_only: readOnly });
+  await loadConnections();
+}
+
 // disconnect lets the server close the sessions it holds for the
 // connection and folds its tree, so nothing stays connected.
 export async function disconnect(connId: string) {

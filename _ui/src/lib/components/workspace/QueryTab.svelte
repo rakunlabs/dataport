@@ -8,7 +8,7 @@
   import ResultPanel from '@/lib/components/result/ResultPanel.svelte';
   import RunTimer from '@/lib/components/result/RunTimer.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
-  import { cancel, cancelPending, connection, endTx, explain, explainOptions, persist, run, runInNewTab, saveExplainOptions, saveTab, setManualTx, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
+  import { cancel, cancelPending, connection, endTx, explain, explainOptions, persist, run, runInNewTab, saveExplainOptions, saveTab, setManualTx, setSelfReadOnly, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
   import type { ExplainOptions } from '@/lib/api/types';
   import { prefs } from '@/lib/stores/prefs.svelte';
   import { session } from '@/lib/stores/session.svelte';
@@ -26,6 +26,25 @@
   let container: HTMLDivElement;
 
   const conn = $derived(connection(tab.connectionId));
+
+  // The user's own read-only choice on a connection they may write.
+  let switching = $state(false);
+  async function toggleReadOnly() {
+    if (!conn) return;
+    const on = !conn.read_only;
+    // An open transaction would still hold its writes; it is rolled back.
+    if (on && tab.txOpen && !confirm(t('conn.selfReadOnlyTx'))) return;
+    switching = true;
+    try {
+      if (on && tab.txOpen) await endTx(tab, false);
+      await setSelfReadOnly(conn.id, on);
+      toast(t(on ? 'conn.selfReadOnlyOn' : 'conn.selfReadOnlyOff', { name: conn.name }), 'success', 1800);
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    } finally {
+      switching = false;
+    }
+  }
 
   // Ctrl+\ runs into a result of its own, side by side with others, except
   // in a manual transaction, which runs one statement at a time.
@@ -230,7 +249,18 @@
       </select>
     </label>
     {#if conn?.production}<span class="pill-prod" title={t('conn.productionHint')}>{t('conn.prodShort')}</span>{/if}
-    {#if conn?.read_only}
+    {#if conn?.can_write}
+      <!-- On a connection the user may write, the pill switches read-only on and off for them. -->
+      <button
+        class={conn.read_only ? 'pill-ro hover:opacity-80' : 'pill-rw hover:opacity-80'}
+        title={conn.read_only ? t('conn.selfReadOnlyHint') : t('conn.writeToggleHint')}
+        aria-pressed={conn.read_only}
+        disabled={tab.running || switching}
+        onclick={toggleReadOnly}
+      >
+        {#if conn.read_only}<Lock size={10} /> {t('conn.readOnlyShort')}{:else}{t('conn.rwShort')}{/if}
+      </button>
+    {:else if conn?.read_only}
       <span class="pill-ro" title={t('conn.readOnlyHint')}><Lock size={10} /> {t('conn.readOnlyShort')}</span>
     {:else if conn}
       <span class="pill-rw" title={t('conn.writeHint')}>{t('conn.rwShort')}</span>
