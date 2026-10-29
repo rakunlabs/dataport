@@ -339,6 +339,57 @@ and 300 tables. All replicas need the same application store and encryption
 key. Protect store backups: documentation contains schema details, comments
 and definitions, though no table rows or connection passwords.
 
+**Who may build documentation**
+
+Under *Settings → Documentation → Who may build documentation* (or per group,
+in the group dialog's *May use* boxes), admins can limit building and
+refreshing documentation to admins and some groups; by default every user
+may. Users outside those groups read, without refreshing it, the newest
+snapshot someone built with the same connection and database account. On a
+connection where everyone uses a shared account, that is one snapshot for
+all of them. On an own-account connection each user has their own account,
+so nobody else's snapshot is shown, and the schema stays unbuilt until an
+admin lets the user build. The schedule no longer refreshes snapshots of
+users who may not build. The same group boxes also choose who may use
+notebooks while notebooks are limited to groups.
+
+**Pushing documentation to a search index**
+
+Under *Settings → Documentation → Push to a search index*, admins can copy
+saved documentation into a `push` collection of a search service such as
+[krabby](https://github.com/rytsh/krabby). Agents then find tables there with
+the service's full-text and vector search. Each table or view becomes one
+Markdown item (columns, keys, ready JOIN clauses, indexes, triggers, a view's
+definition, design notes and related tables), and each schema gets an
+overview item. Item ids are `dataport/<connection id>/<schema>/<table>` and
+`dataport/<connection id>/<schema>/_schema`; the connection name is set as
+the item's team so searches can be filtered by it.
+
+The admin picks each connection, the user whose access documents it and,
+optionally, its schemas (the default schema otherwise). Personal connections
+cannot be chosen. The push reads that user's saved snapshot, building it
+first if there is none. It runs after every scheduled or manual *Refresh all*;
+*Push now* sends every item again. Otherwise only items whose content
+changed are sent, and items that are no longer documented are pruned. If any
+connection fails, nothing is pruned and that connection's items stay as they
+were. The collection is created when missing.
+
+The protocol is krabby's push source API, so any service that answers these
+requests can be the target:
+
+```text
+GET    {url}/api/v1/sources/{collection}              -> {"source":{"type":"push","page_count":n}}, 404 when missing
+POST   {url}/api/v1/sources                           {"name","type":"push","description"}
+POST   {url}/api/v1/sources/{collection}/items        {"items":[{id,title,content_type,content,teams,updated_at}]}, at most 20
+POST   {url}/api/v1/sources/{collection}/items/prune  {"keep":[ids]} -> {"removed":n}
+DELETE {url}/api/v1/sources/{collection}/items?id=    when nothing is kept
+```
+
+An optional token is sent as `Authorization: Bearer`, for the service or a
+proxy in front of it; it is stored encrypted. Such services often have no
+access control of their own, so everything pushed can be read by anyone who
+reaches the service.
+
 **Connection tools** (right-click a connection)
 
 - *Disconnect* closes the connection's pool; shared pools only drop their

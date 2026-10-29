@@ -205,6 +205,46 @@
     if (!selected) selected = { row: 0, col: 0 };
   }
 
+  // The selected columns are whole while every row is selected.
+  const wholeCols = $derived(total > 0 && selectedRows.size === total);
+  // Columns picked in the header, not every column: the rows are not
+  // highlighted and row actions such as delete keep to the selected cell's.
+  const columnPick = $derived(wholeCols && selectedCols.size < columns.length);
+
+  // selectColumn selects every row of a column. Shift selects the columns
+  // from the last one picked; Ctrl or Cmd adds a column or takes it away,
+  // and taking away the last one clears the selection.
+  function selectColumn(e: MouseEvent, c: number) {
+    if (!total) return;
+    if (editing) commitEdit();
+    let cols: Set<number>;
+    if (e.shiftKey && wholeCols && anchorCol >= 0) {
+      cols = range(anchorCol, c);
+    } else if ((e.metaKey || e.ctrlKey) && wholeCols) {
+      cols = new Set(selectedCols);
+      if (cols.has(c)) cols.delete(c);
+      else cols.add(c);
+      anchorCol = c;
+    } else {
+      cols = new Set([c]);
+      anchorCol = c;
+    }
+    if (!cols.size) {
+      selectedRows = new Set();
+      selectedCols = new Set();
+      anchor = -1;
+      anchorCol = -1;
+      scroller.focus();
+      return;
+    }
+    selectedRows = range(0, total - 1);
+    selectedCols = cols;
+    anchor = 0;
+    const col = cols.has(c) ? c : selected && cols.has(selected.col) ? selected.col : Math.min(...cols);
+    selected = { row: selected && cols.has(selected.col) ? selected.row : 0, col };
+    scroller.focus();
+  }
+
   // selectedColumns lists the selected columns, at least the selected cell's.
   export function selectedColumns(): number[] {
     const cs = [...selectedCols].sort((a, b) => a - b);
@@ -221,7 +261,7 @@
   }
 
   export function selection(): { existing: number[]; added: number[] } {
-    const list = selectedRows.size ? [...selectedRows] : selected ? [selected.row] : [];
+    const list = selectedRows.size && !columnPick ? [...selectedRows] : selected ? [selected.row] : [];
     return {
       existing: list.filter((r) => !isNew(r)).sort((a, b) => a - b),
       added: list.filter(isNew).map((r) => r - rows.length).sort((a, b) => b - a),
@@ -386,14 +426,14 @@
   {onkeydown}
 >
   <div style="width:{fullWidth}px; min-width:100%">
-    <DataGridHeader {columns} {template} {sortColumn} {sortDesc} {onsort} onresize={startResize} />
+    <DataGridHeader {columns} {template} {sortColumn} {sortDesc} {onsort} selectedCols={wholeCols ? selectedCols : undefined} oncolumn={selectColumn} onresize={startResize} />
 
     <!-- body -->
     <div class="relative" style="height:{total * rowHeight}px">
       {#each visibleIdx as r (r)}
         {@const added = isNew(r)}
         {@const removed = !added && !!edit?.deleted.has(r)}
-        {@const rowSel = selectedRows.has(r)}
+        {@const rowSel = selectedRows.has(r) && !columnPick}
         {@const colors = paint?.(r)}
         {@const multi = selectedRows.size > 1 || selectedCols.size > 1}
         <div
@@ -431,7 +471,7 @@
             {@const isSel = selected?.row === r && selected?.col === c}
             {@const dirty = !added && !!edit?.isDirty(r, c)}
             {@const text = display(value)}
-            {@const inRange = multi && rowSel && selectedCols.has(c)}
+            {@const inRange = multi && selectedRows.has(r) && selectedCols.has(c)}
             {@const cellColor = colors?.cells?.[c]}
             <div
               class="relative flex min-w-0 items-center border-r border-line-soft px-2 font-mono text-xs

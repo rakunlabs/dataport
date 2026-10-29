@@ -22,12 +22,15 @@ type meResponse struct {
 	Subtitle string `json:"subtitle,omitempty"`
 	// CanUseNotebooks is set when notebooks are open to the user.
 	CanUseNotebooks bool `json:"can_use_notebooks"`
+	// CanBuildDocs is set when the user may build and refresh schema
+	// documentation; others only read it.
+	CanBuildDocs bool `json:"can_build_docs"`
 }
 
 func (s *Server) toMe(ctx context.Context, u *store.User) meResponse {
 	return meResponse{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role,
 		CanCreateConnections: s.connectionsCfg().UserCreate, Subtitle: s.loginPage(ctx).Subtitle,
-		CanUseNotebooks: s.notebooksAllowed(ctx, u)}
+		CanUseNotebooks: s.notebooksAllowed(ctx, u), CanBuildDocs: s.docsBuildAllowed(ctx, u)}
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {

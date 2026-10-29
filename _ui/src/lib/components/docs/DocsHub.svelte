@@ -115,6 +115,9 @@
 
   <div class="min-h-0 flex-1 overflow-auto">
     <p class="max-w-3xl px-4 pt-3 pb-2 text-xs text-muted">{t('docsHub.description')}</p>
+    {#if session.user?.can_build_docs === false}
+      <p class="max-w-3xl px-4 pb-2 text-xs text-fg-2">{t('docs.hubReadOnly')}</p>
+    {/if}
 
     {#if error}
       <p class="mx-4 flex items-start gap-1.5 rounded-md border border-danger/30 bg-danger-soft p-2 text-xs text-danger"><TriangleAlert size={13} class="mt-0.5 shrink-0" /> {error}</p>

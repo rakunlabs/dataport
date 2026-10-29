@@ -562,7 +562,7 @@ func (g *generator) template(text string) (*template.Template, error) {
 		return nil, errors.New("templates cannot define templates")
 	}
 
-	if err := notebook.ValidateValueTemplate(t.Tree.Root, "fake", "randInt", "oneOf"); err != nil {
+	if err := notebook.ValidateValueTemplate(t.Tree.Root, "fake", "randInt", "oneOf"); err != nil { //nolint:staticcheck
 		return nil, err
 	}
 
@@ -1024,7 +1024,7 @@ func GuessColumn(dbType string, c ColumnInfo, auto string, ref *GenRef, singleKe
 	case "decimal", "real", "double":
 		out.Generator = "decimal"
 
-		switch {
+		switch { //nolint:staticcheck
 		case name == "lat" || name == "latitude":
 			out.Generator = "latitude"
 		case name == "lon" || name == "lng" || name == "longitude":

@@ -21,4 +21,6 @@ export interface Group {
   created_at: number;
   updated_at: number;
   member_ids: string[];
+  // Features limited to groups that this group may use.
+  features?: { notebooks: boolean; build_docs: boolean };
 }

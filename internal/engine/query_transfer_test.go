@@ -25,12 +25,12 @@ func TestQueryTransfer(t *testing.T) {
 		if _, err := db.Exec(seed); err != nil {
 			t.Fatal(err)
 		}
-		db.Close()
+		db.Close() //nolint:errcheck
 	}
 	if err := ConfigureFiles(root); err != nil {
 		t.Fatal(err)
 	}
-	defer ConfigureFiles("")
+	defer ConfigureFiles("") //nolint:errcheck
 	m := NewManager(store.Limits{MaxOpen: 2}, time.Minute)
 	defer m.Close()
 	src := &store.Connection{ID: "src", DBType: "sqlite", Database: "source.db", ReadOnly: true}
@@ -80,11 +80,11 @@ func TestParameterizedEngine(t *testing.T) {
 	if err := db.Ping(); err != nil {
 		t.Fatal(err)
 	}
-	db.Close()
+	db.Close() //nolint:errcheck
 	if err := ConfigureFiles(root); err != nil {
 		t.Fatal(err)
 	}
-	defer ConfigureFiles("")
+	defer ConfigureFiles("") //nolint:errcheck
 	m := NewManager(store.Limits{}, time.Minute)
 	defer m.Close()
 	c := &store.Connection{ID: "p", DBType: "sqlite", Database: "params.db"}

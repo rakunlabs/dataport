@@ -2,6 +2,8 @@
   import { t, i18n } from '@/lib/i18n/index.svelte';
   import { Play, LoaderCircle, CircleCheck, TriangleAlert, CircleSlash, Circle } from 'lucide-svelte';
   import Page from '@/pages/admin/Page.svelte';
+  import DocsExport from '@/pages/admin/DocsExport.svelte';
+  import NotebookAccess from '@/pages/admin/NotebookAccess.svelte';
   import { api } from '@/lib/api/client';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import { openDocs } from '@/lib/stores/workspace.svelte';
@@ -246,5 +248,9 @@
         {/if}
       </section>
     {/if}
+
+    <div class="-mx-6"><NotebookAccess feature="docs" /></div>
+
+    <DocsExport />
   </div>
 </Page>

@@ -1,4 +1,4 @@
-import type { ColumnInfo, ConnectionView, DbObject, ExecResult, Routine, SavedQuery } from '@/lib/api/types';
+import type { ColumnInfo, ConnectionView, DbObject, ExecResult, ProcessList, Routine, SavedQuery } from '@/lib/api/types';
 import type { EditState } from '@/lib/stores/edits.svelte';
 import type { Notebook, NotebookResult } from '@/lib/api/notebooks';
 
@@ -53,6 +53,19 @@ export interface Tab {
   txOpen: boolean;
   txStatements: number;
   txEnding: boolean;
+  // A process list tab's last list and filters, kept while other tabs are
+  // shown so coming back does not read the list again. Not persisted.
+  processes?: ProcessView;
+}
+
+export interface ProcessView {
+  data: ProcessList | null;
+  filter: string;
+  hideIdle: boolean;
+  mine: boolean;
+  // Seconds between refreshes; 0 is off.
+  every: number;
+  sort: { col: number; desc: boolean };
 }
 
 export interface TreeNode<T> {

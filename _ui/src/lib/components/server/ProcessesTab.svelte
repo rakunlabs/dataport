@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, CircleStop, Power, ArrowDown, ArrowUp } from 'lucide-svelte';
   import { api } from '@/lib/api/client';
@@ -12,40 +13,45 @@
 
   const conn = $derived(connection(tab.connectionId));
 
-  let data = $state<ProcessList | null>(null);
+  // The list and filters live on the tab, so switching to another tab and
+  // back shows them as they were; only opening the tab or Refresh reads it.
+  // The workspace mounts this anew for each tab, so its tab never changes.
+  const view = untrack(() => (tab.processes ??= { data: null, filter: '', hideIdle: true, mine: false, every: 0, sort: { col: -1, desc: true } }));
+
   let loading = $state(false);
   let error = $state('');
-  let filter = $state('');
-  let hideIdle = $state(true);
-  // Seconds between refreshes; 0 is off.
-  let every = $state(0);
-  let sort = $state<{ col: number; desc: boolean }>({ col: -1, desc: true });
   let busy = $state('');
 
-  const cols = $derived(data?.result.columns ?? []);
+  const cols = $derived(view.data?.result.columns ?? []);
   const idx = (name: string) => cols.findIndex((c) => c.name.toLowerCase() === name);
+  const userCol = $derived(idx('user'));
+  const canMine = $derived(!!view.data?.user && userCol >= 0);
 
   const rows = $derived.by(() => {
-    let list = data?.result.rows ?? [];
+    let list = view.data?.result.rows ?? [];
     const state = idx('state');
     const command = idx('command');
-    if (hideIdle) {
+    if (view.mine && canMine) {
+      const me = (view.data?.user ?? '').toLowerCase();
+      list = list.filter((r) => String(r[userCol] ?? '').toLowerCase() === me);
+    }
+    if (view.hideIdle) {
       // dataport's own session is always busy reading this list.
-      list = list.filter((r) => String(r[0]) !== data?.self);
+      list = list.filter((r) => String(r[0]) !== view.data?.self);
       list = list.filter((r) => {
         const s = String(r[state] ?? r[command] ?? '').toLowerCase();
         return s !== 'idle' && s !== 'sleep' && s !== 'sleeping' && s !== 'inactive';
       });
     }
-    const f = filter.trim().toLowerCase();
+    const f = view.filter.trim().toLowerCase();
     if (f) list = list.filter((r) => r.some((v) => v !== null && String(v).toLowerCase().includes(f)));
-    if (sort.col >= 0) {
-      const c = sort.col;
+    if (view.sort.col >= 0) {
+      const c = view.sort.col;
       list = [...list].sort((a, b) => {
         const x = a[c];
         const y = b[c];
         const cmp = typeof x === 'number' && typeof y === 'number' ? x - y : String(x ?? '').localeCompare(String(y ?? ''));
-        return sort.desc ? -cmp : cmp;
+        return view.sort.desc ? -cmp : cmp;
       });
     }
     return list;
@@ -55,7 +61,7 @@
     if (loading) return;
     loading = true;
     try {
-      data = await withCredentials(tab.connectionId, () => api.get<ProcessList>(`/connections/${tab.connectionId}/processes`));
+      view.data = await withCredentials(tab.connectionId, () => api.get<ProcessList>(`/connections/${tab.connectionId}/processes`));
       error = '';
     } catch (e) {
       error = errorMessage(e);
@@ -64,18 +70,19 @@
     }
   }
 
-  void load();
+  // Opening the tab reads the list; coming back to it keeps the last one.
+  if (!view.data) void load();
 
   $effect(() => {
-    if (!every) return;
+    if (!view.every) return;
     const timer = setInterval(() => {
       if (!document.hidden && !busy) void load();
-    }, every * 1000);
+    }, view.every * 1000);
     return () => clearInterval(timer);
   });
 
   function sortBy(i: number) {
-    sort = sort.col === i ? { col: i, desc: !sort.desc } : { col: i, desc: true };
+    view.sort = view.sort.col === i ? { col: i, desc: !view.sort.desc } : { col: i, desc: true };
   }
 
   async function kill(row: unknown[], terminate: boolean) {
@@ -108,18 +115,23 @@
 <div class="flex h-full flex-col">
   <div class="flex h-10 shrink-0 items-center gap-2 border-b border-line px-3">
     <span class="text-sm font-medium">{t('processes.title')}</span>
-    {#if data}<span class="text-xs text-faint tabular-nums">{t('processes.count', { n: rows.length, total: data.result.rows?.length ?? 0 })}</span>{/if}
-    {#if data?.result.truncated}<span class="text-xs text-warn">{t('processes.truncated')}</span>{/if}
+    {#if view.data}<span class="text-xs text-faint tabular-nums">{t('processes.count', { n: rows.length, total: view.data.result.rows?.length ?? 0 })}</span>{/if}
+    {#if view.data?.result.truncated}<span class="text-xs text-warn">{t('processes.truncated')}</span>{/if}
     <div class="flex-1"></div>
     <div class="relative">
       <Search size={13} class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-faint" />
-      <input class="input h-7 w-56 pr-6 pl-7 text-xs" placeholder={t('processes.filter')} bind:value={filter} />
-      {#if filter}<button class="absolute top-1/2 right-1.5 -translate-y-1/2 text-faint hover:text-fg" onclick={() => (filter = '')} aria-label={t('common.clear')}><X size={12} /></button>{/if}
+      <input class="input h-7 w-56 pr-6 pl-7 text-xs" placeholder={t('processes.filter')} bind:value={view.filter} />
+      {#if view.filter}<button class="absolute top-1/2 right-1.5 -translate-y-1/2 text-faint hover:text-fg" onclick={() => (view.filter = '')} aria-label={t('common.clear')}><X size={12} /></button>{/if}
     </div>
-    <label class="flex items-center gap-1.5 text-xs text-fg-2"><input type="checkbox" bind:checked={hideIdle} /> {t('processes.hideIdle')}</label>
+    {#if canMine}
+      <label class="flex items-center gap-1.5 text-xs text-fg-2" title={t('processes.mineHint', { user: view.data?.user ?? '' })}>
+        <input type="checkbox" bind:checked={view.mine} /> {t('processes.mine')}
+      </label>
+    {/if}
+    <label class="flex items-center gap-1.5 text-xs text-fg-2"><input type="checkbox" bind:checked={view.hideIdle} /> {t('processes.hideIdle')}</label>
     <label class="flex items-center gap-1.5 text-xs text-fg-2">
       {t('processes.refresh')}
-      <select class="input h-7 w-20 text-xs" bind:value={every}>
+      <select class="input h-7 w-20 text-xs" bind:value={view.every}>
         <option value={0}>{t('processes.off')}</option>
         {#each [2, 5, 10, 30] as n (n)}<option value={n}>{n}s</option>{/each}
       </select>
@@ -134,9 +146,9 @@
   {/if}
 
   <div class="min-h-0 flex-1 overflow-auto">
-    {#if !data && loading}
+    {#if !view.data && loading}
       <p class="flex items-center gap-2 p-4 text-sm text-muted"><LoaderCircle size={14} class="animate-spin" /> {t('common.loading')}</p>
-    {:else if data}
+    {:else if view.data}
       <table class="w-full border-collapse text-xs">
         <thead class="sticky top-0 z-10 bg-panel">
           <tr>
@@ -144,7 +156,7 @@
               <th class="h-7 border-b border-line px-2 text-left font-medium whitespace-nowrap text-fg-2">
                 <button class="flex items-center gap-1 hover:text-fg" onclick={() => sortBy(i)}>
                   {c.name}
-                  {#if sort.col === i}{#if sort.desc}<ArrowDown size={11} />{:else}<ArrowUp size={11} />{/if}{/if}
+                  {#if view.sort.col === i}{#if view.sort.desc}<ArrowDown size={11} />{:else}<ArrowUp size={11} />{/if}{/if}
                 </button>
               </th>
             {/each}
@@ -153,7 +165,7 @@
         </thead>
         <tbody>
           {#each rows as r, n (String(r[0]) + ':' + n)}
-            {@const self = String(r[0]) === data.self}
+            {@const self = String(r[0]) === view.data.self}
             <tr class="group border-b border-line-soft hover:bg-hover {self ? 'text-faint' : ''}">
               {#each r as v, i (i)}
                 <td
@@ -169,7 +181,7 @@
                     <button class="btn h-6 px-1.5 text-xs" onclick={() => openQueryTab(tab.connectionId, cell(r[queryCol]))}>{t('processes.open')}</button>
                   {/if}
                   {#if !self}
-                    {#if data.can_cancel}
+                    {#if view.data.can_cancel}
                       <button class="icon-btn size-6" disabled={busy === String(r[0])} onclick={() => kill(r, false)} title={t('processes.cancel')} aria-label={t('processes.cancel')}>
                         <CircleStop size={13} />
                       </button>

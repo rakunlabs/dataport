@@ -61,6 +61,8 @@ export interface DocStatus {
   attempted_at: number;
   last_error: string;
   refreshing: boolean;
+  // Set when the user reads a snapshot they may not refresh.
+  read_only?: boolean;
 }
 
 export interface SavedDoc {

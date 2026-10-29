@@ -56,11 +56,15 @@ type Server struct {
 	docRunMu           sync.Mutex
 	docRun             docRun
 	docRunAverage      int64
-	notebookMu         sync.Mutex
-	notebookRunning    int
-	notebookContext    context.Context
-	notebookStop       context.CancelFunc
-	notebookWorkers    sync.WaitGroup
+	// docExport is held while documentation is pushed to a search service.
+	docExport       sync.Mutex
+	docExportMu     sync.Mutex
+	docExportRun    docExportStatus
+	notebookMu      sync.Mutex
+	notebookRunning int
+	notebookContext context.Context
+	notebookStop    context.CancelFunc
+	notebookWorkers sync.WaitGroup
 	// base is the configuration as loaded; cfg holds it with the settings
 	// admins saved over it. settingsMu guards cfg.Query, cfg.MCP,
 	// cfg.Notebook and cfg.Connections, which change while running.
@@ -212,9 +216,14 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	admin.PUT("/login-page", s.adminSetLoginPage)
 	admin.GET("/notebook-access", s.adminGetNotebookAccess)
 	admin.PUT("/notebook-access", s.adminSetNotebookAccess)
+	admin.GET("/doc-access", s.adminGetFeatureAccess(docAccessSetting))
+	admin.PUT("/doc-access", s.adminSetFeatureAccess(docAccessSetting))
 	admin.GET("/docs/schedule", s.adminGetDocSchedule)
 	admin.PUT("/docs/schedule", s.adminSetDocSchedule)
 	admin.POST("/docs/run", s.adminRunDocs)
+	admin.GET("/docs/export", s.adminGetDocExport)
+	admin.PUT("/docs/export", s.adminSetDocExport)
+	admin.POST("/docs/export/run", s.adminRunDocExport)
 	admin.GET("/sso", s.adminListSSO)
 	admin.POST("/sso", s.adminSaveSSO)
 	admin.PUT("/sso/{name}", s.adminSaveSSO)

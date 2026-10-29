@@ -111,6 +111,10 @@ func (s *Server) processes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The account's name only; for own-account connections it is the
+	// user's own.
+	out.User = g.Connection.Username
+
 	writeJSON(w, http.StatusOK, out)
 }
 

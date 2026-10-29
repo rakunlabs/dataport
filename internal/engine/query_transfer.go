@@ -65,7 +65,7 @@ func (m *Manager) QuerySource(src *store.Connection, srcPassword string, req Que
 				if err != nil {
 					return err
 				}
-				defer tx.Rollback()
+				defer tx.Rollback() //nolint:errcheck
 				reader = tx
 			}
 			if err := sd.Prepare(ctx, reader, req.SourceTimeout); err != nil {
@@ -75,7 +75,7 @@ func (m *Manager) QuerySource(src *store.Connection, srcPassword string, req Que
 			if err != nil {
 				return err
 			}
-			defer rows.Close()
+			defer rows.Close() //nolint:errcheck
 			columns, err := rows.Columns()
 			if err != nil {
 				return err
@@ -107,7 +107,7 @@ func (m *Manager) QuerySource(src *store.Connection, srcPassword string, req Que
 					if len(t.Templates()) != 1 {
 						return errors.New("mapping templates cannot define templates")
 					}
-					if err := notebook.ValidateMappingTemplate(t.Tree.Root); err != nil {
+					if err := notebook.ValidateMappingTemplate(t.Tree.Root); err != nil { //nolint:staticcheck
 						return err
 					}
 					transforms[i] = t

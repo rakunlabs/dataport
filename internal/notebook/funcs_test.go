@@ -92,7 +92,7 @@ func TestMappingTemplateUsesMugo(t *testing.T) {
 			return nil, err
 		}
 
-		return tpl, ValidateMappingTemplate(tpl.Tree.Root)
+		return tpl, ValidateMappingTemplate(tpl.Tree.Root) //nolint:staticcheck
 	}
 
 	tpl, err := parse(`{{ . | trim | snakecase }}`)

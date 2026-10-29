@@ -39,12 +39,12 @@ CREATE TABLE orders (
 		t.Fatal(err)
 	}
 
-	db.Close()
+	db.Close() //nolint:errcheck
 
 	if err := ConfigureFiles(root); err != nil {
 		t.Fatal(err)
 	}
-	defer ConfigureFiles("")
+	defer ConfigureFiles("") //nolint:errcheck
 
 	m := NewManager(store.Limits{MaxOpen: 2}, time.Minute)
 	defer m.Close()

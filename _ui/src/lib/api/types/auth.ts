@@ -11,6 +11,8 @@ export interface Me {
   subtitle?: string;
   // Notebooks are open to this user.
   can_use_notebooks?: boolean;
+  // The user may build and refresh documentation; others only read it.
+  can_build_docs?: boolean;
 }
 
 export interface AuthInfo {

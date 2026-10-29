@@ -44,3 +44,11 @@ export function userName(id: string): string {
 export function groupName(id: string): string {
   return admin.groups.find((g) => g.id === id)?.name ?? id;
 }
+
+// matchesUser tells whether a user's names or email contain the search.
+export function matchesUser(u: User, q: string): boolean {
+  if (!q) return true;
+  return [u.username, u.display_name, u.email].some((v) => v?.toLowerCase().includes(q));
+}
+
+export const pageSize = 50;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { UsersRound } from 'lucide-svelte';
   import { api } from '@/lib/api/client';
@@ -6,7 +7,13 @@
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import { loadSession } from '@/lib/stores/session.svelte';
 
-  // Who may use notebooks at all; sharing still decides each notebook.
+  // Who may use a feature limited to groups: notebooks (sharing still
+  // decides each notebook) or building schema documentation.
+  let { feature = 'notebooks' }: { feature?: 'notebooks' | 'docs' } = $props();
+  // The page mounts one of these per feature; it never changes feature.
+  const path = untrack(() => (feature === 'docs' ? '/admin/doc-access' : '/admin/notebook-access'));
+  const k = untrack(() => (feature === 'docs' ? 'admin.docAccess' : 'admin.notebookAccess'));
+
   interface Access {
     restricted: boolean;
     group_ids: string[];
@@ -25,7 +32,7 @@
     form = { restricted: v.restricted, group_ids: [...v.group_ids] };
   }
 
-  void Promise.all([api.get<Access>('/admin/notebook-access').then(apply), loadGroups()]).catch((e) => toast(errorMessage(e), 'error'));
+  void Promise.all([api.get<Access>(path).then(apply), loadGroups()]).catch((e) => toast(errorMessage(e), 'error'));
 
   function toggle(id: string) {
     const i = form.group_ids.indexOf(id);
@@ -38,8 +45,8 @@
     saving = true;
     error = '';
     try {
-      apply(await api.put<Access>('/admin/notebook-access', form));
-      toast(t('admin.notebookAccess.saved'), 'success');
+      apply(await api.put<Access>(path, form));
+      toast(t(`${k}.saved`), 'success');
       void loadSession();
     } catch (err) {
       error = errorMessage(err);
@@ -51,18 +58,18 @@
 
 <form class="max-w-3xl space-y-3 border-t border-line px-6 py-5" onsubmit={save}>
   <div>
-    <h2 class="text-sm font-semibold">{t('admin.notebookAccess.title')}</h2>
-    <p class="hint mt-0.5">{t('admin.notebookAccess.description')}</p>
+    <h2 class="text-sm font-semibold">{t(`${k}.title`)}</h2>
+    <p class="hint mt-0.5">{t(`${k}.description`)}</p>
   </div>
 
   <div class="space-y-1.5">
     <label class="flex items-center gap-2 text-sm">
-      <input type="radio" name="nb-access" checked={!form.restricted} onchange={() => (form.restricted = false)} disabled={!saved || saving} />
-      {t('admin.notebookAccess.everyone')}
+      <input type="radio" name="{feature}-access" checked={!form.restricted} onchange={() => (form.restricted = false)} disabled={!saved || saving} />
+      {t(`${k}.everyone`)}
     </label>
     <label class="flex items-center gap-2 text-sm">
-      <input type="radio" name="nb-access" checked={form.restricted} onchange={() => (form.restricted = true)} disabled={!saved || saving} />
-      {t('admin.notebookAccess.groups')}
+      <input type="radio" name="{feature}-access" checked={form.restricted} onchange={() => (form.restricted = true)} disabled={!saved || saving} />
+      {t(`${k}.groups`)}
     </label>
   </div>
 
@@ -76,11 +83,11 @@
           <span class="text-xs text-faint">{t('admin.notebookAccess.members', { count: g.member_ids.length })}</span>
         </label>
       {:else}
-        <p class="px-3 py-3 text-xs text-muted">{t('admin.notebookAccess.noGroups')}</p>
+        <p class="px-3 py-3 text-xs text-muted">{t(`${k}.noGroups`)}</p>
       {/each}
     </div>
     <p class="hint">
-      {form.group_ids.length ? t('admin.notebookAccess.restrictedHint') : t('admin.notebookAccess.adminsOnly')}
+      {form.group_ids.length ? t(`${k}.restrictedHint`) : t(`${k}.adminsOnly`)}
     </p>
   {/if}
 

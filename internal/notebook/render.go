@@ -107,7 +107,7 @@ func RenderContext(ctx context.Context, sql string, data, cells map[string]any, 
 	if len(t.Templates()) != 1 {
 		return "", nil, errors.New("template definitions are not supported")
 	}
-	if err := safeNodes(t.Tree.Root); err != nil {
+	if err := safeNodes(t.Tree.Root); err != nil { //nolint:staticcheck
 		return "", nil, err
 	}
 	b := &boundedBuffer{limit: 1 << 20, ctx: ctx}

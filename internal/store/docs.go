@@ -158,6 +158,32 @@ func (s *Store) scanDocInfos(ctx context.Context, query string, args ...any) ([]
 	return list, rows.Err()
 }
 
+// DocBySource returns the newest built snapshot of a schema made with the
+// given source version, by any user. The version covers the connection and
+// the database account, so it is a snapshot of what that account sees.
+func (s *Store) DocBySource(ctx context.Context, connectionID, schema, version string) (*DocSnapshot, error) {
+	return scanDoc(s.queryRow(ctx, "SELECT "+docColumns+" FROM "+s.t("schema_docs")+
+		" WHERE connection_id = ? AND schema_name = ? AND source_version = ? AND payload <> '' ORDER BY generated_at DESC LIMIT 1",
+		connectionID, schema, version))
+}
+
+// SharedDocs lists, per schema, the newest built snapshot of a connection
+// made with the given source version, without its document or owner.
+func (s *Store) SharedDocs(ctx context.Context, connectionID, version string) ([]DocInfo, error) {
+	list, err := s.scanDocInfos(ctx, docInfoSelect+" FROM "+s.t("schema_docs")+" d JOIN "+s.t("connections")+" c ON c.id = d.connection_id JOIN "+
+		s.t("users")+" u ON u.id = d.user_id WHERE d.connection_id = ? AND d.source_version = ? AND d.payload <> '' ORDER BY d.schema_name, d.generated_at DESC",
+		connectionID, version)
+	out := []DocInfo{}
+	for i, d := range list {
+		if i > 0 && list[i-1].Schema == d.Schema {
+			continue
+		}
+		d.UserID, d.Username = "", ""
+		out = append(out, d)
+	}
+	return out, err
+}
+
 // DocOverview lists every saved snapshot, for admins.
 func (s *Store) DocOverview(ctx context.Context) ([]DocInfo, error) {
 	return s.scanDocInfos(ctx, docInfoSelect+" FROM "+s.t("schema_docs")+" d JOIN "+s.t("connections")+" c ON c.id = d.connection_id JOIN "+
@@ -173,4 +199,3 @@ func (s *Store) UserDocs(ctx context.Context, userID string) ([]DocInfo, error) 
 	}
 	return list, err
 }
-

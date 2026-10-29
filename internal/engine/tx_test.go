@@ -23,12 +23,12 @@ func TestManualTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db.Close()
+	db.Close() //nolint:errcheck
 
 	if err := ConfigureFiles(root); err != nil {
 		t.Fatal(err)
 	}
-	defer ConfigureFiles("")
+	defer ConfigureFiles("") //nolint:errcheck
 
 	m := NewManager(store.Limits{MaxOpen: 3}, time.Minute)
 	defer m.Close()

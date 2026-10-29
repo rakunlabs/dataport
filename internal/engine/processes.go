@@ -31,6 +31,9 @@ type ProcessList struct {
 	Self   string     `json:"self"`
 	// CanCancel is false when the database can only end whole sessions.
 	CanCancel bool `json:"can_cancel"`
+	// User is the database account dataport signs in with, so a user can
+	// find the sessions of that account.
+	User string `json:"user,omitempty"`
 }
 
 var (

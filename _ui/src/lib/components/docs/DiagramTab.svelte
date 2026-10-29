@@ -155,7 +155,7 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <g
                 transform="translate({p.x},{p.y})"
-                opacity={related(tb.name) ? 1 : 0.3}
+                style="opacity:{related(tb.name) ? 1 : 0.55}; transition:opacity 150ms ease-out"
                 class="cursor-move"
                 onpointerdown={(e) => onpointerdown(e, tb.name)}
                 onpointerenter={() => (hover = tb.name)}
@@ -191,7 +191,7 @@
               fill="none"
               stroke="var(--color-accent)"
               stroke-width={lit && hover ? 2 : 1.4}
-              opacity={hover ? (lit ? 0.9 : 0.08) : 0.6}
+              style="opacity:{hover ? (lit ? 0.9 : 0.25) : 0.6}; transition:opacity 150ms ease-out"
               marker-end="url(#dp-arrow)"
               pointer-events="none"
             />

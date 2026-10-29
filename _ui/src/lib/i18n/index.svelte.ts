@@ -1,7 +1,7 @@
 import en from '@/lib/i18n/en';
 
 // Sections a translation may leave out; t() falls back to English for them.
-type Optional = 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn' | 'calc' | 'record' | 'rowColors';
+type Optional = 'pager' | 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn' | 'calc' | 'record' | 'rowColors';
 
 // Messages added after a translation was written may be missing from it;
 // t() falls back to English for them too. A string names leaf messages,
@@ -9,9 +9,16 @@ type Optional = 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn' | 'calc' |
 type Later = {
   admin: {
     server: true;
+    docsExport: true;
+    docAccess: true;
+    user: 'search' | 'searchGroups' | 'allGroups' | 'count' | 'noMatch';
+    group: 'search' | 'noMatch' | 'more' | 'allMembers' | 'selected' | 'onlyMembers' | 'addMatching' | 'removeMatching' | 'features' | 'featureNotebooks' | 'featureNotebooksHint' | 'featureDocs' | 'featureDocsHint' | 'featureOpen';
     cluster: true;
     conn: 'visibility' | 'visibilityHint' | 'showWorkspace' | 'showWorkspaceHint' | 'showNotebooks' | 'showNotebooksHint' | 'showMcp' | 'showMcpHint' | 'notebookOnly' | 'notebookOnlyHint' | 'notebookOnlyShared' | 'notebookOnlyChip' | 'personalTitle' | 'personalHint' | 'owner';
     docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' };
+  grid: 'sortBy';
+  processes: 'mine' | 'mineHint';
+  docs: 'hubReadOnly' | 'snapshotReadOnly';
   result: 'elapsed' | 'cancelling' | 'runningFor';
   query: 'runParallel';
   valuePanel: 'tab' | 'pick';

@@ -8,12 +8,13 @@
   // page per table. It reads only the catalog and can be downloaded as one
   // HTML file to share.
   import { t, i18n } from '@/lib/i18n/index.svelte';
-  import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, Download, ArrowRight, Table2, Wrench } from 'lucide-svelte';
+  import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, Download, ArrowRight, Table2, Wrench, Lock } from 'lucide-svelte';
   import { api, qs } from '@/lib/api/client';
   import type { Anomaly, AnomalyKind, SchemaDoc, DocStatus, SavedDoc } from '@/lib/api/types';
   import { connection, openQueryTab, persist, type Tab } from '@/lib/stores/workspace.svelte';
   import { withCredentials } from '@/lib/stores/credentials.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
+  import { session } from '@/lib/stores/session.svelte';
   import { download } from '@/lib/helper/format';
   import { anomalyKinds, fixSQL, reportHTML, reportName } from '@/lib/helper/docReport';
   import { dbLabel } from '@/lib/helper/databases';
@@ -29,6 +30,8 @@
   let loading = $state(false);
   let error = $state('');
   let status = $state<DocStatus | null>(null);
+  // Users outside the groups that build documentation only read it.
+  const canBuild = $derived(session.user?.can_build_docs !== false && !status?.read_only);
   let filter = $state('');
   let section = $state<Section>('overview');
   let scroller: HTMLDivElement | undefined = $state();
@@ -192,12 +195,13 @@
       {#if filter}<button class="absolute top-1/2 right-1.5 -translate-y-1/2 text-faint hover:text-fg" onclick={() => (filter = '')} aria-label={t('common.clear')}><X size={12} /></button>{/if}
     </div>
     <button class="btn" onclick={exportHTML} disabled={!data}><Download size={14} /> {t('docs.download')}</button>
-    <button class="btn shrink-0" onclick={() => load(true)} disabled={loading || status?.refreshing}><RefreshCw size={14} class={loading || status?.refreshing ? 'animate-spin' : ''} /> {t(loading || status?.refreshing ? 'docs.snapshot.refreshing' : 'docs.snapshot.refresh')}</button>
+    {#if canBuild}<button class="btn shrink-0" onclick={() => load(true)} disabled={loading || status?.refreshing}><RefreshCw size={14} class={loading || status?.refreshing ? 'animate-spin' : ''} /> {t(loading || status?.refreshing ? 'docs.snapshot.refreshing' : 'docs.snapshot.refresh')}</button>{/if}
   </div>
 
   {#if data}
     <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1.5 text-xs text-muted" role="status">
       <span>{t('docs.snapshot.stored')}</span>
+      {#if status?.read_only}<span class="flex items-center gap-1.5 text-fg-2"><Lock size={12} />{t('docs.snapshotReadOnly')}</span>{/if}
       {#if status?.refreshing}<span class="flex items-center gap-1.5"><LoaderCircle size={12} class="animate-spin" />{t('docs.snapshot.refreshing')}</span>{/if}
       {#if status?.next_run}<span>{t('docs.snapshot.next', { time: fullTime(status.next_run) })}</span>{:else}<span>{t('docs.snapshot.manual')}</span>{/if}
       {#if status?.last_error}<span class="text-warn">{t('docs.snapshot.failed')}</span>{/if}

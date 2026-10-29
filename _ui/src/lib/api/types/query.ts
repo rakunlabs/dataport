@@ -113,6 +113,8 @@ export interface ProcessList {
   result: ResultSet;
   self: string;
   can_cancel: boolean;
+  // The database account dataport signs in with.
+  user?: string;
 }
 
 export interface DbUser {

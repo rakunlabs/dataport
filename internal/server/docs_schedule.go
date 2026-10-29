@@ -122,7 +122,11 @@ func (s *Server) dispatchDocsAt(ctx context.Context, at time.Time) error {
 	if last.IsZero() {
 		return nil
 	}
-	return s.refreshAllDocs(ctx, last.UnixMilli(), false)
+	err = s.refreshAllDocs(ctx, last.UnixMilli(), false)
+	if ctx.Err() == nil {
+		s.exportDocs(ctx, last.UnixMilli())
+	}
+	return err
 }
 
 // refreshAllDocs rebuilds every snapshot not attempted since before. Each
@@ -162,6 +166,11 @@ func (s *Server) refreshAllDocs(ctx context.Context, before int64, manual bool, 
 				continue
 			}
 			tried[k] = true
+			// Snapshots of users who may no longer build documentation are
+			// kept as they are, not rebuilt with their access.
+			if u, err := s.store.GetUser(ctx, k.UserID); err == nil && !s.docsBuildAllowed(ctx, u) {
+				continue
+			}
 			err := s.refreshDoc(ctx, k, before)
 			if errors.Is(err, errDocBusy) {
 				continue
@@ -274,6 +283,9 @@ func (s *Server) runDocsNow(by *store.User) bool {
 		defer s.docDispatch.Unlock()
 		if err := s.refreshAllDocs(ctx, time.Now().UnixMilli(), true, by); err != nil && ctx.Err() == nil {
 			slog.Error("refresh all documentation", "error", err)
+		}
+		if ctx.Err() == nil {
+			s.exportDocs(ctx, 0)
 		}
 	}()
 	return true

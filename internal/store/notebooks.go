@@ -65,7 +65,7 @@ func (s *Store) NotebookPermission(ctx context.Context, u *User, n *Notebook) (s
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	permission := ""
 	for rows.Next() {
 		var p string
@@ -113,13 +113,13 @@ func (s *Store) ListNotebooks(ctx context.Context, u *User) ([]*Notebook, error)
 	for rows.Next() {
 		n, err := scanNotebook(rows)
 		if err != nil {
-			rows.Close()
+			rows.Close() //nolint:errcheck
 			return nil, err
 		}
 		list = append(list, n)
 	}
 	err = rows.Err()
-	rows.Close()
+	rows.Close() //nolint:errcheck
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func (s *Store) NotebookAccess(ctx context.Context, id string) ([]NotebookAccess
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	out := []NotebookAccess{}
 	for rows.Next() {
 		var a NotebookAccess
@@ -277,7 +277,7 @@ func (s *Store) ListNotebookRuns(ctx context.Context, notebookID, userID string,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	out := []*NotebookRun{}
 	for rows.Next() {
 		run, err := scanNotebookRun(rows)
