@@ -187,7 +187,7 @@ INSERT INTO dp_tools.tags VALUES (10, 'x'), (11, 'y');`, false)
 		t.Fatalf("tags after round trip: %v", n)
 	}
 
-	m.Disconnect(c)
+	m.Disconnect(ctx, c)
 
 	if !m.Connected(c) {
 		t.Fatal("a shared pool stays open after disconnect")

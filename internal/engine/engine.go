@@ -106,6 +106,7 @@ type Manager struct {
 	pools    map[string]*pool
 	defaults store.Limits
 	idle     time.Duration
+	onClose  func(keys []string)
 
 	runMu sync.Mutex
 	// running holds the cancel functions of tracked requests by user and

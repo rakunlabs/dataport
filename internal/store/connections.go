@@ -135,6 +135,8 @@ type ConnectionView struct {
 	// ManualTx is set when a query tab may keep a transaction open over
 	// several runs.
 	ManualTx bool `json:"manual_tx"`
+	// Explain lists what the execution plan dialog offers.
+	Explain any `json:"explain,omitempty"`
 	// MaxRowsLimit is the most rows a user may ask one statement for; zero
 	// means no limit.
 	MaxRowsLimit int `json:"max_rows_limit"`

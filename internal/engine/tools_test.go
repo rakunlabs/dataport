@@ -171,22 +171,22 @@ func TestCancelDuplicateQueryID(t *testing.T) {
 
 	var a, b, other int
 
-	doneA := m.track(ExecRequest{QueryID: "q", UserID: "u"}, func() { a++ })
-	doneB := m.track(ExecRequest{QueryID: "q", UserID: "u"}, func() { b++ })
-	doneOther := m.track(ExecRequest{QueryID: "q", UserID: "v"}, func() { other++ })
+	doneA := m.track(ExecRequest{QueryID: "q", UserID: "u"}, nil, func() { a++ })
+	doneB := m.track(ExecRequest{QueryID: "q", UserID: "u"}, nil, func() { b++ })
+	doneOther := m.track(ExecRequest{QueryID: "q", UserID: "v"}, nil, func() { other++ })
 
-	if !m.Cancel("u", "q") || a != 1 || b != 1 || other != 0 {
+	if !m.Cancel(context.Background(), "u", "q") || a != 1 || b != 1 || other != 0 {
 		t.Fatalf("cancel: a=%d b=%d other=%d", a, b, other)
 	}
 
 	doneA()
 	doneB()
 
-	if m.Cancel("u", "q") {
+	if m.Cancel(context.Background(), "u", "q") {
 		t.Fatal("finished requests must not be cancellable")
 	}
 
-	if !m.Cancel("v", "q") || other != 1 {
+	if !m.Cancel(context.Background(), "v", "q") || other != 1 {
 		t.Fatal("another user's request with the same id must stay tracked")
 	}
 

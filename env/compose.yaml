@@ -5,7 +5,7 @@
 #   make env PROFILE="postgres mysql"
 services:
   postgres:
-    profiles: [all, postgres, store]
+    profiles: [all, postgres, store, cluster]
     image: postgres:17-alpine
     environment:
       POSTGRES_PASSWORD: pw
@@ -55,3 +55,47 @@ services:
     image: trinodb/trino:479
     ports:
       - "58080:8080"
+
+  # Three dataport replicas sharing the postgres store, joined as a cluster:
+  #   make build-cluster env PROFILE=cluster
+  # They answer on :8081, :8082 and :8083 (admin / change-me-now).
+  dataport-1: &replica
+    profiles: [cluster]
+    image: alpine:3.22
+    command: ["/dataport"]
+    volumes:
+      - ../bin/dataport-linux:/dataport:ro
+    environment: &replica-env
+      DATAPORT_STORE_TYPE: postgres
+      DATAPORT_STORE_DSN: postgres://postgres:pw@postgres:5432/postgres?sslmode=disable
+      DATAPORT_AUTH_SECRET_KEY: cluster-dev-secret
+      DATAPORT_AUTH_ADMIN_PASSWORD: change-me-now
+      DATAPORT_CLUSTER_ENABLED: "true"
+      DATAPORT_CLUSTER_DNS_ADDR: dataport-replica
+      DATAPORT_CLUSTER_REPLICAS: "3"
+      DATAPORT_CLUSTER_SECURITY_KEY: cluster-dev-key
+      DATAPORT_CLUSTER_REFRESH_INTERVAL: 5s
+      DATAPORT_CLUSTER_NAME: dataport-1
+    networks:
+      default:
+        aliases: [dataport-replica]
+    depends_on: [postgres]
+    restart: on-failure
+    ports:
+      - "8081:8080"
+
+  dataport-2:
+    <<: *replica
+    environment:
+      <<: *replica-env
+      DATAPORT_CLUSTER_NAME: dataport-2
+    ports:
+      - "8082:8080"
+
+  dataport-3:
+    <<: *replica
+    environment:
+      <<: *replica-env
+      DATAPORT_CLUSTER_NAME: dataport-3
+    ports:
+      - "8083:8080"

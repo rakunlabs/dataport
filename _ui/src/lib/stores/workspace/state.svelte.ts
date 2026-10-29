@@ -33,6 +33,9 @@ export interface Tab {
   offset: number;
   // hasMore is true when the page read one row more than it shows.
   hasMore: boolean;
+  // The rows a table tab's filter matches, once counted; dropped when the
+  // filter changes.
+  total?: { count?: number; running?: boolean; error?: string; queryId?: string; where?: string };
   edit: EditState;
   view: 'data' | 'structure' | 'ddl';
   // How a result shows its rows: the grid, or one row as columns and values.

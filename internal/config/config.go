@@ -56,6 +56,9 @@ type Config struct {
 	Store  Store  `cfg:"store"`
 	Auth   Auth   `cfg:"auth"`
 	Query  Query  `cfg:"query"`
+	// Cluster joins the replicas, so each target pool is opened on one of
+	// them and the others forward their work to it.
+	Cluster Cluster `cfg:"cluster"`
 	// Query (but its file directory), MCP, Notebook and Connections are not
 	// read from the environment or a file: admins set them under Settings →
 	// Server limits, and the defaults of their fields apply until they do.
@@ -96,6 +99,30 @@ func (n *Notebook) Normalize() {
 	if n.MaxOutputBytes <= 0 {
 		n.MaxOutputBytes = 16 << 20
 	}
+}
+
+// Cluster connects the replicas of one installation with QUIC (alan). Each
+// target pool is owned by one replica, which takes a lock on it; the others
+// forward queries and metadata reads there. Every replica needs the same
+// PostgreSQL store and secret key.
+type Cluster struct {
+	Enabled bool `cfg:"enabled"`
+	// DNSAddr resolves to the addresses of every replica, such as a
+	// Kubernetes headless service.
+	DNSAddr  string `cfg:"dns_addr"`
+	BindAddr string `cfg:"bind_addr"`
+	// Port is the UDP port of the cluster, the same on every replica.
+	Port int `cfg:"port" default:"7946"`
+	// Replicas is the expected number of replicas, this one included. Locks
+	// need a majority of them; zero turns the quorum off.
+	Replicas int `cfg:"replicas"`
+	// SecurityKey admits only replicas with the same key; empty lets any
+	// replica that can reach the port join.
+	SecurityKey     string        `cfg:"security_key" log:"-"`
+	RefreshInterval time.Duration `cfg:"refresh_interval"`
+	// Name is shown for this replica in Settings → Cluster; empty uses the
+	// host name.
+	Name string `cfg:"name"`
 }
 
 type Server struct {

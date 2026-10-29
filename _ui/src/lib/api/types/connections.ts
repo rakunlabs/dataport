@@ -20,6 +20,8 @@ export interface ConnectionView {
   editable?: boolean;
   // A query tab may keep a transaction open over several runs.
   manual_tx?: boolean;
+  // What the execution plan dialog offers; absent without plans.
+  explain?: import('@/lib/api/types/query').ExplainSupport;
   // Most rows one statement may return; 0 means no limit.
   max_rows_limit?: number;
   // Longest time limit a run may have; 0 means runs may have none.

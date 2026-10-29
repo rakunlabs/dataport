@@ -1,11 +1,11 @@
 import { api, ApiError } from '@/lib/api/client';
-import type { ExecResult, ResultSet, TxInfo } from '@/lib/api/types';
+import type { CountResult, ExecResult, ExplainOptions, ExplainResult, ResultSet, TxInfo } from '@/lib/api/types';
 import { t as tr } from '@/lib/i18n/index.svelte';
 import { prefs, savePrefs } from '@/lib/stores/prefs.svelte';
 import { persist } from '@/lib/stores/workspace/persist';
 import { confirmProduction } from '@/lib/stores/confirm.svelte';
 import { quoteIdent } from '@/lib/helper/copy';
-import { askCredentials, needsCredentials } from '@/lib/stores/credentials.svelte';
+import { askCredentials, needsCredentials, withCredentials } from '@/lib/stores/credentials.svelte';
 import { declarationLines, placeholders, substitute } from '@/lib/helper/variables';
 import { askVariables } from '@/lib/stores/variables.svelte';
 import { errorMessage, toast } from '@/lib/stores/toast.svelte';
@@ -463,4 +463,147 @@ export async function syncTxs(): Promise<void> {
     }
   }
   persist();
+}
+
+// ////////////////////////////////////////////
+// execution plans and row counts
+
+const explainKey = 'dataport.explain';
+
+export const defaultExplain: ExplainOptions = {
+  analyze: false,
+  verbose: false,
+  costs: true,
+  buffers: false,
+  timing: true,
+  settings: false,
+  wal: false,
+  summary: false,
+  format: 'text',
+};
+
+// The explain options last chosen, kept in the browser.
+export function explainOptions(): ExplainOptions {
+  try {
+    return { ...defaultExplain, ...JSON.parse(localStorage.getItem(explainKey) ?? '{}') };
+  } catch {
+    return { ...defaultExplain };
+  }
+}
+
+export function saveExplainOptions(o: ExplainOptions) {
+  try {
+    localStorage.setItem(explainKey, JSON.stringify(o));
+  } catch {
+    // Storage may be full or disabled; the choice is then not kept.
+  }
+}
+
+// explain shows the plan of one statement as a result of its own, beside
+// the others, as DBeaver's Explain Execution Plan.
+export async function explain(id: string, sql: string, options: ExplainOptions) {
+  const t = findTab(id);
+  if (!t) return;
+  const text = sql.trim();
+  if (!text) return;
+
+  t.error = '';
+  if (!t.result) t.result = { results: [], duration_ms: 0, committed: false, transactional: false };
+  const run = ++runSeq;
+  const queryId = newId();
+  const placeholder: ResultSet = {
+    statement: text,
+    kind: 'exec',
+    rows_affected: 0,
+    truncated: false,
+    duration_ms: 0,
+    run,
+    pending: { queryId, startedAt: Date.now(), cancelling: false },
+  };
+  t.result.results.push(placeholder);
+  t.activeResult = t.result.results.length - 1;
+  const slot = () => t.result?.results.findIndex((r) => r.run === run && r.pending) ?? -1;
+
+  let confirm = false;
+  for (;;) {
+    const p = t.result?.results[slot()]?.pending;
+    if (!p) return;
+    try {
+      const res = await api.post<ExplainResult>(`/connections/${t.connectionId}/explain`, {
+        sql: text,
+        options,
+        confirm,
+        query_id: p.queryId,
+        timeout_sec: t.timeoutSec >= 0 ? t.timeoutSec : undefined,
+      });
+      const rs: ResultSet = { ...res.result, run, committed: false, transactional: true, plan: { format: res.format, analyzed: res.analyzed, source: text, options } };
+      settle(t, slot(), [rs], 0);
+      return;
+    } catch (e) {
+      if (!t.result?.results[slot()]?.pending) return;
+      if (needsCredentials(e)) {
+        if (await askCredentials(t.connectionId, (e as ApiError).message)) {
+          restart(t.result?.results[slot()]?.pending);
+          continue;
+        }
+      } else if (e instanceof ApiError && e.status === 409 && e.data?.confirmation_required) {
+        const conn = connection(t.connectionId);
+        if (await confirmProduction({ connection: conn?.name ?? '', sql: text, risk: String(e.data.risk ?? 'write') })) {
+          confirm = true;
+          restart(t.result?.results[slot()]?.pending);
+          continue;
+        }
+        settle(t, slot(), [], 0);
+        return;
+      }
+      const rs: ResultSet = { statement: text, kind: 'exec', rows_affected: 0, truncated: false, duration_ms: 0, error: errorMessage(e), run };
+      settle(t, slot(), [rs], 0);
+      return;
+    }
+  }
+}
+
+// countSQL is the statement a result counts: the query itself, or for a
+// table tab the table with its filter.
+export function countSource(t: Tab, rs: ResultSet): string {
+  if (t.kind !== 'table') return rs.statement;
+  const c = connection(t.connectionId);
+  const where = t.where.trim() ? ` WHERE ${t.where.trim()}` : '';
+  return `SELECT * FROM ${qualified(c?.db_type ?? 'postgres', t.schema, t.table)}${where}`;
+}
+
+// countResult counts every row a result's query returns, as DBeaver's
+// "Calculate total row count"; the grid only holds the first ones. A table
+// tab keeps its count over pages, as long as its filter stays.
+export async function countResult(id: string, index: number) {
+  const t = findTab(id);
+  const rs = t?.result?.results[index];
+  if (!t || !rs || rs.kind !== 'rows') return;
+  const holder: { total?: Tab['total'] } = t.kind === 'table' ? t : rs;
+  if (holder.total?.running) {
+    if (holder.total.queryId) void api.post(`/queries/${holder.total.queryId}/cancel`).catch(() => {});
+    return;
+  }
+  const queryId = newId();
+  const where = t.where.trim();
+  holder.total = { running: true, queryId, where };
+  try {
+    const res = await withCredentials(t.connectionId, () =>
+      api.post<CountResult>(`/connections/${t.connectionId}/count`, {
+        sql: countSource(t, rs),
+        query_id: queryId,
+        timeout_sec: t.timeoutSec >= 0 ? t.timeoutSec : undefined,
+      }),
+    );
+    holder.total = { count: res.count, where };
+  } catch (e) {
+    holder.total = { error: errorMessage(e), where };
+  }
+}
+
+// totalOf is the count shown for a result: a table tab's while its filter
+// is the one counted.
+export function totalOf(t: Tab, rs: ResultSet | undefined) {
+  if (t.kind === 'table') return t.total && t.total.where === t.where.trim() ? t.total : undefined;
+  return rs?.total;
 }

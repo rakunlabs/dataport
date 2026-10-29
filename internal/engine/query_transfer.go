@@ -29,87 +29,131 @@ type QueryTransferResult struct {
 	DurationMS int64 `json:"duration_ms"`
 }
 
+// QueryRows runs the source query of a query transfer and calls fn with
+// the target columns; rows hands out the mapped rows one by one. It runs on
+// this instance or, in a cluster, on the replica holding the source pool.
+type QueryRows func(ctx context.Context, fn func(ctx context.Context, targets []string, rows func(RowFunc) error) error) error
+
 // QueryTransfer streams a read-only SELECT to an existing target table using
 // bound inserts. The destination is one transaction. No distributed atomicity
 // is claimed. Separate pools/connections are needed even on the same DB.
 func (m *Manager) QueryTransfer(ctx context.Context, src *store.Connection, srcPassword string, dst *store.Connection, dstPassword string, req QueryTransferRequest) (*QueryTransferResult, error) {
+	return m.QueryTransferFrom(ctx, src, m.QuerySource(src, srcPassword, req), dst, dstPassword, req)
+}
+
+// QuerySource reads the source query of req from c on this instance.
+func (m *Manager) QuerySource(src *store.Connection, srcPassword string, req QueryTransferRequest) QueryRows {
+	return func(ctx context.Context, fn func(ctx context.Context, targets []string, rows func(RowFunc) error) error) error {
+		sd, err := DriverFor(src)
+		if err != nil {
+			return err
+		}
+		stmts, err := Validate(sd, req.SQL, true)
+		if err != nil {
+			return err
+		}
+		if len(stmts) != 1 || !returnsRows(stmts[0], FirstKeyword(stmts[0], sd.Dialect())) {
+			return errors.New("transfer source must be one read-only query")
+		}
+		return m.Session(ctx, src, srcPassword, req.SourceTimeout, func(ctx context.Context, sd Driver, source *sql.Conn) error {
+			if cp, ok := sd.(ContextPreparer); ok {
+				ctx = cp.PrepareContext(ctx, req.SourceTimeout, true)
+			}
+			var reader Runner = source
+			if useTransaction(sd, true) {
+				tx, err := beginTx(ctx, sd, source, true)
+				if err != nil {
+					return err
+				}
+				defer tx.Rollback()
+				reader = tx
+			}
+			if err := sd.Prepare(ctx, reader, req.SourceTimeout); err != nil {
+				return err
+			}
+			rows, err := reader.QueryContext(ctx, stmts[0], req.Args...)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			columns, err := rows.Columns()
+			if err != nil {
+				return err
+			}
+			mappings, err := transferMappings(req.Target, columns)
+			if err != nil {
+				return err
+			}
+			indexes, transforms, targets := make([]int, len(mappings)), make([]*template.Template, len(mappings)), make([]string, len(mappings))
+			for i, mapping := range mappings {
+				indexes[i] = -1
+				for j, col := range columns {
+					if col == mapping.Source {
+						if indexes[i] != -1 {
+							return errors.New("ambiguous source column " + col)
+						}
+						indexes[i] = j
+					}
+				}
+				if indexes[i] < 0 {
+					return errors.New("source column not found: " + mapping.Source)
+				}
+				targets[i] = mapping.Target
+				if mapping.Template != "" {
+					t, err := template.New("value").Funcs(notebook.TemplateFuncs()).Parse(mapping.Template)
+					if err != nil {
+						return err
+					}
+					if len(t.Templates()) != 1 {
+						return errors.New("mapping templates cannot define templates")
+					}
+					if err := notebook.ValidateMappingTemplate(t.Tree.Root); err != nil {
+						return err
+					}
+					transforms[i] = t
+				}
+			}
+			return fn(ctx, targets, func(f RowFunc) error {
+				values, pointers := make([]any, len(columns)), make([]any, len(columns))
+				for i := range values {
+					pointers[i] = &values[i]
+				}
+				for rows.Next() {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+					if err := rows.Scan(pointers...); err != nil {
+						return err
+					}
+					row := make([]any, len(mappings))
+					for i, mapping := range mappings {
+						v, err := mapTransferValue(values[indexes[i]], mapping, transforms[i])
+						if err != nil {
+							return fmt.Errorf("column %s: %w", mapping.Source, err)
+						}
+						row[i] = v
+					}
+					if err := f(row); err != nil {
+						return err
+					}
+				}
+				return rows.Err()
+			})
+		})
+	}
+}
+
+// QueryTransferFrom is QueryTransfer reading the rows from source.
+func (m *Manager) QueryTransferFrom(ctx context.Context, src *store.Connection, source QueryRows, dst *store.Connection, dstPassword string, req QueryTransferRequest) (*QueryTransferResult, error) {
 	if dst.ReadOnly {
 		return nil, ErrReadOnly
 	}
 	if src.ID == dst.ID {
 		return nil, errors.New("query transfer needs distinct source and target connections")
 	}
-	sd, err := DriverFor(src)
-	if err != nil {
-		return nil, err
-	}
-	stmts, err := Validate(sd, req.SQL, true)
-	if err != nil {
-		return nil, err
-	}
-	if len(stmts) != 1 || !returnsRows(stmts[0], FirstKeyword(stmts[0], sd.Dialect())) {
-		return nil, errors.New("transfer source must be one read-only query")
-	}
 	start := time.Now()
 	out := &QueryTransferResult{}
-	err = m.Session(ctx, src, srcPassword, req.SourceTimeout, func(ctx context.Context, sd Driver, source *sql.Conn) error {
-		if cp, ok := sd.(ContextPreparer); ok {
-			ctx = cp.PrepareContext(ctx, req.SourceTimeout, true)
-		}
-		var reader Runner = source
-		if useTransaction(sd, true) {
-			tx, err := beginTx(ctx, sd, source, true)
-			if err != nil {
-				return err
-			}
-			defer tx.Rollback()
-			reader = tx
-		}
-		if err := sd.Prepare(ctx, reader, req.SourceTimeout); err != nil {
-			return err
-		}
-		rows, err := reader.QueryContext(ctx, stmts[0], req.Args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		columns, err := rows.Columns()
-		if err != nil {
-			return err
-		}
-		mappings, err := transferMappings(req.Target, columns)
-		if err != nil {
-			return err
-		}
-		indexes, transforms, targets := make([]int, len(mappings)), make([]*template.Template, len(mappings)), make([]string, len(mappings))
-		for i, mapping := range mappings {
-			indexes[i] = -1
-			for j, col := range columns {
-				if col == mapping.Source {
-					if indexes[i] != -1 {
-						return errors.New("ambiguous source column " + col)
-					}
-					indexes[i] = j
-				}
-			}
-			if indexes[i] < 0 {
-				return errors.New("source column not found: " + mapping.Source)
-			}
-			targets[i] = mapping.Target
-			if mapping.Template != "" {
-				t, err := template.New("value").Funcs(notebook.TemplateFuncs()).Parse(mapping.Template)
-				if err != nil {
-					return err
-				}
-				if len(t.Templates()) != 1 {
-					return errors.New("mapping templates cannot define templates")
-				}
-				if err := notebook.ValidateMappingTemplate(t.Tree.Root); err != nil {
-					return err
-				}
-				transforms[i] = t
-			}
-		}
+	err := source(ctx, func(ctx context.Context, targets []string, rows func(RowFunc) error) error {
 		return m.Session(ctx, dst, dstPassword, req.Timeout, func(ctx context.Context, td Driver, target *sql.Conn) error {
 			if !transactional(td) || !useTransaction(td, false) {
 				return errors.New("query transfer requires a transactional target")
@@ -177,33 +221,13 @@ func (m *Manager) QueryTransfer(ctx context.Context, src *store.Connection, srcP
 					batch = batch[:0]
 					return nil
 				}
-				values, pointers := make([]any, len(columns)), make([]any, len(columns))
-				for i := range values {
-					pointers[i] = &values[i]
-				}
-				for rows.Next() {
-					if err := ctx.Err(); err != nil {
-						return err
-					}
-					if err := rows.Scan(pointers...); err != nil {
-						return err
-					}
-					row := make([]any, len(mappings))
-					for i, mapping := range mappings {
-						v, err := mapTransferValue(values[indexes[i]], mapping, transforms[i])
-						if err != nil {
-							return fmt.Errorf("column %s: %w", mapping.Source, err)
-						}
-						row[i] = v
-					}
+				if err := rows(func(row []any) error {
 					batch = append(batch, row)
 					if len(batch) >= ins.perStmt {
-						if err := flush(); err != nil {
-							return err
-						}
+						return flush()
 					}
-				}
-				if err := rows.Err(); err != nil {
+					return nil
+				}); err != nil {
 					return err
 				}
 				return flush()

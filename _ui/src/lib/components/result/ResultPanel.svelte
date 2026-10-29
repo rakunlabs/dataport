@@ -3,8 +3,10 @@
   import type { Snippet } from 'svelte';
   import { formatRows, sqlFormats, type CopyFormat } from '@/lib/helper/copy';
   import { copyText } from '@/lib/helper/clipboard';
-  import { cancel, cancelPending, cancelResult, connection, loadColumns, qualified, reloadResult, runTable, tableKey, ws } from '@/lib/stores/workspace.svelte';
+  import { cancel, cancelPending, cancelResult, connection, explain, loadColumns, totalOf, qualified, reloadResult, runTable, tableKey, ws } from '@/lib/stores/workspace.svelte';
   import RunTimer from '@/lib/components/result/RunTimer.svelte';
+  import PlanView from '@/lib/components/result/PlanView.svelte';
+  import TotalCount from '@/lib/components/result/TotalCount.svelte';
   import DataGrid from '@/lib/components/result/DataGrid.svelte';
   import CellDialog from '@/lib/components/result/CellDialog.svelte';
   import ValuePanel from '@/lib/components/result/ValuePanel.svelte';
@@ -581,6 +583,8 @@
           {/if}
         </div>
       </div>
+    {:else if current.plan}
+      <PlanView result={current} onreexplain={() => explain(tab.id, current.plan!.source, current.plan!.options)} />
     {:else if current.kind === 'exec'}
       <div class="p-3">
         <div class="rounded-md border border-line bg-panel">
@@ -708,8 +712,9 @@
       {#if current?.kind === 'rows'}
         <span class="tabular-nums">
           {t('result.rows', { count: fmtNumber(current.rows?.length ?? 0) })}
-          {#if current.truncated}<span class="ml-1 text-warn">· {t('result.truncated')}</span>{/if}
+          {#if current.truncated && totalOf(tab, current)?.count === undefined}<span class="ml-1 text-warn">· {t('result.truncated')}</span>{/if}
         </span>
+        <TotalCount {tab} index={tab.activeResult} />
       {/if}
       {#if current && !pending}<span class="tabular-nums">{formatDuration(current.duration_ms)}</span>{/if}
       {#if current}<span class="min-w-0 flex-1 truncate font-mono text-faint" title={current.statement}>{current.statement}</span>{:else}<span class="flex-1"></span>{/if}
@@ -814,3 +819,4 @@
 {#if colorDialog}
   <RowColorDialog scope={colorScope} columns={columnNames} column={colorDialog.column} onclose={() => (colorDialog = null)} />
 {/if}
+

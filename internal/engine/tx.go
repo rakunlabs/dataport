@@ -184,7 +184,7 @@ func (m *Manager) executeTx(ctx context.Context, c *store.Connection, password s
 	ctx, cancel := withTimeout(ctx, req.Timeout)
 	defer cancel()
 
-	defer m.track(req, cancel)()
+	defer m.track(req, c, cancel)()
 
 	start := time.Now()
 
@@ -248,7 +248,7 @@ func (m *Manager) executeTx(ctx context.Context, c *store.Connection, password s
 }
 
 // EndTx commits or rolls back a manual transaction of the user.
-func (m *Manager) EndTx(userID, txID, connID string, commit bool) (*TxEnd, error) {
+func (m *Manager) EndTx(_ context.Context, userID, txID, connID string, commit bool) (*TxEnd, error) {
 	m.txMu.Lock()
 	otx, ok := m.txs[txKey{userID, txID}]
 	m.txMu.Unlock()
@@ -282,7 +282,7 @@ func (m *Manager) EndTx(userID, txID, connID string, commit bool) (*TxEnd, error
 }
 
 // Txs lists the open manual transactions of a user.
-func (m *Manager) Txs(userID string) []TxInfo {
+func (m *Manager) Txs(_ context.Context, userID string) []TxInfo {
 	m.txMu.Lock()
 	defer m.txMu.Unlock()
 

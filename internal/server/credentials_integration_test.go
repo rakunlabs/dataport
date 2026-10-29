@@ -255,9 +255,3 @@ func listConnections(t *testing.T, c *client) []map[string]any {
 
 	return out
 }
-
-func mustJSON(v any) string {
-	b, _ := json.Marshal(v)
-
-	return string(b)
-}

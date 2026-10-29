@@ -62,7 +62,7 @@ func TestManualTx(t *testing.T) {
 		t.Fatalf("second run: %+v %v", res, err)
 	}
 
-	if txs := m.Txs("u"); len(txs) != 1 || txs[0].TxID != "tab1" || len(m.Txs("other")) != 0 {
+	if txs := m.Txs(context.Background(), "u"); len(txs) != 1 || txs[0].TxID != "tab1" || len(m.Txs(context.Background(), "other")) != 0 {
 		t.Fatalf("txs: %+v", txs)
 	}
 
@@ -72,11 +72,11 @@ func TestManualTx(t *testing.T) {
 		t.Fatalf("failed run: %+v %v", res, err)
 	}
 
-	if _, err := m.EndTx("other", "tab1", "tx", true); !errors.Is(err, ErrTxLost) {
+	if _, err := m.EndTx(context.Background(), "other", "tab1", "tx", true); !errors.Is(err, ErrTxLost) {
 		t.Fatalf("another user ended the transaction: %v", err)
 	}
 
-	end, err := m.EndTx("u", "tab1", "tx", true)
+	end, err := m.EndTx(context.Background(), "u", "tab1", "tx", true)
 	if err != nil || !end.Committed {
 		t.Fatalf("commit: %+v %v", end, err)
 	}
@@ -90,7 +90,7 @@ func TestManualTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := m.EndTx("u", "tab2", "tx", false); err != nil {
+	if _, err := m.EndTx(context.Background(), "u", "tab2", "tx", false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -104,7 +104,7 @@ func TestManualTx(t *testing.T) {
 		t.Fatalf("continue a closed transaction: %v", err)
 	}
 
-	if _, err := m.EndTx("u", "tab2", "tx", true); !errors.Is(err, ErrTxLost) {
+	if _, err := m.EndTx(context.Background(), "u", "tab2", "tx", true); !errors.Is(err, ErrTxLost) {
 		t.Fatalf("end a closed transaction: %v", err)
 	}
 
@@ -116,8 +116,8 @@ func TestManualTx(t *testing.T) {
 	m.expireTxs(time.Now().Add(TxIdle + time.Minute))
 	time.Sleep(100 * time.Millisecond)
 
-	if len(m.Txs("u")) != 0 || count() != 2 {
-		t.Fatalf("idle transaction kept: %+v", m.Txs("u"))
+	if len(m.Txs(context.Background(), "u")) != 0 || count() != 2 {
+		t.Fatalf("idle transaction kept: %+v", m.Txs(context.Background(), "u"))
 	}
 
 	// One pooled connection stays free for everything else.
@@ -135,7 +135,7 @@ func TestManualTx(t *testing.T) {
 	m.Forget("tx")
 	time.Sleep(100 * time.Millisecond)
 
-	if len(m.Txs("u")) != 0 {
-		t.Fatalf("transactions kept after Forget: %+v", m.Txs("u"))
+	if len(m.Txs(context.Background(), "u")) != 0 {
+		t.Fatalf("transactions kept after Forget: %+v", m.Txs(context.Background(), "u"))
 	}
 }

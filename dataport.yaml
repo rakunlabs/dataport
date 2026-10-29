@@ -43,3 +43,11 @@ auth:
 #   # Directory SQLite and DuckDB files are opened from; empty (the default)
 #   # disables file databases. The data directory is always refused.
 #   file_dir: ./files
+
+# Replicas sharing a PostgreSQL store can join a cluster, so each database
+# pool is opened on one replica and the others forward their work to it.
+# cluster:
+#   enabled: true
+#   dns_addr: dataport-headless   # resolves to every replica
+#   replicas: 3
+#   security_key: change-me

@@ -520,7 +520,7 @@ func TestIntegrationNoTimeoutCancel(t *testing.T) {
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		m.Cancel("u", "q1")
+		m.Cancel(context.Background(), "u", "q1")
 	}()
 
 	start := time.Now()

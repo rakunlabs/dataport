@@ -39,6 +39,10 @@ build-container: build-cgo ## Build the container image (cgo build) with the tes
 	docker build --platform=linux/amd64 --build-arg TARGETPLATFORM=. \
 		-t $(PROJECT):test -f ci/Dockerfile bin/
 
+.PHONY: build-cluster
+build-cluster: build-ui ## Build bin/dataport-linux for the replicas of make env PROFILE=cluster
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(shell go env GOARCH) go build -trimpath -ldflags="-s -w $(LDFLAGS)" -o bin/$(PROJECT)-linux $(MAIN_PKG)
+
 .PHONY: snapshot
 snapshot: build-ui ## Full snapshot release: every archive and both images, nothing published
 	goreleaser release --snapshot --clean
@@ -58,7 +62,7 @@ env: ## Start sample databases; PROFILE picks them, e.g. make env PROFILE="postg
 .PHONY: env-list
 env-list: ## List the profiles make env accepts
 	@docker compose --file=env/compose.yaml --profile all config --services | sed 's/^/  /'
-	@echo "  all (default), store (postgres for the app database)"
+	@echo "  all (default), store (postgres for the app database), cluster (3 replicas on :8081-8083, after make build-cluster)"
 
 .PHONY: env-down
 env-down: ## Stop every sample database

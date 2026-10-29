@@ -22,6 +22,7 @@
     onrun,
     onsave,
     onrunstatement,
+    onexplain,
     readonly = false,
     options = {},
   }: {
@@ -32,6 +33,8 @@
     // append is set for Ctrl+\\, which keeps the results already shown.
     onrun?: (sql: string, append?: boolean) => void;
     onsave?: () => void;
+    // Ctrl+Shift+E explains the selection or the statement under the cursor.
+    onexplain?: (sql: string) => void;
     // Set to show a run button next to every statement. The event is the
     // click, so the caller can offer a menu.
     onrunstatement?: (sql: string, e: MouseEvent) => void;
@@ -116,6 +119,17 @@
     return true;
   }
 
+  function explainCurrent(v: EditorView) {
+    if (!onexplain) return false;
+    onexplain(currentStatementOf(v));
+    return true;
+  }
+
+  function currentStatementOf(v: EditorView): string {
+    const sel = v.state.selection.main;
+    return sel.empty ? (statementAt(v) ?? v.state.doc.toString()) : v.state.sliceDoc(sel.from, sel.to);
+  }
+
   onMount(() => {
     view = new EditorView({
       parent: host,
@@ -134,6 +148,7 @@
           placeholder(tr('query.placeholder')),
           keymap.of([
             { key: 'Mod-Shift-Enter', run: runCurrent },
+            { key: 'Mod-Shift-e', run: explainCurrent },
             { key: 'Mod-Enter', run: runSelection },
             { key: 'Mod-\\', run: runAppend },
             { key: 'Shift-Enter', run: runSelection },
@@ -190,6 +205,12 @@
 
   export function focus() {
     view?.focus();
+  }
+
+  // currentStatement is the selection, or the statement under the cursor
+  // when the script has several.
+  export function currentStatement(): string {
+    return view ? currentStatementOf(view) : value;
   }
 
   export function currentSQL(): string {

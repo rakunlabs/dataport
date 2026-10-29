@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 	"github.com/rakunlabs/tell"
 
 	"github.com/rakunlabs/dataport/internal/auth"
+	"github.com/rakunlabs/dataport/internal/cluster"
 	"github.com/rakunlabs/dataport/internal/config"
 	"github.com/rakunlabs/dataport/internal/crypto"
 	"github.com/rakunlabs/dataport/internal/engine"
@@ -89,17 +91,58 @@ func run(ctx context.Context) error {
 
 	go en.Janitor(ctx)
 
+	rt, err := joinCluster(ctx, cfg, en, cipher)
+	if err != nil {
+		return err
+	}
+
+	if rt != nil {
+		defer rt.Close()
+	}
+
 	sm := sso.New(st, cipher, cfg.Server.BasePath, cfg.Auth.ExternalURL)
 	if err := sm.Load(ctx); err != nil {
 		return fmt.Errorf("load sso providers; %w", err)
 	}
 
-	srv, err := server.New(cfg, st, au, cipher, en, sm)
+	srv, err := server.New(cfg, st, au, cipher, en, sm, rt)
 	if err != nil {
 		return fmt.Errorf("init server; %w", err)
 	}
 
 	return srv.Start(ctx)
+}
+
+// joinCluster starts the cluster when it is enabled. The replicas share
+// connections, credentials and their passwords through the store, so they
+// need one PostgreSQL store and the same secret key.
+func joinCluster(ctx context.Context, cfg *config.Config, en *engine.Manager, cipher *crypto.Cipher) (*cluster.Router, error) {
+	if !cfg.Cluster.Enabled {
+		return nil, nil
+	}
+
+	if cfg.Store.Type != "postgres" {
+		return nil, errors.New("the cluster needs a PostgreSQL store shared by every replica; set DATAPORT_STORE_TYPE=postgres")
+	}
+
+	if cfg.Cluster.DNSAddr == "" {
+		slog.Warn("cluster enabled without DATAPORT_CLUSTER_DNS_ADDR; this replica finds no peers")
+	}
+
+	if cfg.Cluster.SecurityKey == "" {
+		slog.Warn("cluster without DATAPORT_CLUSTER_SECURITY_KEY; any host that reaches the cluster port can join")
+	}
+
+	rt, err := cluster.New(cfg.Cluster, en, cipher)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := rt.Start(ctx); err != nil {
+		return nil, err
+	}
+
+	return rt, nil
 }
 
 // secretKey is the configured key; an empty one is used as it is.
@@ -142,6 +185,11 @@ func bootstrapAdmin(ctx context.Context, st *store.Store, cfg config.Auth) error
 		PasswordHash: hash,
 		Role:         store.RoleAdmin,
 	}); err != nil {
+		// Replicas starting together race for the first admin; one wins.
+		if n, countErr := st.CountUsers(ctx); countErr == nil && n > 0 {
+			return nil
+		}
+
 		return err
 	}
 

@@ -89,7 +89,16 @@ func resolveFile(name string, create bool) (string, error) {
 
 	rel := filepath.FromSlash(name)
 	if filepath.IsAbs(rel) {
-		r, err := filepath.Rel(root, rel)
+		// The root has its symlinks resolved, so an absolute path is too:
+		// on macOS /var leads to /private/var.
+		abs := filepath.Clean(rel)
+		if real, err := realPath(abs); err == nil {
+			abs = real
+		} else if dir, err := realPath(filepath.Dir(abs)); err == nil {
+			abs = filepath.Join(dir, filepath.Base(abs))
+		}
+
+		r, err := filepath.Rel(root, abs)
 		if err != nil {
 			return "", pathErr("the file must be inside the file database directory")
 		}

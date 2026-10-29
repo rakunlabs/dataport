@@ -192,6 +192,7 @@ func mcpInstructions(cfg config.MCP, readOnly, notebooks bool) string {
 	fmt.Fprintf(&b, "- Results are capped at %d rows per statement and long values are shortened. ", cfg.MaxRows)
 	b.WriteString("If truncated is true you see part of the result: narrow it with WHERE, LIMIT or aggregates.\n")
 	b.WriteString("- Each call runs in one transaction managed by dataport; BEGIN, COMMIT and ROLLBACK are refused.\n")
+	b.WriteString("- For a slow query, read its plan with " + mcpToolPrefix + "explain before rewriting it.\n")
 
 	if readOnly {
 		b.WriteString("- This token is read-only: no write tool is available. If the user needs a change, tell them to make it in dataport.\n")

@@ -255,6 +255,12 @@ func TestMCP(t *testing.T) {
 		t.Fatal("query tool ran a delete")
 	}
 
+	_, out = call(rw, "dataport_explain", map[string]any{"connection": "shop", "sql": "select * from customers where id = 1"})
+	if plan, ok := out["plan"].(map[string]any); !ok || plan["row_count"].(float64) < 1 || !strings.HasPrefix(out["sql"].(string), "EXPLAIN QUERY PLAN") {
+		t.Fatalf("explain: %v", out)
+	}
+
+
 	_, out = call(rw, "dataport_execute", map[string]any{"connection": "shop", "sql": "update customers set name = 'Ada L.' where id = 1"})
 	if out["committed"] != true {
 		t.Fatalf("execute: %v", out)
@@ -303,6 +309,11 @@ func TestMCP(t *testing.T) {
 
 	// A read-only token has no write tool and cannot write through query.
 	ro := connect(newToken(alice, true), nil)
+	// Analyzing a write on a read-only token is refused.
+	if res, _ := call(ro, "dataport_explain", map[string]any{"connection": "shop", "sql": "delete from customers", "analyze": true}); !res.IsError {
+		t.Fatal("read-only token analyzed a delete")
+	}
+
 
 	tools, err = ro.ListTools(ctx, nil)
 	if err != nil {

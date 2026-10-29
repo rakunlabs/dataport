@@ -421,6 +421,8 @@ github.com/prometheus/common v0.9.1/go.mod h1:yhUN8i9wzaXS3w1O07YhxHEBxD+W35wd8b
 github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d/go.mod h1:c3At6R/oaqEKCNdg8wHV1ftS6bRYblBhIjjI8uT2IGk=
 github.com/prometheus/procfs v0.0.2/go.mod h1:TjEm7ze935MbeOT/UhFTIMYKhuLP4wbCsTZCD3I8kEA=
 github.com/prometheus/procfs v0.0.8/go.mod h1:7Qr8sr6344vo1JqZ6HhLceV9o3AJ1Ff+GxbHq6oeK9A=
+github.com/quic-go/quic-go v0.59.0 h1:OLJkp1Mlm/aS7dpKgTc6cnpynnD2Xg7C1pwL6vy/SAw=
+github.com/quic-go/quic-go v0.59.0/go.mod h1:upnsH4Ju1YkqpLXC305eW3yDZ4NfnNbmQRCMWS58IKU=
 github.com/rakunlabs/ada v0.5.4 h1:u6FXElvksK6Z132eRzoL16EUkk5at3Uga4LTMRwRxro=
 github.com/rakunlabs/ada v0.5.4/go.mod h1:Zz9W4dNSPINzG8t0kS6LO0ipVOsC5OAVW2Ip9oV0B/Y=
 github.com/rakunlabs/ada/handler/folder v0.5.4 h1:xh4lIgFgjWq4Z4mhahTl6S3rEdRj++GXMttGgB9S1z0=
@@ -437,6 +439,8 @@ github.com/rakunlabs/ada/middleware/server v0.5.4 h1:eklMLLqKBK430cRcgMjylnRA/aU
 github.com/rakunlabs/ada/middleware/server v0.5.4/go.mod h1:nAN0tmc1/sBvOywH/QIlGSNpcyGbvEhmawkHGtqcxxI=
 github.com/rakunlabs/ada/middleware/telemetry v0.5.4 h1:pIIDHk4rxYj8zEjtpWBIMgwSOvVD1YWGT7cdmmZrxcc=
 github.com/rakunlabs/ada/middleware/telemetry v0.5.4/go.mod h1:6PriIUWb9WmDnECCETJwHTzr5hS0w98q7nV9fk0e0hg=
+github.com/rakunlabs/alan v0.5.0 h1:yl0Io4lY0NaUDr06k1ME704kngGZLQzM33VTc1/NmFo=
+github.com/rakunlabs/alan v0.5.0/go.mod h1:MfDCHpkz9rCUE3fhgbWRFAH+L1VvxDJBYQHibRasN4I=
 github.com/rakunlabs/chu v0.5.1 h1:XwrGxQPTT4NWw9hQIef+WZ4gyDE9BzWfJ10+PM930hY=
 github.com/rakunlabs/chu v0.5.1/go.mod h1:aV4iheKQSB0pPFMrMTgXvTUFXEUqOXeTf/j3fkpWKNQ=
 github.com/rakunlabs/chu/loader/external/loaderawssecrets v0.0.0-20261027215840-cda2502637e3 h1:1DJbAMYxyz1B29hzIOKpYQONJXUEkiZXe5BZQCdKwqs=

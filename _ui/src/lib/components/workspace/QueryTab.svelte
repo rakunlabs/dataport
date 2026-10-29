@@ -1,13 +1,15 @@
 <script lang="ts">
   import { keepEdits } from '@/lib/stores/edits.svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2 } from 'lucide-svelte';
+  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity } from 'lucide-svelte';
+  import ExplainDialog from '@/lib/components/dialogs/ExplainDialog.svelte';
   import type { SQLNamespace } from '@codemirror/lang-sql';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
   import ResultPanel from '@/lib/components/result/ResultPanel.svelte';
   import RunTimer from '@/lib/components/result/RunTimer.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
-  import { cancel, cancelPending, connection, endTx, persist, run, runInNewTab, saveTab, setManualTx, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
+  import { cancel, cancelPending, connection, endTx, explain, explainOptions, persist, run, runInNewTab, saveExplainOptions, saveTab, setManualTx, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
+  import type { ExplainOptions } from '@/lib/api/types';
   import { prefs } from '@/lib/stores/prefs.svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';
@@ -97,6 +99,7 @@
           { label: t('editor.runHere'), icon: Play, action: here },
           { label: t('editor.runNewResult'), icon: CopyPlus, hidden: !tab.result && !besideRuns, action: beside },
           { label: t('editor.runNewTab'), icon: SquareArrowOutUpRight, action: elsewhere },
+          { label: t('explain.menu'), icon: Activity, hidden: !conn?.explain?.supported, action: () => openExplain(sql) },
         ],
       };
       return;
@@ -104,6 +107,24 @@
 
     if (prefs.resultInNewTab) elsewhere();
     else void here();
+  }
+
+  // Explain asks for its options first, as DBeaver does, then shows the
+  // plan as a result of its own.
+  let explaining = $state<string | null>(null);
+
+  function openExplain(sql?: string) {
+    const text = (sql ?? editor?.currentStatement() ?? tab.sql).trim();
+    if (!text || !conn?.explain?.supported) return;
+    explaining = text;
+  }
+
+  function doExplain(o: ExplainOptions) {
+    const sql = explaining;
+    explaining = null;
+    if (!sql) return;
+    saveExplainOptions(o);
+    void explain(tab.id, sql, o);
   }
 
   // Row choices for a run: the connection default, fixed sizes, or as
@@ -188,6 +209,11 @@
         </button>
       </div>
     {/if}
+    {#if conn?.explain?.supported}
+      <button class="btn" onclick={() => openExplain()} disabled={!tab.sql.trim()} title="{t('explain.button')} (Ctrl+Shift+E)">
+        <Activity size={13} /> {t('explain.button')}
+      </button>
+    {/if}
     <button class="btn" onclick={save} title="Ctrl+S"><Save size={14} /> {tab.savedId ? t('query.save') : t('query.saveAs')}</button>
     {#if session.user?.can_use_notebooks}
       <button class="btn" onclick={() => openNotebook('', tab.sql, tab.connectionId)}>{t('notebook.fromQuery')}</button>
@@ -270,6 +296,7 @@
       onrun={(sql, append) => run(tab.id, sql, append ? 'append' : 'replace')}
       onrunstatement={prefs.statementRun ? runStatement : undefined}
       onsave={save}
+      onexplain={conn?.explain?.supported ? openExplain : undefined}
       options={editorOptions(prefs)}
     />
   </div>
@@ -296,4 +323,8 @@
 
 {#if stmtMenu}
   <TreeMenu x={stmtMenu.x} y={stmtMenu.y} items={stmtMenu.items} onclose={() => (stmtMenu = null)} />
+{/if}
+
+{#if explaining && conn?.explain}
+  <ExplainDialog support={conn.explain} options={explainOptions()} sql={explaining} readOnly={conn.read_only} onexplain={doExplain} onclose={() => (explaining = null)} />
 {/if}

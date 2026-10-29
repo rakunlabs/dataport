@@ -43,6 +43,9 @@ func (s *Server) listMyConnections(w http.ResponseWriter, r *http.Request) {
 
 		v.Editable = engine.Editable(v.DBType)
 		v.ManualTx = engine.ManualTx(v.DBType) && !v.ReadOnly
+		if sup := engine.ExplainSupportFor(v.DBType); sup.Supported {
+			v.Explain = sup
+		}
 		v.MaxRowsLimit = s.queryCfg().MaxRowsLimit
 		v.MaxTimeoutMS = int(s.queryCfg().MaxTimeout.Milliseconds())
 		v.MaxRows = s.maxRows(g.Connection)

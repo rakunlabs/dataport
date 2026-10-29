@@ -23,6 +23,7 @@ import (
 	"github.com/rakunlabs/hardloop"
 
 	"github.com/rakunlabs/dataport/internal/auth"
+	"github.com/rakunlabs/dataport/internal/cluster"
 	"github.com/rakunlabs/dataport/internal/config"
 	"github.com/rakunlabs/dataport/internal/crypto"
 	"github.com/rakunlabs/dataport/internal/engine"
@@ -40,7 +41,10 @@ type Server struct {
 	store  *store.Store
 	auth   *auth.Auth
 	cipher *crypto.Cipher
-	engine *engine.Manager
+	engine Engine
+	// router is set when the replicas form a cluster.
+	router *cluster.Router
+	local  *engine.Manager
 	sso    *sso.Manager
 	mux    *ada.Server
 	// Bound scheduled work per instance, including the startup catch-up.
@@ -64,8 +68,13 @@ type Server struct {
 	settingsMu sync.RWMutex
 }
 
-func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, en *engine.Manager, sm *sso.Manager) (*Server, error) {
-	s := &Server{cfg: cfg, base: *cfg, store: st, auth: au, cipher: ci, engine: en, sso: sm, docScheduleChanged: make(chan struct{}, 1)}
+// New builds the server. rt, when not nil, is the cluster the engine's work
+// is routed through.
+func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, en *engine.Manager, sm *sso.Manager, rt ...*cluster.Router) (*Server, error) {
+	s := &Server{cfg: cfg, base: *cfg, store: st, auth: au, cipher: ci, engine: en, local: en, sso: sm, docScheduleChanged: make(chan struct{}, 1)}
+	if len(rt) > 0 && rt[0] != nil {
+		s.engine, s.router = rt[0], rt[0]
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -128,6 +137,8 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.PUT("/connections/{id}/credentials", s.setCredential)
 	user.DELETE("/connections/{id}/credentials", s.deleteCredential)
 	user.POST("/connections/{id}/query", s.runQuery)
+	user.POST("/connections/{id}/explain", s.explainQuery)
+	user.POST("/connections/{id}/count", s.countQuery)
 	user.POST("/connections/{id}/disconnect", s.disconnect)
 	user.GET("/connections/{id}/processes", s.processes)
 	user.POST("/connections/{id}/processes/kill", s.killProcess)
@@ -191,6 +202,8 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	admin.PUT("/connections/{id}", s.adminUpdateConnection)
 	admin.DELETE("/connections/{id}", s.adminDeleteConnection)
 	admin.GET("/logs", s.adminLogs)
+	admin.GET("/cluster", s.adminCluster)
+	admin.POST("/cluster/release", s.adminReleasePool)
 	admin.GET("/settings", s.adminGetSettings)
 	admin.PUT("/settings", s.adminSetSettings)
 	admin.GET("/sessions/lifetime", s.adminGetSessionLifetime)

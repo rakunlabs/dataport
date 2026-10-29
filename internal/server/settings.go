@@ -195,7 +195,7 @@ func (s *Server) useSettings(next *config.Config, start bool) {
 
 	s.store.SetPersonalConnections(next.Connections.UserCreate)
 
-	if s.engine != nil {
+	if s.local != nil {
 		s.engine.SetDefaults(store.Limits{
 			MaxOpen:        q.PoolMaxOpen,
 			MaxIdle:        q.PoolMaxIdle,

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/dataport/internal/store"
@@ -264,7 +265,7 @@ func (trinoDriver) KillSQL(id string, terminate bool) (string, error) {
 // Disconnect releases what dataport holds open on a connection. A pool used
 // by one user closes; a shared pool lets go of its idle sessions, so other
 // users' running statements are not cut off.
-func (m *Manager) Disconnect(c *store.Connection) {
+func (m *Manager) Disconnect(_ context.Context, c *store.Connection) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -279,12 +280,68 @@ func (m *Manager) Disconnect(c *store.Connection) {
 		m.rollbackTxs(func(o *openTx) bool { return o.poolKey == key })
 		_ = p.db.Close()
 		delete(m.pools, key)
+		m.closed(key)
 
 		return
 	}
 
 	p.db.SetMaxIdleConns(0)
 	p.db.SetMaxIdleConns(min(p.limits.MaxIdle, p.limits.MaxOpen))
+}
+
+// PoolInfo describes an open pool, for the replica overview.
+type PoolInfo struct {
+	// Key is the connection id, followed by /<user id> for a pool of a
+	// user's own account.
+	Key          string `json:"key"`
+	ConnectionID string `json:"connection_id"`
+	UserID       string `json:"user_id,omitempty"`
+	DBType       string `json:"db_type"`
+	Open         int    `json:"open"`
+	InUse        int    `json:"in_use"`
+	Idle         int    `json:"idle"`
+	MaxOpen      int    `json:"max_open"`
+	Running      int    `json:"running"`
+	Txs          int    `json:"txs"`
+	LastUsed     int64  `json:"last_used"`
+}
+
+// Pools lists the pools this instance holds open.
+func (m *Manager) Pools() []PoolInfo {
+	m.txMu.Lock()
+	txs := map[string]int{}
+
+	for _, o := range m.txs {
+		txs[o.poolKey]++
+	}
+	m.txMu.Unlock()
+
+	m.runMu.Lock()
+	runs := map[string]int{}
+
+	for _, list := range m.running {
+		for _, r := range list {
+			runs[r.poolKey]++
+		}
+	}
+	m.runMu.Unlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	out := make([]PoolInfo, 0, len(m.pools))
+
+	for key, p := range m.pools {
+		st := p.db.Stats()
+		id, user, _ := strings.Cut(key, "/")
+		out = append(out, PoolInfo{
+			Key: key, ConnectionID: id, UserID: user, DBType: p.driver.Type(),
+			Open: st.OpenConnections, InUse: st.InUse, Idle: st.Idle, MaxOpen: st.MaxOpenConnections,
+			Running: runs[key], Txs: txs[key], LastUsed: p.lastUsed.UnixMilli(),
+		})
+	}
+
+	return out
 }
 
 // Connected reports whether dataport holds a pool for the connection.

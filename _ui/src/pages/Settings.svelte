@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, i18n, locales, setLocale } from '@/lib/i18n/index.svelte';
-  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, Moon, Sun, Monitor, Check, Info, SlidersHorizontal, PlugZap } from 'lucide-svelte';
+  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, Moon, Sun, Monitor, Check, Info, SlidersHorizontal, PlugZap, Network } from 'lucide-svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
   import { ws } from '@/lib/stores/workspace.svelte';
@@ -16,9 +16,10 @@
   import DocsSchedule from '@/pages/admin/Docs.svelte';
   import Sessions from '@/pages/admin/Sessions.svelte';
   import ServerSettings from '@/pages/admin/ServerSettings.svelte';
+  import Cluster from '@/pages/admin/Cluster.svelte';
   import MyConnections from '@/pages/settings/MyConnections.svelte';
 
-  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'myConnections' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'sessions' | 'server' | 'docs' | 'logs';
+  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'myConnections' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'sessions' | 'server' | 'cluster' | 'docs' | 'logs';
 
   const isAdmin = $derived(session.user?.role === 'admin');
 
@@ -40,6 +41,7 @@
     { key: 'sso', label: 'admin.sso', icon: KeyRound },
     { key: 'sessions', label: 'admin.sessions.title', icon: Timer },
     { key: 'server', label: 'admin.server.title', icon: SlidersHorizontal },
+    { key: 'cluster', label: 'admin.cluster.title', icon: Network },
     { key: 'docs', label: 'admin.docs.title', icon: BookOpen },
     { key: 'logs', label: 'admin.logs', icon: ScrollText },
   ];
@@ -120,6 +122,8 @@
       <Sessions />
     {:else if section === 'server'}
       <ServerSettings />
+    {:else if section === 'cluster'}
+      <Cluster />
     {:else if section === 'docs'}
       <DocsSchedule />
     {:else if section === 'logs'}

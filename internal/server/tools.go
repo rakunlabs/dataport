@@ -94,7 +94,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 		c.Owner = currentUser(r).ID
 	}
 
-	s.engine.Disconnect(&c)
+	s.engine.Disconnect(r.Context(), &c)
 	w.WriteHeader(http.StatusNoContent)
 }
 

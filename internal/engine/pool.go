@@ -18,6 +18,9 @@ type pool struct {
 	lastUsed time.Time
 }
 
+// PoolKey names the pool a connection is served from.
+func PoolKey(c *store.Connection) string { return poolKey(c) }
+
 // poolKey separates the pools of users who sign in with their own account,
 // so one user's session can never serve another user.
 func poolKey(c *store.Connection) string {
@@ -85,11 +88,33 @@ func (m *Manager) Forget(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	var closed []string
+
 	for key, p := range m.pools {
 		if key == id || strings.HasPrefix(key, id+"/") {
 			_ = p.db.Close()
 			delete(m.pools, key)
+			closed = append(closed, key)
 		}
+	}
+
+	m.closed(closed...)
+}
+
+// OnClose sets a function told the keys of pools that closed, such as the
+// cluster giving up the ownership of a pool. It runs in a goroutine of its
+// own, so it may find the pool open again.
+func (m *Manager) OnClose(fn func(keys []string)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.onClose = fn
+}
+
+// closed reports closed pools; m.mu is held.
+func (m *Manager) closed(keys ...string) {
+	if m.onClose != nil && len(keys) > 0 {
+		go m.onClose(keys)
 	}
 }
 
@@ -104,7 +129,36 @@ func (m *Manager) ForgetUser(id, userID string) {
 	if p, ok := m.pools[key]; ok {
 		_ = p.db.Close()
 		delete(m.pools, key)
+		m.closed(key)
 	}
+}
+
+// Release closes one pool by its key, rolling back its open transactions,
+// and reports whether it was open.
+func (m *Manager) Release(key string) bool {
+	m.rollbackTxs(func(o *openTx) bool { return o.poolKey == key })
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	p, ok := m.pools[key]
+	if ok {
+		_ = p.db.Close()
+		delete(m.pools, key)
+		m.closed(key)
+	}
+
+	return ok
+}
+
+// HasPool reports whether the pool of a key is open.
+func (m *Manager) HasPool(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, ok := m.pools[key]
+
+	return ok
 }
 
 func (m *Manager) Close() {
@@ -164,6 +218,7 @@ func (m *Manager) closeIdle(now time.Time) {
 		if now.Sub(p.lastUsed) > m.idle {
 			_ = p.db.Close()
 			delete(m.pools, id)
+			m.closed(id)
 		}
 	}
 }

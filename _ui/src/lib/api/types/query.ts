@@ -26,6 +26,43 @@ export interface ResultSet {
   pending?: { queryId: string; startedAt: number; cancelling: boolean };
   // Pending edits of a query result read from one table.
   edit?: EditState;
+  // Set on the result of an explain: the plan and how it was read.
+  plan?: { format: string; analyzed: boolean; source: string; options: ExplainOptions };
+  // The total the footer counted for this result, or the count running.
+  total?: { count?: number; running?: boolean; error?: string; queryId?: string };
+}
+
+export interface ExplainOptions {
+  analyze: boolean;
+  verbose: boolean;
+  costs: boolean;
+  buffers: boolean;
+  timing: boolean;
+  settings: boolean;
+  wal: boolean;
+  summary: boolean;
+  format: string;
+}
+
+// ExplainSupport is what a database offers in the explain dialog.
+export interface ExplainSupport {
+  supported: boolean;
+  options: string[] | null;
+  formats: string[] | null;
+  analyze: boolean;
+}
+
+export interface ExplainResult {
+  sql: string;
+  format: string;
+  analyzed: boolean;
+  result: ResultSet;
+}
+
+export interface CountResult {
+  count: number;
+  sql: string;
+  duration_ms: number;
 }
 
 export interface ExecResult {

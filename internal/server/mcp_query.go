@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/rakunlabs/dataport/internal/engine"
+	"github.com/rakunlabs/dataport/internal/store"
 )
 
 func (s *Server) mcpRun(ctx context.Context, req *mcp.CallToolRequest, name, sqlText string, maxRows int, readOnly bool) (*mcp.CallToolResult, queryOut, error) {
@@ -77,6 +78,77 @@ func (s *Server) mcpRun(ctx context.Context, req *mcp.CallToolRequest, name, sql
 	}
 
 	return nil, out, nil
+}
+
+func (s *Server) mcpExplain(ctx context.Context, req *mcp.CallToolRequest, in explainIn) (*mcp.CallToolResult, explainOut, error) {
+	if strings.TrimSpace(in.SQL) == "" || len(in.SQL) > maxSQLLength {
+		return nil, explainOut{}, errors.New("sql is empty or too long")
+	}
+
+	g, password, caller, err := s.mcpGrant(ctx, req, in.Connection)
+	if err != nil {
+		return nil, explainOut{}, err
+	}
+
+	readOnly := g.ReadOnly || caller.token.ReadOnly
+
+	// Analyzing a write is a write for the policy of the agent and for the
+	// production prompt, though it is rolled back.
+	if in.Analyze {
+		if d, err := engine.DriverFor(g.Connection); err == nil {
+			if risk := engine.Classify(d, in.SQL); risk != engine.RiskRead {
+				if readOnly {
+					return nil, explainOut{}, errors.New("analyze runs the statement; this access only analyzes reads")
+				}
+
+				mode, err := s.mcpMode(ctx, caller, g)
+				if err != nil {
+					return nil, explainOut{}, err
+				}
+
+				if err := mcpAllows(mode, g, in.SQL); err != nil {
+					return nil, explainOut{}, err
+				}
+
+				if g.Connection.Production {
+					if err := confirmProduction(ctx, req, g.Connection, in.SQL, risk); err != nil {
+						return nil, explainOut{}, err
+					}
+				}
+			}
+		}
+	}
+
+	res, err := s.engine.Explain(ctx, g.Connection, password, engine.ExplainRequest{
+		SQL:      in.SQL,
+		Options:  engine.ExplainOptions{Analyze: in.Analyze, Verbose: in.Verbose, Costs: true, Timing: true},
+		ReadOnly: readOnly,
+		Timeout:  s.timeout(g.Connection),
+		MaxRows:  s.mcpCfg().MaxRows * 10,
+		UserID:   caller.user.ID,
+	})
+
+	entry := &store.QueryLog{
+		UserID: caller.user.ID, Username: caller.user.Username,
+		ConnectionID: g.Connection.ID, ConnectionName: g.Connection.Name, Database: g.Connection.Database,
+		SQL: engine.Redact(in.SQL), Status: "ok", Source: "mcp",
+	}
+
+	if res != nil {
+		entry.SQL = engine.Redact(res.SQL)
+	}
+
+	if err != nil {
+		entry.Status, entry.Error = "rejected", err.Error()
+	}
+
+	s.audit(ctx, entry)
+
+	if err != nil {
+		return nil, explainOut{}, mcpEngineError(err)
+	}
+
+	return nil, explainOut{Connection: g.Connection.Name, SQL: res.SQL, Analyzed: res.Analyzed, Plan: toMCPResult(res.Result, 0)}, nil
 }
 
 func toMCPResult(rs *engine.ResultSet, maxChars int) mcpResult {

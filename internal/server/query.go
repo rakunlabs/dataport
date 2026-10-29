@@ -185,7 +185,7 @@ func (s *Server) execute(ctx context.Context, user *store.User, g *store.Grant, 
 }
 
 func (s *Server) cancelQuery(w http.ResponseWriter, r *http.Request) {
-	if !s.engine.Cancel(currentUser(r).ID, r.PathValue("queryID")) {
+	if !s.engine.Cancel(r.Context(), currentUser(r).ID, r.PathValue("queryID")) {
 		writeError(w, http.StatusNotFound, "query is not running")
 
 		return
@@ -267,7 +267,7 @@ func (s *Server) endTx(w http.ResponseWriter, r *http.Request) {
 	// Writes on production were confirmed when they ran.
 	user := currentUser(r)
 
-	end, err := s.engine.EndTx(user.ID, req.TxID, g.Connection.ID, req.Commit)
+	end, err := s.engine.EndTx(r.Context(), user.ID, req.TxID, g.Connection.ID, req.Commit)
 
 	entry := &store.QueryLog{
 		UserID:         user.ID,
@@ -306,5 +306,5 @@ func (s *Server) endTx(w http.ResponseWriter, r *http.Request) {
 // listTxs returns the user's open manual transactions, so the workspace
 // learns which of its tabs still have one.
 func (s *Server) listTxs(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.engine.Txs(currentUser(r).ID))
+	writeJSON(w, http.StatusOK, s.engine.Txs(r.Context(), currentUser(r).ID))
 }

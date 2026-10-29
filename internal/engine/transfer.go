@@ -170,10 +170,67 @@ type TransferProgress struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// TableSource is the side a transfer reads tables from: a session of this
+// instance or, in a cluster, the replica that holds the source pool. The
+// rows it hands out are already turned into values any target can bind.
+type TableSource interface {
+	Driver() Driver
+	Columns(ctx context.Context, schema, table string) ([]ColumnInfo, error)
+	Stream(ctx context.Context, schema, table string, columns func([]Column) error, fn RowFunc) error
+}
+
+// Source opens a TableSource for the length of fn.
+type Source func(ctx context.Context, fn func(ctx context.Context, src TableSource) error) error
+
+// LocalSource reads the tables of c on one pooled session of this instance.
+func (m *Manager) LocalSource(c *store.Connection, password string, timeout time.Duration) Source {
+	return func(ctx context.Context, fn func(ctx context.Context, src TableSource) error) error {
+		return m.Session(ctx, c, password, timeout, func(ctx context.Context, d Driver, conn *sql.Conn) error {
+			return fn(ctx, &sessionSource{d: d, conn: conn})
+		})
+	}
+}
+
+type sessionSource struct {
+	d    Driver
+	conn *sql.Conn
+}
+
+func (s *sessionSource) Driver() Driver { return s.d }
+
+func (s *sessionSource) Columns(ctx context.Context, schema, table string) ([]ColumnInfo, error) {
+	return s.d.Columns(ctx, s.conn, schema, table)
+}
+
+func (s *sessionSource) Stream(ctx context.Context, schema, table string, columns func([]Column) error, fn RowFunc) error {
+	var cols []Column
+
+	convert := converterFor(s.d)
+
+	return StreamTable(ctx, s.d, s.conn, schema, table, func(c []Column) error {
+		cols = c
+
+		return columns(c)
+	}, func(row []any) error {
+		for i, v := range row {
+			row[i] = sourceValue(cols[i].Type, convert, v)
+		}
+
+		return fn(row)
+	})
+}
+
 // Transfer copies the tables one by one. Each table goes in one transaction
 // on the target where it has them, so a failed table leaves nothing behind;
 // tables done before it stay. progress is called as rows arrive.
 func (m *Manager) Transfer(ctx context.Context, src *store.Connection, srcPassword string, dst *store.Connection, dstPassword string,
+	req TransferRequest, progress func(TransferProgress),
+) error {
+	return m.TransferFrom(ctx, src, m.LocalSource(src, srcPassword, req.Timeout), dst, dstPassword, req, progress)
+}
+
+// TransferFrom is Transfer reading from source, which serves src.
+func (m *Manager) TransferFrom(ctx context.Context, src *store.Connection, source Source, dst *store.Connection, dstPassword string,
 	req TransferRequest, progress func(TransferProgress),
 ) error {
 	if len(req.Tables) == 0 {
@@ -194,7 +251,7 @@ func (m *Manager) Transfer(ctx context.Context, src *store.Connection, srcPasswo
 		return errors.New("copying within a connection needs a pool of at least two connections")
 	}
 
-	return m.Session(ctx, src, srcPassword, req.Timeout, func(ctx context.Context, sd Driver, sconn *sql.Conn) error {
+	return source(ctx, func(ctx context.Context, s TableSource) error {
 		return m.Session(ctx, dst, dstPassword, req.Timeout, func(ctx context.Context, dd Driver, dconn *sql.Conn) error {
 			existing := map[string]bool{}
 
@@ -210,7 +267,7 @@ func (m *Manager) Transfer(ctx context.Context, src *store.Connection, srcPasswo
 			for _, table := range req.Tables {
 				p := TransferProgress{Table: table}
 
-				err := transferTable(ctx, sd, sconn, dd, dconn, req, table, existing[strings.ToLower(table)], &p, progress)
+				err := transferTable(ctx, s, dd, dconn, req, table, existing[strings.ToLower(table)], &p, progress)
 				if err != nil {
 					p.Error = err.Error()
 					progress(p)
@@ -231,10 +288,10 @@ func (m *Manager) Transfer(ctx context.Context, src *store.Connection, srcPasswo
 	})
 }
 
-func transferTable(ctx context.Context, sd Driver, sconn *sql.Conn, dd Driver, dconn *sql.Conn, req TransferRequest,
+func transferTable(ctx context.Context, src TableSource, dd Driver, dconn *sql.Conn, req TransferRequest,
 	table string, exists bool, p *TransferProgress, progress func(TransferProgress),
 ) error {
-	cols, err := sd.Columns(ctx, sconn, req.Schema, table)
+	cols, err := src.Columns(ctx, req.Schema, table)
 	if err != nil {
 		return err
 	}
@@ -249,7 +306,7 @@ func transferTable(ctx context.Context, sd Driver, sconn *sql.Conn, dd Driver, d
 
 	return inTransaction(ctx, dd, dconn, req.Timeout, func(run Runner) error {
 		if !exists {
-			if _, err := run.ExecContext(ctx, CreateTableSQL(sd.Type(), dd, req.TargetSchema, table, cols)); err != nil {
+			if _, err := run.ExecContext(ctx, CreateTableSQL(src.Driver().Type(), dd, req.TargetSchema, table, cols)); err != nil {
 				return fmt.Errorf("create table: %s", cleanError(ctx, err))
 			}
 
@@ -265,14 +322,11 @@ func transferTable(ctx context.Context, sd Driver, sconn *sql.Conn, dd Driver, d
 		}
 
 		var (
-			ins     *Inserter
-			srcCols []Column
-			convert = converterFor(sd)
-			last    = time.Now()
+			ins  *Inserter
+			last = time.Now()
 		)
 
-		err := StreamTable(ctx, sd, sconn, req.Schema, table, func(c []Column) error {
-			srcCols = c
+		err := src.Stream(ctx, req.Schema, table, func(c []Column) error {
 			names := make([]string, len(c))
 
 			for i, col := range c {
@@ -284,7 +338,7 @@ func transferTable(ctx context.Context, sd Driver, sconn *sql.Conn, dd Driver, d
 			return nil
 		}, func(row []any) error {
 			for i, v := range row {
-				row[i] = transferValue(sd, dd, srcCols[i].Type, convert, v)
+				row[i] = targetValue(dd, v)
 			}
 
 			if err := ins.Add(row); err != nil {
@@ -307,14 +361,12 @@ func transferTable(ctx context.Context, sd Driver, sconn *sql.Conn, dd Driver, d
 	})
 }
 
-// transferValue keeps what the target can bind as it is and turns the
-// rest, such as driver-specific types, into text.
-func transferValue(sd, dd Driver, typ string, convert ValueConverter, v any) any {
+// sourceValue keeps what any target can bind as it is and turns the rest,
+// such as driver-specific types, into text. Binary columns stay bytes.
+func sourceValue(typ string, convert ValueConverter, v any) any {
 	switch x := v.(type) {
-	case nil, int64, float64, string, time.Time, int32, int, float32:
+	case nil, int64, float64, string, time.Time, int32, int, float32, bool:
 		return x
-	case bool:
-		return boolFor(dd.Type(), x)
 	case []byte:
 		if binaryTypes[typ] {
 			return append([]byte(nil), x...)
@@ -330,4 +382,14 @@ func transferValue(sd, dd Driver, typ string, convert ValueConverter, v any) any
 	}
 
 	return jsonValue(v)
+}
+
+// targetValue fits a value from sourceValue to the target, which may store
+// booleans as numbers.
+func targetValue(dd Driver, v any) any {
+	if b, ok := v.(bool); ok {
+		return boolFor(dd.Type(), b)
+	}
+
+	return v
 }

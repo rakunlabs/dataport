@@ -127,6 +127,20 @@ type queryIn struct {
 	MaxRows int    `json:"max_rows,omitempty" jsonschema:"rows to return per statement; may be lower than the server cap, never higher"`
 }
 
+type explainIn struct {
+	connectionIn
+	SQL     string `json:"sql" jsonschema:"one statement to explain, without EXPLAIN"`
+	Analyze bool   `json:"analyze,omitempty" jsonschema:"run the statement to measure the plan; always rolled back, and only for reads unless the connection allows writes"`
+	Verbose bool   `json:"verbose,omitempty" jsonschema:"more detail per plan step where the database has it"`
+}
+
+type explainOut struct {
+	Connection string    `json:"connection"`
+	SQL        string    `json:"sql"`
+	Analyzed   bool      `json:"analyzed"`
+	Plan       mcpResult `json:"plan"`
+}
+
 type executeIn struct {
 	Connection string `json:"connection,omitempty" jsonschema:"connection name from dataport_list_connections; it must be writable. May be omitted on an endpoint for one connection"`
 	SQL        string `json:"sql" jsonschema:"statements that change data or schema, separated by semicolons; they run in one transaction where the database has transactions"`
@@ -383,6 +397,17 @@ func (s *Server) registerMCPTools(server *mcp.Server, readOnly, notebooks bool) 
 			"Results are capped: if truncated is true, narrow the query instead of paging blindly.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in queryIn) (*mcp.CallToolResult, queryOut, error) {
 		return s.mcpRun(ctx, req, in.Connection, in.SQL, in.MaxRows, true)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: mcpToolPrefix + "explain",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Show the execution plan of a statement", ReadOnlyHint: true, OpenWorldHint: &closed,
+		},
+		Description: "Show how the database would run one statement: the plan with its estimated costs. With analyze the statement " +
+			"runs to measure real times and rows, and is rolled back; prefer the estimate unless timings are needed.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in explainIn) (*mcp.CallToolResult, explainOut, error) {
+		return s.mcpExplain(ctx, req, in)
 	})
 
 	if notebooks {

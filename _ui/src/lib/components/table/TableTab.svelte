@@ -28,6 +28,7 @@
   import ConditionInput from '@/lib/components/table/ConditionInput.svelte';
   import ExportMenu from '@/lib/components/result/ExportMenu.svelte';
   import ResultPanel from '@/lib/components/result/ResultPanel.svelte';
+  import TotalCount from '@/lib/components/result/TotalCount.svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import {
     connection,
@@ -39,6 +40,7 @@
     runTable,
     tableKey,
     tableSQL,
+    totalOf,
     ws,
     type Tab,
   } from '@/lib/stores/workspace.svelte';
@@ -316,11 +318,12 @@
       <span class="tabular-nums">
         {#if rowCount}
           {t('table.rowsRange', { from: fmtNumber(tab.offset + 1), to: fmtNumber(tab.offset + rowCount) })}
-          {#if tab.hasMore}<span class="ml-1 text-faint">· {t('table.more')}</span>{:else}<span class="ml-1 text-faint">· {t('table.total', { count: fmtNumber(tab.offset + rowCount) })}</span>{/if}
+          {#if !tab.hasMore}<span class="ml-1 text-faint">· {t('table.total', { count: fmtNumber(tab.offset + rowCount) })}</span>{:else if totalOf(tab, current)?.count === undefined}<span class="ml-1 text-faint">· {t('table.more')}</span>{/if}
         {:else}
           {t('table.noRows')}
         {/if}
       </span>
+      {#if tab.hasMore || tab.offset > 0}<TotalCount {tab} />{/if}
       {#if tab.result}<span class="tabular-nums">{formatDuration(tab.result.duration_ms)}{#if conn?.timeout_ms}<span class="ml-1 text-faint">/ {Math.round(conn.timeout_ms / 1000)} {t('table.seconds')}</span>{/if}</span>{/if}
       <span class="min-w-0 flex-1 truncate font-mono text-faint" title={tab.result?.results?.[0]?.statement}>{tab.result?.results?.[0]?.statement ?? ''}</span>
       {#if current?.kind === 'rows' && rowCount}

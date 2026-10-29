@@ -118,6 +118,17 @@ var binaryTypes = map[string]bool{
 
 const maxSafeInt = 1<<53 - 1
 
+// Portable keeps the values every replica can decode as they are and turns
+// any other, such as a driver's own type, into what the grid would show.
+func Portable(v any) any {
+	switch v.(type) {
+	case nil, string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, time.Time, []byte:
+		return v
+	}
+
+	return jsonValue(v)
+}
+
 // jsonValue converts a scanned value into something JSON and JavaScript can
 // show without losing information.
 func jsonValue(v any) any {

@@ -15,11 +15,12 @@ import (
 )
 
 type running struct {
-	cancel context.CancelFunc
+	cancel  context.CancelFunc
+	poolKey string
 }
 
 // Cancel stops a running request of the user.
-func (m *Manager) Cancel(userID, queryID string) bool {
+func (m *Manager) Cancel(_ context.Context, userID, queryID string) bool {
 	m.runMu.Lock()
 	defer m.runMu.Unlock()
 
@@ -35,13 +36,16 @@ func (m *Manager) Cancel(userID, queryID string) bool {
 	return true
 }
 
-func (m *Manager) track(req ExecRequest, cancel context.CancelFunc) func() {
+func (m *Manager) track(req ExecRequest, c *store.Connection, cancel context.CancelFunc) func() {
 	if req.QueryID == "" {
 		return func() {}
 	}
 
 	key := runKey{req.UserID, req.QueryID}
 	r := &running{cancel: cancel}
+	if c != nil {
+		r.poolKey = poolKey(c)
+	}
 
 	m.runMu.Lock()
 	m.running[key] = append(m.running[key], r)
@@ -161,7 +165,7 @@ func (m *Manager) Execute(ctx context.Context, c *store.Connection, password str
 	ctx, cancel := withTimeout(ctx, req.Timeout)
 	defer cancel()
 
-	defer m.track(req, cancel)()
+	defer m.track(req, c, cancel)()
 
 	if cp, ok := d.(ContextPreparer); ok {
 		ctx = cp.PrepareContext(ctx, req.Timeout, req.ReadOnly)
