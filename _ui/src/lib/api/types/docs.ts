@@ -63,6 +63,9 @@ export interface DocStatus {
   refreshing: boolean;
   // Set when the user reads a snapshot they may not refresh.
   read_only?: boolean;
+  // Set on documentation the server builds for every user of the
+  // connection with its documentation account.
+  system?: boolean;
 }
 
 export interface SavedDoc {
@@ -83,6 +86,7 @@ export interface DocInfo {
   last_error: string;
   refreshing: boolean;
   ready: boolean;
+  system?: boolean;
 }
 
 // A refresh of every snapshot, scheduled or started by an admin.
@@ -102,6 +106,37 @@ export interface DocRun {
 
 export interface DocList {
   docs: DocInfo[];
+  // Connections documented for everyone: docs lists their schemas.
+  documented: string[];
+  // Per connection, the patterns of the schemas still open; the others
+  // are closed to documentation.
+  blocked: Record<string, { include: string[]; exclude: string[] }>;
   next_run: number;
   run: DocRun;
+}
+
+// How a connection is documented for every user of it, for admins.
+export interface DocConnection {
+  connection_id: string;
+  name: string;
+  db_type: string;
+  user_credentials: boolean;
+  notebook_only: boolean;
+  enabled: boolean;
+  include: string[];
+  exclude: string[];
+  // Schemas not chosen are closed to documentation for everyone.
+  block_excluded: boolean;
+  username: string;
+  has_password: boolean;
+  discovered_at: number;
+  last_error: '' | 'discovery_failed' | 'account_needed' | 'limit_reached';
+  schemas: number;
+  ready: number;
+  failed: number;
+}
+
+export interface DocSchemaPreview {
+  schemas: { name: string; included: boolean }[];
+  limit: number;
 }

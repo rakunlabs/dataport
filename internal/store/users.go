@@ -237,6 +237,11 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 			return err
 		}
 
+		// Snapshots no longer follow users by a foreign key.
+		if _, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("schema_docs")+" WHERE user_id = ?"), id); err != nil {
+			return err
+		}
+
 		res, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("users")+" WHERE id = ?"), id)
 		if err != nil {
 			return err

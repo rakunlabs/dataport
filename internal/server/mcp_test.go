@@ -249,6 +249,55 @@ func TestMCP(t *testing.T) {
 		t.Errorf("schema report:\n%s", r)
 	}
 
+	// A schema an admin closed to documentation is refused to agents too.
+	shop := docKeyFor(t, env).ConnectionID
+	if err := st.SaveDocConnection(ctx, &store.DocConnection{ConnectionID: shop, Exclude: []string{"main"}, BlockExcluded: true}); err != nil {
+		t.Fatal(err)
+	}
+	for tool, args := range map[string]map[string]any{
+		"dataport_schema_report": {"connection": "shop"},
+		"dataport_table_docs":    {"connection": "shop", "tables": []string{"orders"}},
+	} {
+		res, _ := call(rw, tool, args)
+		if !res.IsError || !strings.Contains(errText(res), "turned off for this schema") {
+			t.Fatalf("%s on a closed schema: %s", tool, errText(res))
+		}
+	}
+	if err := st.SaveDocConnection(ctx, &store.DocConnection{ConnectionID: shop}); err != nil {
+		t.Fatal(err)
+	}
+
+	// On an own-account connection documented for everyone, agents read the
+	// documentation although the user saved no account; other tools still
+	// need one.
+	shopConn, _ := st.GetConnection(ctx, shop)
+	shopConn.UserCredentials = true
+	if err := st.UpdateConnection(ctx, shopConn); err != nil {
+		t.Fatal(err)
+	}
+	enc, _ := env.srv.cipher.Encrypt("pw")
+	docConn := &store.DocConnection{ConnectionID: shop, Enabled: true, Username: "doc_reader", PasswordEnc: enc}
+	if err := st.SaveDocConnection(ctx, docConn); err != nil {
+		t.Fatal(err)
+	}
+	env.srv.buildConnectionDocs(ctx, docConn, nil)
+	if res, out := call(rw, "dataport_schema_report", map[string]any{"connection": "shop"}); res.IsError || out["schema"] != "main" {
+		t.Fatalf("schema report without an account: %s %v", errText(res), out)
+	}
+	if res, _ := call(rw, "dataport_table_docs", map[string]any{"connection": "shop", "schema": "main", "tables": []string{"orders"}}); res.IsError {
+		t.Fatalf("table docs without an account: %s", errText(res))
+	}
+	if res, _ := call(rw, "dataport_query", map[string]any{"connection": "shop", "sql": "select 1"}); !res.IsError || !strings.Contains(errText(res), "sign in") {
+		t.Fatalf("query without an account: %s", errText(res))
+	}
+	if err := st.SaveDocConnection(ctx, &store.DocConnection{ConnectionID: shop}); err != nil {
+		t.Fatal(err)
+	}
+	shopConn.UserCredentials = false
+	if err := st.UpdateConnection(ctx, shopConn); err != nil {
+		t.Fatal(err)
+	}
+
 	_, out = call(rw, "dataport_query", map[string]any{"connection": "shop", "sql": "select id, name from customers order by id"})
 	first := out["results"].([]any)[0].(map[string]any)
 

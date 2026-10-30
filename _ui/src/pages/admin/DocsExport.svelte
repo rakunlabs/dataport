@@ -22,6 +22,7 @@
     sent: number;
     changed: number;
     removed: number;
+    unchanged?: boolean;
     error?: string;
     failed?: string[];
   }
@@ -158,7 +159,9 @@
       {:else}
         <p class="flex flex-wrap items-center gap-1.5 text-sm">
           {#if status.error || status.failed?.length}<TriangleAlert size={14} class="text-warn" />{:else}<CircleCheck size={14} class="text-ok" />{/if}
-          {t('admin.docsExport.last', { time: fullTime(status.finished_at), tables: status.tables, sent: status.sent, removed: status.removed })}
+          {status.unchanged
+            ? t('admin.docsExport.lastUnchanged', { time: fullTime(status.finished_at), tables: status.tables })
+            : t('admin.docsExport.last', { time: fullTime(status.finished_at), tables: status.tables, sent: status.sent, removed: status.removed })}
         </p>
         {#if status.error}<p class="text-warn">{status.error}</p>{/if}
         {#each status.failed ?? [] as f (f)}<p class="text-warn">{f}</p>{/each}

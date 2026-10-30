@@ -238,9 +238,10 @@ func TestDocScheduleHTTP(t *testing.T) {
 	if len(mine.Docs) != 1 || mine.Docs[0].Schema != k.Schema || mine.Docs[0].Username != "" {
 		t.Fatalf("own docs: %+v", mine.Docs)
 	}
+	// Who uses the same database account reads what was built with it.
 	_ = json.Unmarshal(request(admin, "GET", env.httpSrv.URL+"/dp/api/v1/docs", "", http.StatusOK), &mine)
-	if len(mine.Docs) != 0 {
-		t.Fatalf("admin sees alice's docs: %+v", mine.Docs)
+	if len(mine.Docs) != 1 || !mine.Docs[0].Ready || mine.Docs[0].Username != "" {
+		t.Fatalf("docs of the same account: %+v", mine.Docs)
 	}
 }
 

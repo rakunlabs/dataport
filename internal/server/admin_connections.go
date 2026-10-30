@@ -252,6 +252,11 @@ func (s *Server) adminUpdateConnection(w http.ResponseWriter, r *http.Request) {
 
 	s.engine.Forget(c.ID)
 
+	// Documentation kept for everyone was built against the old settings.
+	if _, err := s.docConnection(ctx, c.ID); err == nil {
+		s.docsChanged(c.ID, currentUser(r))
+	}
+
 	c.HasPassword = c.PasswordEnc != ""
 	writeJSON(w, http.StatusOK, c)
 }

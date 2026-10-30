@@ -95,6 +95,15 @@ func (s *Store) CountDueDocs(ctx context.Context, before int64) (int, error) {
 	return n, err
 }
 
+// SkipDoc marks a snapshot a refresh of all documentation leaves as it is,
+// so the run moves past it. One being refreshed is left alone.
+func (s *Store) SkipDoc(ctx context.Context, k DocKey) error {
+	ts := now()
+	_, err := s.exec(ctx, "UPDATE "+s.t("schema_docs")+" SET attempted_at = ? WHERE "+docWhere+" AND lease_until <= ?",
+		ts, k.ConnectionID, k.UserID, k.Schema, ts)
+	return err
+}
+
 // DueDocs lists snapshots not attempted since before and not being refreshed.
 func (s *Store) DueDocs(ctx context.Context, before int64) ([]DocKey, error) {
 	ts := now()
@@ -129,10 +138,19 @@ type DocInfo struct {
 	Refreshing     bool   `json:"refreshing"`
 	// Ready is false until a first document was saved.
 	Ready bool `json:"ready"`
+	// System is set on documentation the server builds for every user of
+	// the connection.
+	System bool `json:"system,omitempty"`
 }
 
-const docInfoSelect = `SELECT d.connection_id, c.name, c.db_type, d.user_id, u.username, d.schema_name,
+const docInfoSelect = `SELECT d.connection_id, c.name, c.db_type, d.user_id, COALESCE(u.username, ''), d.schema_name,
 d.generated_at, d.attempted_at, d.last_error, d.lease_until`
+
+// docInfoFrom joins users loosely: system snapshots belong to no user.
+func docInfoFrom(s *Store) string {
+	return " FROM " + s.t("schema_docs") + " d JOIN " + s.t("connections") + " c ON c.id = d.connection_id LEFT JOIN " +
+		s.t("users") + " u ON u.id = d.user_id"
+}
 
 func (s *Store) scanDocInfos(ctx context.Context, query string, args ...any) ([]DocInfo, error) {
 	rows, err := s.query(ctx, query, args...)
@@ -153,6 +171,7 @@ func (s *Store) scanDocInfos(ctx context.Context, query string, args ...any) ([]
 		}
 		d.Refreshing = lease > ts
 		d.Ready = d.GeneratedAt > 0
+		d.System = d.UserID == DocSystemUser
 		list = append(list, d)
 	}
 	return list, rows.Err()
@@ -163,16 +182,16 @@ func (s *Store) scanDocInfos(ctx context.Context, query string, args ...any) ([]
 // the database account, so it is a snapshot of what that account sees.
 func (s *Store) DocBySource(ctx context.Context, connectionID, schema, version string) (*DocSnapshot, error) {
 	return scanDoc(s.queryRow(ctx, "SELECT "+docColumns+" FROM "+s.t("schema_docs")+
-		" WHERE connection_id = ? AND schema_name = ? AND source_version = ? AND payload <> '' ORDER BY generated_at DESC LIMIT 1",
-		connectionID, schema, version))
+		" WHERE connection_id = ? AND schema_name = ? AND source_version = ? AND payload <> '' AND user_id <> ? ORDER BY generated_at DESC LIMIT 1",
+		connectionID, schema, version, DocSystemUser))
 }
 
 // SharedDocs lists, per schema, the newest built snapshot of a connection
 // made with the given source version, without its document or owner.
 func (s *Store) SharedDocs(ctx context.Context, connectionID, version string) ([]DocInfo, error) {
-	list, err := s.scanDocInfos(ctx, docInfoSelect+" FROM "+s.t("schema_docs")+" d JOIN "+s.t("connections")+" c ON c.id = d.connection_id JOIN "+
-		s.t("users")+" u ON u.id = d.user_id WHERE d.connection_id = ? AND d.source_version = ? AND d.payload <> '' ORDER BY d.schema_name, d.generated_at DESC",
-		connectionID, version)
+	list, err := s.scanDocInfos(ctx, docInfoSelect+docInfoFrom(s)+
+		" WHERE d.connection_id = ? AND d.source_version = ? AND d.payload <> '' AND d.user_id <> ? ORDER BY d.schema_name, d.generated_at DESC",
+		connectionID, version, DocSystemUser)
 	out := []DocInfo{}
 	for i, d := range list {
 		if i > 0 && list[i-1].Schema == d.Schema {
@@ -186,14 +205,12 @@ func (s *Store) SharedDocs(ctx context.Context, connectionID, version string) ([
 
 // DocOverview lists every saved snapshot, for admins.
 func (s *Store) DocOverview(ctx context.Context) ([]DocInfo, error) {
-	return s.scanDocInfos(ctx, docInfoSelect+" FROM "+s.t("schema_docs")+" d JOIN "+s.t("connections")+" c ON c.id = d.connection_id JOIN "+
-		s.t("users")+" u ON u.id = d.user_id ORDER BY c.name, d.schema_name, u.username")
+	return s.scanDocInfos(ctx, docInfoSelect+docInfoFrom(s)+" ORDER BY c.name, d.schema_name, d.user_id = '"+DocSystemUser+"' DESC, u.username")
 }
 
 // UserDocs lists the snapshots of one user.
 func (s *Store) UserDocs(ctx context.Context, userID string) ([]DocInfo, error) {
-	list, err := s.scanDocInfos(ctx, docInfoSelect+" FROM "+s.t("schema_docs")+" d JOIN "+s.t("connections")+" c ON c.id = d.connection_id JOIN "+
-		s.t("users")+" u ON u.id = d.user_id WHERE d.user_id = ? ORDER BY c.name, d.schema_name", userID)
+	list, err := s.scanDocInfos(ctx, docInfoSelect+docInfoFrom(s)+" WHERE d.user_id = ? ORDER BY c.name, d.schema_name", userID)
 	for i := range list {
 		list[i].UserID, list[i].Username = "", ""
 	}

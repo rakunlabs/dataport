@@ -389,6 +389,48 @@ out, and is undone the same way (*Allow writes again*, or the **RO** pill).
 Turning it on rolls back the tab's open transaction; a transaction left open
 elsewhere can only be rolled back, not committed.
 
+**Documentation for everyone**
+
+Under *Settings → Documentation → Documentation for everyone*, admins turn
+documentation on per connection. The server then builds it right away for
+every schema chosen, and again on every scheduled or manual *Refresh all*.
+New schemas are picked up and schemas that are no longer chosen are
+dropped. You don't have to open each schema by hand. Choose *Every schema,
+except those below* or *Only these schemas*, then list schemas to leave out.
+Names are separated by commas, and globs such as `tmp_*` work, ignoring
+case. *Show schemas* lists every schema the account sees with a checkbox:
+ticking or unticking one writes its name into the fields, keeping any
+patterns there. A filter box with *Tick shown* / *Untick shown* handles
+many schemas at once, e.g. everything starting with `tmp_`. A schema left
+out by a pattern can only be ticked again after editing that pattern. At
+most 500 schemas are documented per connection.
+
+*Close the unticked schemas to documentation* goes further: nobody builds
+or reads documentation of those schemas, in the UI, through MCP or in the
+search push. Their saved documentation, including users' own copies, is
+removed, and the documentation page no longer lists them. This also works
+while documentation for everyone is off, so you can close some schemas
+without building the rest for everyone. With it off, unticked schemas are
+only left out of the shared build; users who may build documentation can
+still build their own copy.
+
+Every user who may open the connection reads this documentation. They don't
+build it, and they don't need a database account of their own. Only
+admins and groups that may build documentation can refresh it. Schemas that
+are left out fall back to each user's own documentation.
+
+The catalog is read with the connection's account, or with a
+*documentation account* (username and password) saved there. The password
+is stored encrypted and never shown. A connection where every user signs
+in with their own account requires a documentation account. Pick an
+account that can see only what should be documented. Changing the account
+or the connection invalidates the documentation and builds it again.
+Notebook-only and personal connections can't be documented this way.
+
+Otherwise, a user who may build documentation reads a schema that someone
+else built with the same connection and database account, rather than
+building their own copy. *Refresh now* still rebuilds it.
+
 **Who may build documentation**
 
 Under *Settings → Documentation → Who may build documentation* (or per group,
@@ -416,10 +458,14 @@ overview item. Item ids are `dataport/<connection id>/<schema>/<table>` and
 the item's team so searches can be filtered by it.
 
 The admin picks each connection, the user whose access documents it and,
-optionally, its schemas (the default schema otherwise). Personal connections
-cannot be chosen. The push reads that user's saved snapshot, building it
-first if there is none. It runs after every scheduled or manual *Refresh all*;
-*Push now* sends every item again. Otherwise only items whose content
+optionally, its schemas. Left empty, a connection documented for everyone
+pushes every schema chosen there (as built for everyone); any other
+connection pushes its default schema. Personal connections
+cannot be chosen. The push reads the saved snapshot, building it
+first if there is none. It runs after every scheduled or manual *Refresh all*
+and after documentation for everyone is built when its settings are saved;
+*Push now* sends every item again. When nothing changed since the last
+complete push, the search service is not contacted at all. Otherwise only items whose content
 changed are sent, and items that are no longer documented are pruned. If any
 connection fails, nothing is pruned and that connection's items stay as they
 were. The collection is created when missing.

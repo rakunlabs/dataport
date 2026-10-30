@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rakunlabs/dataport/internal/engine"
 	"github.com/rakunlabs/dataport/internal/store"
@@ -19,13 +20,17 @@ type fakePushTarget struct {
 	created bool
 	items   map[string]pushItem
 	pushes  int
-	auth    string
+	// requests counts every request, to see a push that should not have
+	// contacted the target.
+	requests int
+	auth     string
 }
 
 func (f *fakePushTarget) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.requests++
 	f.auth = r.Header.Get("Authorization")
 	reply := func(code int, v any) {
 		w.Header().Set("Content-Type", "application/json")
@@ -74,6 +79,9 @@ func (f *fakePushTarget) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		reply(http.StatusOK, map[string]int{"removed": n})
+	case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/sources/docs/items":
+		delete(f.items, r.URL.Query().Get("id"))
+		reply(http.StatusOK, map[string]any{})
 	default:
 		reply(http.StatusNotFound, map[string]string{"error": "no route"})
 	}
@@ -124,12 +132,58 @@ func TestDocExport(t *testing.T) {
 		t.Fatal("schema overview missing")
 	}
 
-	// Nothing changed: nothing is sent again.
-	pushes := fake.pushes
+	// Nothing changed: the target is not even contacted.
+	requests := fake.requests
 	s.exportDocs(ctx, 0)
-	if status := s.docExportStatusNow(ctx); fake.pushes != pushes || status.Sent != 0 || status.Error != "" {
-		t.Fatalf("unchanged export sent %d: %+v", fake.pushes-pushes, status)
+	if status := s.docExportStatusNow(ctx); fake.requests != requests || status.Sent != 0 || !status.Unchanged || status.Error != "" || status.Tables != 3 {
+		t.Fatalf("unchanged export made %d requests: %+v", fake.requests-requests, status)
 	}
+
+	// Row estimates drift between refreshes; small drift is not a change.
+	saved, _ := env.st.GetDoc(ctx, k)
+	var doc engine.SchemaDoc
+	_ = json.Unmarshal([]byte(saved.Payload), &doc)
+	for i := range doc.Tables {
+		n := int64(1234)
+		if i == 0 {
+			n = 1251
+		}
+		doc.Tables[i].Rows = &n
+	}
+	setDoc := func() {
+		b, _ := json.Marshal(doc)
+		saved.Payload = string(b)
+		if ok, err := env.st.ClaimDoc(ctx, k, "t", time.Now().Add(time.Minute).UnixMilli(), 0); err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		if ok, err := env.st.FinishDoc(ctx, saved, "t", true); err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+	}
+	setDoc()
+	s.exportDocs(ctx, 0)
+	pushes := fake.pushes
+	n := int64(1290)
+	doc.Tables[0].Rows = &n
+	setDoc()
+	requests = fake.requests
+	s.exportDocs(ctx, 0)
+	if status := s.docExportStatusNow(ctx); fake.requests != requests || !status.Unchanged {
+		t.Fatalf("row drift resent: %+v", status)
+	}
+
+	// Push now always sends everything, also when nothing changed.
+	s.docExport.Lock()
+	s.exportDocsLocked(ctx, true)
+	s.docExport.Unlock()
+	if status := s.docExportStatusNow(ctx); fake.pushes == pushes || status.Sent != 3 || status.Unchanged {
+		t.Fatalf("manual push: %+v", status)
+	}
+	// Back to what the database reports.
+	if _, err := s.documentation(ctx, k, true); err != nil {
+		t.Fatal(err)
+	}
+	s.exportDocs(ctx, 0)
 
 	// A dropped table is pruned from the target after the refresh.
 	g, pw, err := s.resolveGrant(ctx, env.alice, k.ConnectionID)
@@ -156,6 +210,24 @@ func TestDocExport(t *testing.T) {
 	s.exportDocs(ctx, 0)
 	if status := s.docExportStatusNow(ctx); status.Removed != 1 || len(fake.items) != 3 {
 		t.Fatalf("after drop: %+v %d", status, len(fake.items))
+	}
+
+	// A schema closed to documentation leaves the search index.
+	block := &store.DocConnection{ConnectionID: k.ConnectionID, Exclude: []string{"main"}, BlockExcluded: true}
+	if err := env.st.SaveDocConnection(ctx, block); err != nil {
+		t.Fatal(err)
+	}
+	s.exportDocs(ctx, 0)
+	if status := s.docExportStatusNow(ctx); len(status.Failed) != 0 || len(fake.items) != 0 {
+		t.Fatalf("closed schema still pushed: %+v %d", status, len(fake.items))
+	}
+	block.BlockExcluded = false
+	if err := env.st.SaveDocConnection(ctx, block); err != nil {
+		t.Fatal(err)
+	}
+	s.exportDocs(ctx, 0)
+	if len(fake.items) != 3 {
+		t.Fatalf("reopened schema not pushed: %d", len(fake.items))
 	}
 
 	// A user without access fails the target and prunes nothing.

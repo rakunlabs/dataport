@@ -3,6 +3,7 @@
   import { Play, LoaderCircle, CircleCheck, TriangleAlert, CircleSlash, Circle } from 'lucide-svelte';
   import Page from '@/pages/admin/Page.svelte';
   import DocsExport from '@/pages/admin/DocsExport.svelte';
+  import DocsConnections from '@/pages/admin/DocsConnections.svelte';
   import NotebookAccess from '@/pages/admin/NotebookAccess.svelte';
   import { api } from '@/lib/api/client';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
@@ -163,6 +164,8 @@
     </form>
 
     {#if saved}
+      <DocsConnections running={!!run?.running} onchange={() => load(false)} />
+
       <section class="space-y-2">
         <h3 class="text-sm font-semibold">{t('admin.docs.history')}</h3>
         {#if !saved.history.length}
@@ -225,11 +228,11 @@
                   <tr class="border-t border-line-soft">
                     <td class="px-3 py-1.5">{d.connection_name}</td>
                     <td class="px-3 py-1.5 font-mono">
-                      {#if d.user_id === sessionUser}
+                      {#if d.user_id === sessionUser || d.system}
                         <button class="text-accent hover:underline" onclick={() => openDocs(d.connection_id, d.schema)}>{d.schema}</button>
                       {:else}{d.schema}{/if}
                     </td>
-                    <td class="px-3 py-1.5 text-muted">{d.username}</td>
+                    <td class="px-3 py-1.5 text-muted">{d.system ? t('admin.docConn.everyone') : d.username}</td>
                     <td class="px-3 py-1.5">
                       <span class="inline-flex items-center gap-1.5">
                         {#if d.refreshing}<LoaderCircle size={12} class="animate-spin text-accent" />

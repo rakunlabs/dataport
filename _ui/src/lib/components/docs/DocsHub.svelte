@@ -11,6 +11,7 @@
   import { session } from '@/lib/stores/session.svelte';
   import { errorMessage } from '@/lib/stores/toast.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
+  import { schemaChosen } from '@/lib/helper/docSchemas';
 
   let list = $state<DocList | null>(null);
   let loading = $state(false);
@@ -47,9 +48,12 @@
     return () => clearInterval(timer);
   });
 
-  // Schemas of open connections come from the tree, loaded on demand.
+  // Connections documented for everyone list their schemas themselves;
+  // others take them from the tree, loaded on demand.
+  const documented = $derived(new Set(list?.documented ?? []));
   $effect(() => {
-    for (const c of workspaceConnections()) if (open[c.id]) void loadSchemas(c.id, 'failed');
+    if (!list) return;
+    for (const c of workspaceConnections()) if (open[c.id] && !documented.has(c.id)) void loadSchemas(c.id, 'failed');
   });
 
   const byKey = $derived(new Map((list?.docs ?? []).map((d) => [`${d.connection_id}|${d.schema}`, d])));
@@ -58,10 +62,12 @@
   );
 
   function schemasOf(connId: string): string[] {
-    const loaded = ws.schemas[connId]?.items ?? [];
+    const loaded = documented.has(connId) ? [] : (ws.schemas[connId]?.items ?? []);
     // A saved document of a schema the tree no longer lists still shows.
     const saved = (list?.docs ?? []).filter((d) => d.connection_id === connId).map((d) => d.schema);
-    const all = [...new Set([...loaded, ...saved])];
+    const closed = list?.blocked?.[connId];
+    // Schemas an admin closed to documentation are not offered.
+    const all = [...new Set([...loaded, ...saved])].filter((s) => !closed || schemaChosen(closed.include, closed.exclude, s));
     const f = filter.trim().toLowerCase();
     return f ? all.filter((s) => s.toLowerCase().includes(f)) : all;
   }
@@ -137,13 +143,14 @@
             {#if counts[c.id]}<span class="rounded bg-sunken px-1.5 text-[11px] text-muted tabular-nums">{counts[c.id]}</span>{/if}
           </button>
           {#if expanded}
-            {#if node?.loading && !node.loaded}
+            {@const listed = documented.has(c.id)}
+            {@const schemas = schemasOf(c.id)}
+            {#if !listed && node?.loading && !node.loaded}
               <p class="flex h-7 items-center gap-1.5 pl-9 text-xs text-muted"><LoaderCircle size={12} class="animate-spin" /> {t('common.loading')}</p>
-            {:else if node?.error}
+            {:else if !listed && node?.error}
               <p class="flex h-7 items-center gap-1.5 pl-9 text-xs text-danger"><TriangleAlert size={12} /> {node.error}</p>
             {/if}
-            {@const schemas = schemasOf(c.id)}
-            {#if node?.loaded && !schemas.length}
+            {#if (listed || node?.loaded) && !schemas.length}
               <p class="h-7 pl-9 text-xs text-faint">{t('docsHub.noSchemas')}</p>
             {/if}
             {#each schemas as s (s)}

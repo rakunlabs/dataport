@@ -78,15 +78,18 @@ type docExportConfig struct {
 
 // docExportStatus is the outcome of the last export, shown to admins.
 type docExportStatus struct {
-	Running    bool   `json:"running"`
-	Manual     bool   `json:"manual"`
-	StartedAt  int64  `json:"started_at"`
-	FinishedAt int64  `json:"finished_at"`
-	Tables     int    `json:"tables"`
-	Sent       int    `json:"sent"`
-	Changed    int    `json:"changed"`
-	Removed    int    `json:"removed"`
-	Error      string `json:"error,omitempty"`
+	Running    bool  `json:"running"`
+	Manual     bool  `json:"manual"`
+	StartedAt  int64 `json:"started_at"`
+	FinishedAt int64 `json:"finished_at"`
+	Tables     int   `json:"tables"`
+	Sent       int   `json:"sent"`
+	Changed    int   `json:"changed"`
+	Removed    int   `json:"removed"`
+	// Unchanged is set when nothing changed since the last push, so the
+	// target was not contacted.
+	Unchanged bool   `json:"unchanged,omitempty"`
+	Error     string `json:"error,omitempty"`
 	// Failed lists the targets that could not be documented; their items
 	// stay in the target as they were.
 	Failed []string `json:"failed,omitempty"`
@@ -101,7 +104,10 @@ type docExportState struct {
 	URL        string                        `json:"url"`
 	Collection string                        `json:"collection"`
 	Items      map[string]docExportItemState `json:"items"`
-	Status     docExportStatus               `json:"status"`
+	// Fingerprint covers every item of the last push that completed, so an
+	// unchanged one is not sent again.
+	Fingerprint string          `json:"fingerprint,omitempty"`
+	Status      docExportStatus `json:"status"`
 }
 
 // pushItem is an item of the push API.
@@ -294,6 +300,22 @@ func (s *Server) runDocExport(ctx context.Context, cfg docExportConfig, state do
 		state = docExportState{URL: cfg.URL, Collection: cfg.Collection, Items: map[string]docExportItemState{}}
 	}
 
+	// The items come from saved snapshots; the target is contacted only
+	// when they differ from the last push that completed.
+	items, failed := s.docExportItems(ctx, cfg.Targets)
+	status.Failed = failed
+	status.Tables = len(items)
+
+	fingerprint := docExportFingerprint(items)
+	if !full && len(failed) == 0 && state.Fingerprint != "" && state.Fingerprint == fingerprint {
+		status.Unchanged = true
+
+		return state
+	}
+
+	// Until this push completes, the next one compares again.
+	state.Fingerprint = ""
+
 	count, created, err := k.ensureCollection(ctx)
 	if err != nil {
 		status.Error = err.Error()
@@ -305,10 +327,6 @@ func (s *Server) runDocExport(ctx context.Context, cfg docExportConfig, state do
 	if created || count != len(state.Items) {
 		full = true
 	}
-
-	items, failed := s.docExportItems(ctx, cfg.Targets)
-	status.Failed = failed
-	status.Tables = len(items)
 
 	next := make(map[string]docExportItemState, len(items))
 	pending := make([]pushItem, 0, len(items))
@@ -376,8 +394,29 @@ func (s *Server) runDocExport(ctx context.Context, cfg docExportConfig, state do
 	}
 
 	state.Items = next
+	state.Fingerprint = fingerprint
 
 	return state
+}
+
+// docExportFingerprint stands for every item of a push, in any order.
+func docExportFingerprint(items []pushItem) string {
+	ids := make([]string, len(items))
+	hashes := make(map[string]string, len(items))
+
+	for i, it := range items {
+		ids[i] = it.ID
+		hashes[it.ID] = docExportHash(it)
+	}
+
+	slices.Sort(ids)
+
+	h := sha256.New()
+	for _, id := range ids {
+		_, _ = io.WriteString(h, id+"\x00"+hashes[id]+"\n")
+	}
+
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func docExportHash(it pushItem) string {
@@ -418,7 +457,32 @@ func (s *Server) docExportItems(ctx context.Context, targets []docExportTarget) 
 		}
 
 		schemas := t.Schemas
-		if len(schemas) == 0 {
+		chosen := len(schemas) > 0
+		// Left empty, a connection documented for everyone pushes every
+		// schema it built for everyone.
+		if !chosen {
+			if dc, err := s.docConnection(ctx, conn.ID); err == nil {
+				chosen = true
+				docs, err := s.store.ConnectionDocs(ctx, conn.ID, store.DocSystemUser)
+				if err != nil {
+					failed = append(failed, conn.Name+": "+docExportError(err))
+
+					continue
+				}
+
+				schemas = []string{}
+
+				for _, d := range docs {
+					// One never built yet is not built here; the next
+					// refresh of all documentation builds it first.
+					if d.Ready && docSchemaIncluded(dc, d.Schema) {
+						schemas = append(schemas, d.Schema)
+					}
+				}
+			}
+		}
+
+		if !chosen {
 			g, password, err := s.resolveGrant(ctx, user, conn.ID)
 			if err == nil {
 				var schema string
@@ -435,6 +499,11 @@ func (s *Server) docExportItems(ctx context.Context, targets []docExportTarget) 
 		}
 
 		for _, schema := range schemas {
+			// A schema closed to documentation is not pushed; its items go.
+			if blocked, err := s.docBlocked(ctx, conn.ID, schema); err == nil && blocked {
+				continue
+			}
+
 			saved, err := s.documentation(ctx, store.DocKey{ConnectionID: conn.ID, UserID: user.ID, Schema: schema}, false)
 			if err != nil {
 				failed = append(failed, conn.Name+"/"+schema+" as "+user.Username+": "+docExportError(err))
@@ -461,7 +530,7 @@ func docExportError(err error) string {
 		return "the user has not saved their database account"
 	case errors.Is(err, errNotebookOnly):
 		return err.Error()
-	case errors.Is(err, errDocBusy), errors.Is(err, errDocChanged), errors.Is(err, errDocFailed), errors.Is(err, errDocRetry):
+	case errors.Is(err, errDocBusy), errors.Is(err, errDocChanged), errors.Is(err, errDocFailed), errors.Is(err, errDocRetry), errors.Is(err, errDocsBlocked):
 		return err.Error()
 	case errors.Is(err, context.DeadlineExceeded):
 		return "documentation refresh timed out"
@@ -492,7 +561,8 @@ func docExportSchemaItems(conn *store.Connection, doc *engine.SchemaDoc) []pushI
 		fmt.Fprintf(&b, "truncated: the first %d tables are documented\n", len(doc.Tables))
 	}
 
-	b.WriteString("\n" + schemaReportText(doc))
+	// Estimates are rounded, so their drift does not resend the overview.
+	b.WriteString("\n" + schemaReport(doc, roughCount))
 
 	if len(doc.Routines) > 0 {
 		b.WriteString("\n## routines\n")

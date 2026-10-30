@@ -35,6 +35,9 @@ type docStatus struct {
 	// ReadOnly is set for users who may read documentation but not build
 	// or refresh it.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// System is set on documentation the server builds for every user of
+	// the connection with its documentation account.
+	System bool `json:"system,omitempty"`
 }
 
 type docResponse struct {
@@ -50,6 +53,10 @@ func (s *Server) snapshotStatus(ctx context.Context, d *store.DocSnapshot) docSt
 // docAccess is used both by interactive reads and unattended jobs. Never
 // keep an old user's groups, grant or credential in a scheduled closure.
 func (s *Server) docAccess(ctx context.Context, k store.DocKey) (*store.Grant, string, string, error) {
+	if k.UserID == store.DocSystemUser {
+		return s.systemDocAccess(ctx, k.ConnectionID)
+	}
+
 	u, err := s.store.GetUser(ctx, k.UserID)
 	if err != nil {
 		return nil, "", "", err
@@ -91,23 +98,47 @@ func (s *Server) docAccess(ctx context.Context, k store.DocKey) (*store.Grant, s
 var errDocsReadOnly = errors.New("no documentation has been built for this schema yet, and building it is not open to your account; ask an administrator")
 
 // documentation serves the saved snapshot without querying the target DB.
-// Only a missing/invalidated document or an explicit refresh reads catalogs.
-// Users who may not build documentation read the newest snapshot built with
-// the same connection and database account, and never start a scan.
+// A schema the connection documents for everyone is read from that
+// snapshot, without the user's own database account. Otherwise every user
+// reads the newest snapshot built with the same connection and database
+// account, whoever built it, so documentation an admin built is there for
+// everyone on a shared-account connection. Only a builder's explicit
+// refresh, or a schema nobody built yet, reads catalogs. Users who may not
+// build documentation never start a scan.
 func (s *Server) documentation(ctx context.Context, k store.DocKey, force bool) (*docResponse, error) {
 	u, err := s.store.GetUser(ctx, k.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !s.docsBuildAllowed(ctx, u) {
-		return s.sharedDocumentation(ctx, k, force)
+	if blocked, err := s.docBlocked(ctx, k.ConnectionID, k.Schema); err != nil || blocked {
+		if err == nil {
+			err = errDocsBlocked
+		}
+		return nil, err
+	}
+
+	canBuild := s.docsBuildAllowed(ctx, u)
+
+	if out, ok, err := s.systemDocumentation(ctx, u, k, force, canBuild); ok {
+		return out, err
+	}
+
+	if !canBuild {
+		return s.sharedDocumentation(ctx, k, force, true)
+	}
+
+	if !force {
+		out, err := s.sharedDocumentation(ctx, k, false, false)
+		if !errors.Is(err, errDocsReadOnly) {
+			return out, err
+		}
 	}
 
 	return s.ownDocumentation(ctx, k, force)
 }
 
-func (s *Server) sharedDocumentation(ctx context.Context, k store.DocKey, force bool) (*docResponse, error) {
+func (s *Server) sharedDocumentation(ctx context.Context, k store.DocKey, force, readOnly bool) (*docResponse, error) {
 	if force {
 		return nil, errDocsBuildOff
 	}
@@ -132,7 +163,7 @@ func (s *Server) sharedDocumentation(ctx context.Context, k store.DocKey, force 
 	}
 
 	st := s.snapshotStatus(ctx, d)
-	st.ReadOnly = true
+	st.ReadOnly = readOnly
 
 	return &docResponse{Document: &doc, Status: st}, nil
 }
@@ -208,6 +239,14 @@ func (s *Server) waitForDoc(ctx context.Context, k store.DocKey, version string)
 // is fenced by its token, so an expired writer cannot overwrite newer work.
 // A non-zero before skips a snapshot already attempted since then.
 func (s *Server) refreshDoc(ctx context.Context, k store.DocKey, before int64) error {
+	// A schema closed to documentation is not built, whoever asks.
+	if blocked, err := s.docBlocked(ctx, k.ConnectionID, k.Schema); err != nil || blocked {
+		if err == nil {
+			_ = s.store.DeleteDoc(ctx, k)
+			err = errDocsBlocked
+		}
+		return err
+	}
 	token := store.NewID()
 	ok, err := s.store.ClaimDoc(ctx, k, token, time.Now().Add(docLease).UnixMilli(), before)
 	if err != nil {
@@ -268,13 +307,37 @@ func (s *Server) refreshDoc(ctx context.Context, k store.DocKey, before int64) e
 }
 
 func (s *Server) docRequestKey(w http.ResponseWriter, r *http.Request) (store.DocKey, bool) {
-	g, password := s.grant(w, r)
-	if g == nil {
-		return store.DocKey{}, false
-	}
 	schema := r.URL.Query().Get("schema")
 	if len(schema) > 512 {
 		writeError(w, http.StatusBadRequest, "schema name is too long")
+		return store.DocKey{}, false
+	}
+	u := currentUser(r)
+	id := r.PathValue("id")
+	// A schema closed to documentation is refused before asking the user
+	// for a database account.
+	if schema != "" {
+		if blocked, err := s.docBlocked(r.Context(), id, schema); err != nil || blocked {
+			if err == nil {
+				err = errDocsBlocked
+			}
+			writeDocError(w, r, err)
+			return store.DocKey{}, false
+		}
+	}
+	// Documentation the connection keeps for everyone needs no database
+	// account of the user's own.
+	if schema != "" {
+		if dc, err := s.docConnection(r.Context(), id); err == nil && docSchemaIncluded(dc, schema) {
+			if err := s.docReader(r.Context(), u, id); err != nil {
+				writeGrantError(w, err, "connection not found")
+				return store.DocKey{}, false
+			}
+			return store.DocKey{ConnectionID: id, UserID: u.ID, Schema: schema}, true
+		}
+	}
+	g, password := s.grant(w, r)
+	if g == nil {
 		return store.DocKey{}, false
 	}
 	if schema == "" {
@@ -285,7 +348,7 @@ func (s *Server) docRequestKey(w http.ResponseWriter, r *http.Request) (store.Do
 			return store.DocKey{}, false
 		}
 	}
-	return store.DocKey{ConnectionID: g.Connection.ID, UserID: currentUser(r).ID, Schema: schema}, true
+	return store.DocKey{ConnectionID: g.Connection.ID, UserID: u.ID, Schema: schema}, true
 }
 
 func (s *Server) serveDoc(w http.ResponseWriter, r *http.Request) {
@@ -312,10 +375,12 @@ func writeDocError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errDocBusy), errors.Is(err, errDocChanged):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, errDocsBuildOff):
+	case errors.Is(err, errDocsBuildOff), errors.Is(err, errDocsBlocked):
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, errDocsReadOnly):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, errDocAccountNeeded):
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, errDocFailed), errors.Is(err, errDocRetry):
 		writeError(w, http.StatusBadGateway, err.Error())
 	case errors.Is(err, context.DeadlineExceeded):
@@ -329,48 +394,91 @@ func writeDocError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 }
 
-// listDocs returns the user's saved documentation on the connections they
-// may still open, with the schedule, for the documentation page. Users who
-// may only read see what was built with their database accounts.
+// listDocs returns the documentation the user can read on the connections
+// they may still open, with the schedule, for the documentation page: what
+// a connection keeps for everyone, what was built with the user's database
+// account, and their own snapshots. One entry per schema.
+type docPatterns struct {
+	Include []string `json:"include"`
+	Exclude []string `json:"exclude"`
+}
+
 func (s *Server) listDocs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	u := currentUser(r)
-	grants, err := s.store.ListGrants(r.Context(), u)
+	grants, err := s.store.ListGrants(ctx, u)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
-	canBuild := s.docsBuildAllowed(r.Context(), u)
-	out := []store.DocInfo{}
+	canBuild := s.docsBuildAllowed(ctx, u)
+	own := map[string][]store.DocInfo{}
 	if canBuild {
-		list, err := s.store.UserDocs(r.Context(), u.ID)
+		list, err := s.store.UserDocs(ctx, u.ID)
 		if err != nil {
 			writeStoreError(w, err)
 			return
 		}
-		allowed := make(map[string]bool, len(grants))
-		for _, g := range grants {
-			allowed[g.Connection.ID] = true
-		}
 		for _, d := range list {
-			if allowed[d.ConnectionID] {
-				out = append(out, d)
+			own[d.ConnectionID] = append(own[d.ConnectionID], d)
+		}
+	}
+	out := []store.DocInfo{}
+	// Connections documented for everyone list every chosen schema, so the
+	// page needs no schema list of the user's own for them.
+	documented := []string{}
+	// Schemas closed to documentation, as the patterns that choose the
+	// others, so the page leaves them out.
+	blocked := map[string]docPatterns{}
+	for _, g := range grants {
+		if g.Connection.NotebookOnly {
+			continue
+		}
+		seen := map[string]bool{}
+		add := func(list []store.DocInfo, chosen func(string) bool) {
+			for _, d := range list {
+				if !seen[d.Schema] && chosen(d.Schema) {
+					seen[d.Schema] = true
+					d.UserID, d.Username = "", ""
+					out = append(out, d)
+				}
 			}
 		}
-	} else {
-		for _, g := range grants {
-			// The version does not depend on the schema.
-			_, _, version, err := s.docAccess(r.Context(), store.DocKey{ConnectionID: g.Connection.ID, UserID: u.ID})
-			if err != nil {
-				continue
-			}
-			list, err := s.store.SharedDocs(r.Context(), g.Connection.ID, version)
+		var dc *store.DocConnection
+		if v, err := s.store.GetDocConnection(ctx, g.Connection.ID); err == nil && v.BlockExcluded {
+			blocked[g.Connection.ID] = docPatterns{Include: v.Include, Exclude: v.Exclude}
+		}
+		if v, err := s.docConnection(ctx, g.Connection.ID); err == nil {
+			dc = v
+			documented = append(documented, g.Connection.ID)
+			list, err := s.store.ConnectionDocs(ctx, g.Connection.ID, store.DocSystemUser)
 			if err != nil {
 				writeStoreError(w, err)
 				return
 			}
-			out = append(out, list...)
+			// Readers see only what was built; builders also what is
+			// waiting, since opening it builds it.
+			for _, d := range list {
+				if !canBuild && !d.Ready {
+					seen[d.Schema] = true
+				}
+			}
+			add(list, func(sc string) bool { return docSchemaIncluded(dc, sc) })
+		}
+		notSystem := func(sc string) bool { return dc == nil || !docSchemaIncluded(dc, sc) }
+		// The version does not depend on the schema.
+		if _, _, version, err := s.docAccess(ctx, store.DocKey{ConnectionID: g.Connection.ID, UserID: u.ID}); err == nil {
+			list, err := s.store.SharedDocs(ctx, g.Connection.ID, version)
+			if err != nil {
+				writeStoreError(w, err)
+				return
+			}
+			add(list, notSystem)
+		}
+		if canBuild {
+			add(own[g.Connection.ID], notSystem)
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"docs": out, "next_run": s.docNextRun(r.Context()), "run": s.docRunStatus(r.Context()), "read_only": !canBuild})
+	writeJSON(w, http.StatusOK, map[string]any{"docs": out, "documented": documented, "blocked": blocked, "next_run": s.docNextRun(ctx), "run": s.docRunStatus(ctx), "read_only": !canBuild})
 }

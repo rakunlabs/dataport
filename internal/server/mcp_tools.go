@@ -306,16 +306,11 @@ func (s *Server) registerMCPTools(server *mcp.Server, readOnly, notebooks bool) 
 			"design problems found in it. The columns of directly related tables come along, so joins and ORM models use " +
 			"the real names. Uses a saved snapshot with generated_at and refresh status; may be older than the live schema. Never reads table data.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in tableDocsIn) (*mcp.CallToolResult, tableDocsOut, error) {
-		g, password, caller, err := s.mcpGrant(ctx, req, in.Connection)
-		if err != nil {
-			return nil, tableDocsOut{}, err
-		}
-
 		if len(in.Tables) == 0 || len(in.Tables) > maxTableDocs {
 			return nil, tableDocsOut{}, fmt.Errorf("pass 1 to %d tables", maxTableDocs)
 		}
 
-		schema, err := s.mcpSchema(ctx, g, password, in.Schema)
+		g, _, caller, schema, err := s.mcpDocGrant(ctx, req, in.Connection, in.Schema)
 		if err != nil {
 			return nil, tableDocsOut{}, err
 		}
@@ -358,12 +353,7 @@ func (s *Server) registerMCPTools(server *mcp.Server, readOnly, notebooks bool) 
 			"relationships no key declares, orphan tables, duplicate indexes and more). Use it to find your way around or " +
 			"review a design; for the details of the tables you work on call " + mcpToolPrefix + "table_docs. Uses a saved snapshot with generated_at; never reads table data.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in schemaReportIn) (*mcp.CallToolResult, schemaReportOut, error) {
-		g, password, caller, err := s.mcpGrant(ctx, req, in.Connection)
-		if err != nil {
-			return nil, schemaReportOut{}, err
-		}
-
-		schema, err := s.mcpSchema(ctx, g, password, in.Schema)
+		g, _, caller, schema, err := s.mcpDocGrant(ctx, req, in.Connection, in.Schema)
 		if err != nil {
 			return nil, schemaReportOut{}, err
 		}

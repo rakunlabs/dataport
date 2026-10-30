@@ -100,7 +100,7 @@ func (s *Server) mcpGrant(ctx context.Context, req *mcp.CallToolRequest, name st
 	if err != nil {
 		var credErr *credentialsError
 		if errors.As(err, &credErr) {
-			return nil, "", nil, fmt.Errorf("%s: the user has to open this connection in dataport and sign in with their database account first", credErr.msg)
+			return nil, "", nil, &credentialsError{msg: credErr.msg + ": the user has to open this connection in dataport and sign in with their database account first"}
 		}
 
 		return nil, "", nil, err
@@ -120,6 +120,92 @@ func (s *Server) mcpGrant(ctx context.Context, req *mcp.CallToolRequest, name st
 	}
 
 	return g, password, caller, nil
+}
+
+// mcpDocGrant is mcpGrant for the documentation tools. On a connection
+// whose documentation is kept for everyone the user needs no database
+// account of their own: password is empty and ok false when it would be
+// needed and the schema must come from the call or the saved snapshots.
+func (s *Server) mcpDocGrant(ctx context.Context, req *mcp.CallToolRequest, name, schema string) (*store.Grant, string, *mcpCaller, string, error) {
+	g, password, caller, err := s.mcpGrant(ctx, req, name)
+
+	var credErr *credentialsError
+	if err == nil || !errors.As(err, &credErr) {
+		if err != nil {
+			return nil, "", nil, "", err
+		}
+
+		schema, err = s.mcpSchema(ctx, g, password, schema)
+
+		return g, password, caller, schema, err
+	}
+
+	// Only a missing account of the user's own is worked around; every
+	// other refusal of mcpGrant stands.
+	caller, cerr := callerOf(req)
+	if cerr != nil {
+		return nil, "", nil, "", cerr
+	}
+
+	id := caller.scope
+	if id == "" {
+		grants, lerr := s.store.ListGrants(ctx, caller.user)
+		if lerr != nil {
+			return nil, "", nil, "", lerr
+		}
+
+		found := findGrant(mcpVisible(grants), strings.TrimSpace(name))
+		if found == nil {
+			return nil, "", nil, "", err
+		}
+
+		id = found.Connection.ID
+	}
+
+	dc, derr := s.docConnection(ctx, id)
+	if derr != nil {
+		return nil, "", nil, "", err
+	}
+
+	sg, gerr := s.store.GetGrant(ctx, caller.user, id)
+	if gerr != nil || sg.Connection.NotebookOnly || sg.Connection.HideMCP {
+		return nil, "", nil, "", err
+	}
+
+	if mode, merr := s.mcpMode(ctx, caller, sg); merr != nil || mode == store.MCPOff {
+		if merr == nil {
+			merr = mcpAllows(mode, sg, "")
+		}
+
+		return nil, "", nil, "", merr
+	}
+
+	schema = strings.TrimSpace(schema)
+	if schema == "" {
+		// The first schema built for everyone stands in for the default.
+		docs, lerr := s.store.ConnectionDocs(ctx, id, store.DocSystemUser)
+		if lerr != nil {
+			return nil, "", nil, "", lerr
+		}
+
+		for _, d := range docs {
+			if d.Ready && docSchemaIncluded(dc, d.Schema) {
+				schema = d.Schema
+
+				break
+			}
+		}
+
+		if schema == "" {
+			return nil, "", nil, "", errors.New("no documentation has been built for this connection yet; name a schema or ask an administrator")
+		}
+	}
+
+	if !docSchemaIncluded(dc, schema) {
+		return nil, "", nil, "", err
+	}
+
+	return sg, "", caller, schema, nil
 }
 
 // mcpVisible drops the connections an admin keeps away from agents.
@@ -231,6 +317,11 @@ func (s *Server) schemaContext(ctx context.Context, g *store.Grant, password str
 
 // schemaReportText writes a schema document as plain lines for a model.
 func schemaReportText(doc *engine.SchemaDoc) string {
+	return schemaReport(doc, func(n int64) string { return fmt.Sprintf("~%d", n) })
+}
+
+// schemaReport is schemaReportText with the row estimates written by rows.
+func schemaReport(doc *engine.SchemaDoc, rows func(int64) string) string {
 	var b strings.Builder
 
 	b.WriteString("## tables\n")
@@ -243,7 +334,7 @@ func schemaReportText(doc *engine.SchemaDoc) string {
 		}
 
 		if t.Rows != nil {
-			fmt.Fprintf(&b, " ~%d rows", *t.Rows)
+			b.WriteString(" " + rows(*t.Rows) + " rows")
 		}
 
 		fmt.Fprintf(&b, ", %d columns", len(t.Columns))

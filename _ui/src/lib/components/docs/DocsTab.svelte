@@ -202,6 +202,7 @@
     <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1.5 text-xs text-muted" role="status">
       <span>{t('docs.snapshot.stored')}</span>
       {#if status?.read_only}<span class="flex items-center gap-1.5 text-fg-2"><Lock size={12} />{t('docs.snapshotReadOnly')}</span>{/if}
+      {#if status?.system}<span class="text-fg-2">{t('docs.snapshotSystem')}</span>{/if}
       {#if status?.refreshing}<span class="flex items-center gap-1.5"><LoaderCircle size={12} class="animate-spin" />{t('docs.snapshot.refreshing')}</span>{/if}
       {#if status?.next_run}<span>{t('docs.snapshot.next', { time: fullTime(status.next_run) })}</span>{:else}<span>{t('docs.snapshot.manual')}</span>{/if}
       {#if status?.last_error}<span class="text-warn">{t('docs.snapshot.failed')}</span>{/if}

@@ -10,6 +10,7 @@ type Later = {
   admin: {
     server: true;
     docsExport: true;
+    docConn: true;
     docAccess: true;
     oauthClients: true;
     externalUrl: true;
@@ -22,7 +23,7 @@ type Later = {
   login: 'forClient';
   conn: 'useReadOnly' | 'allowWrites' | 'selfReadOnlyOn' | 'selfReadOnlyOff' | 'selfReadOnlyHint' | 'writeToggleHint' | 'selfReadOnlyTx';
   processes: 'mine' | 'mineHint';
-  docs: 'hubReadOnly' | 'snapshotReadOnly';
+  docs: 'hubReadOnly' | 'snapshotReadOnly' | 'snapshotSystem';
   result: 'elapsed' | 'cancelling' | 'runningFor';
   query: 'runParallel';
   valuePanel: 'tab' | 'pick';

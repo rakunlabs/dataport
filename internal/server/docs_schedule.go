@@ -122,6 +122,7 @@ func (s *Server) dispatchDocsAt(ctx context.Context, at time.Time) error {
 	if last.IsZero() {
 		return nil
 	}
+	s.discoverDocs(ctx, last.UnixMilli())
 	err = s.refreshAllDocs(ctx, last.UnixMilli(), false)
 	if ctx.Err() == nil {
 		s.exportDocs(ctx, last.UnixMilli())
@@ -150,6 +151,17 @@ func (s *Server) refreshAllDocs(ctx context.Context, before int64, manual bool, 
 	status := store.DocRunDone
 	defer func() { s.finishDocRun(rec, status) }()
 	tried := map[store.DocKey]bool{}
+	// Schemas a connection documents for everyone are read from its own
+	// snapshot; users' copies of them are not rebuilt.
+	shared := map[string]*store.DocConnection{}
+	covered := func(k store.DocKey) bool {
+		dc, ok := shared[k.ConnectionID]
+		if !ok {
+			dc, _ = s.docConnection(ctx, k.ConnectionID)
+			shared[k.ConnectionID] = dc
+		}
+		return dc != nil && docSchemaIncluded(dc, k.Schema)
+	}
 	for {
 		keys, err := s.store.DueDocs(ctx, before)
 		if err != nil {
@@ -168,14 +180,31 @@ func (s *Server) refreshAllDocs(ctx context.Context, before int64, manual bool, 
 			tried[k] = true
 			// Snapshots of users who may no longer build documentation are
 			// kept as they are, not rebuilt with their access.
-			if u, err := s.store.GetUser(ctx, k.UserID); err == nil && !s.docsBuildAllowed(ctx, u) {
-				continue
+			if k.UserID != store.DocSystemUser {
+				skip := covered(k)
+				if u, err := s.store.GetUser(ctx, k.UserID); err == nil && !s.docsBuildAllowed(ctx, u) {
+					skip = true
+				}
+				if skip {
+					if err := s.store.SkipDoc(ctx, k); err != nil {
+						status = store.DocRunStopped
+						return err
+					}
+					claimed = true
+					s.docRunSkip(ctx, rec)
+					continue
+				}
 			}
 			err := s.refreshDoc(ctx, k, before)
 			if errors.Is(err, errDocBusy) {
 				continue
 			}
 			claimed = true
+			// A closed schema's snapshot was removed, not refreshed.
+			if errors.Is(err, errDocsBlocked) {
+				s.docRunSkip(ctx, rec)
+				continue
+			}
 			s.docRunStep(ctx, rec, err != nil)
 			if err != nil {
 				status = store.DocRunFailed
@@ -212,6 +241,15 @@ func (s *Server) docRunStep(ctx context.Context, rec *store.DocRun, failed bool)
 			slog.Warn("record documentation run", "error", err)
 		}
 	}
+}
+
+// docRunSkip takes a snapshot the run leaves alone out of its total, so the
+// progress ends at its total.
+func (s *Server) docRunSkip(_ context.Context, rec *store.DocRun) {
+	s.docRunMu.Lock()
+	s.docRun.Total = max(s.docRun.Done, s.docRun.Total-1)
+	rec.Total = s.docRun.Total
+	s.docRunMu.Unlock()
 }
 
 func (s *Server) finishDocRun(rec *store.DocRun, status string) {
@@ -281,7 +319,10 @@ func (s *Server) runDocsNow(by *store.User) bool {
 	go func() {
 		defer s.notebookWorkers.Done()
 		defer s.docDispatch.Unlock()
-		if err := s.refreshAllDocs(ctx, time.Now().UnixMilli(), true, by); err != nil && ctx.Err() == nil {
+		// Schemas of documented connections nobody opened yet are built too.
+		now := time.Now().UnixMilli()
+		s.discoverDocs(ctx, now)
+		if err := s.refreshAllDocs(ctx, now, true, by); err != nil && ctx.Err() == nil {
 			slog.Error("refresh all documentation", "error", err)
 		}
 		if ctx.Err() == nil {
