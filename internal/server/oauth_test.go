@@ -38,7 +38,7 @@ func TestMCPOAuth(t *testing.T) {
 		t.Fatalf("login: %v %v", err, resp.StatusCode)
 	}
 
-	approveAs := func(readOnly bool, connection string) auth.AuthorizationCodeFetcher {
+	approveAs := func(connection string) auth.AuthorizationCodeFetcher {
 		return func(ctx context.Context, args *auth.AuthorizationArgs) (*auth.AuthorizationResult, error) {
 			// /oauth/authorize sends the browser to the approval page.
 			resp, err := browser.Get(args.URL)
@@ -66,7 +66,7 @@ func TestMCPOAuth(t *testing.T) {
 				t.Fatalf("approval page: %v", page)
 			}
 
-			body := map[string]any{"approve": true, "read_only": readOnly, "connection_id": connection}
+			body := map[string]any{"approve": true, "connection_id": connection}
 			for k := range query {
 				body[k] = query.Get(k)
 			}
@@ -142,13 +142,13 @@ func TestMCPOAuth(t *testing.T) {
 	}
 
 	// The whole endpoint: every connection of alice, as alice.
-	all := connect(base+"/mcp", approveAs(false, ""))
+	all := connect(base+"/mcp", approveAs(""))
 	if got := listed(all); strings.Join(got, ",") != "shop,shop-prod" {
 		t.Fatalf("connections: %v", got)
 	}
 
 	// The endpoint of one connection: only that one, no name needed.
-	one := connect(base+"/mcp/shop", approveAs(true, ""))
+	one := connect(base+"/mcp/shop", approveAs(""))
 	if got := listed(one); strings.Join(got, ",") != "shop" {
 		t.Fatalf("one connection: %v", got)
 	}
@@ -163,7 +163,8 @@ func TestMCPOAuth(t *testing.T) {
 		t.Fatal("an endpoint for one connection reached another")
 	}
 
-	// The token from /mcp/shop is limited to shop and read-only.
+	// The token from /mcp/shop is limited to shop. What it may do there is
+	// the user's MCP access setting, not a choice made when signing in.
 	tokens, _ := env.st.ListAccessTokens(ctx, env.alice.ID)
 
 	var scoped *store.AccessToken
@@ -174,7 +175,7 @@ func TestMCPOAuth(t *testing.T) {
 		}
 	}
 
-	if scoped == nil || !scoped.ReadOnly || scoped.ClientID == "" {
+	if scoped == nil || scoped.ReadOnly || scoped.ClientID == "" {
 		t.Fatalf("tokens: %+v", tokens)
 	}
 
@@ -347,7 +348,7 @@ func TestRememberMe(t *testing.T) {
 		t.Fatalf("approved before the user said so: %v", out)
 	}
 
-	body := map[string]any{"approve": true, "remember": true, "read_only": true}
+	body := map[string]any{"approve": true, "remember": true}
 	for k := range q {
 		body[k] = q.Get(k)
 	}

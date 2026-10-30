@@ -61,6 +61,10 @@ type notebookCellResult struct {
 	SQL          string             `json:"sql,omitempty"`
 	Args         []any              `json:"args,omitempty"`
 	Confirmation string             `json:"confirmation,omitempty"`
+	// NeedsConfirmation marks a write cell that runs only with its
+	// Confirmation: on a production connection, or with an UPDATE or
+	// DELETE without WHERE.
+	NeedsConfirmation bool `json:"needs_confirmation,omitempty"`
 }
 
 type notebookResult struct {
@@ -294,6 +298,33 @@ func needsConfirmation(c notebook.Cell, g cellGrants) bool {
 	return c.Write && c.Transfer == nil && g.src.Connection.Production
 }
 
+// changesEveryRow reports a write cell that may have an UPDATE or DELETE
+// without WHERE; it runs only with the user's confirmation of the exact SQL,
+// on any connection. A template's SQL is known only once rendered, so a
+// templated write cell asks before the run like this too, and the rendered
+// SQL is checked again when it runs.
+func changesEveryRow(c notebook.Cell, g cellGrants) bool {
+	if !c.Write || c.Transfer != nil {
+		return false
+	}
+
+	if c.Template {
+		return mayChangeEveryRow(c.SQL)
+	}
+
+	d, err := engine.DriverFor(g.src.Connection)
+
+	return err == nil && len(engine.Unbounded(d, c.SQL)) > 0
+}
+
+// mayChangeEveryRow is a cheap look at a template: it may hold an UPDATE or
+// DELETE whose WHERE depends on how it renders.
+func mayChangeEveryRow(sql string) bool {
+	upper := strings.ToUpper(sql)
+
+	return strings.Contains(upper, "UPDATE") || strings.Contains(upper, "DELETE")
+}
+
 // cellAccess checks one cell against the user's grants and the run policy,
 // before a run and again before the cell runs. A preview renders write
 // cells without running them, so it needs neither write access nor a
@@ -318,6 +349,11 @@ func (s *Server) cellAccess(ctx context.Context, user *store.User, c notebook.Ce
 	}
 	if p.noProductionWrites && needsConfirmation(c, g) && !preview {
 		return g, refuse(http.StatusForbidden, "cell "+c.Path+" writes to a production database, which needs a confirmation this caller cannot give")
+	}
+	// A template is checked once rendered, when the cell runs; it stops
+	// there unconfirmed.
+	if p.noProductionWrites && !c.Template && changesEveryRow(c, g) && !preview {
+		return g, refuse(http.StatusForbidden, "cell "+c.Path+" has an UPDATE or DELETE without WHERE, which needs a confirmation this caller cannot give")
 	}
 	if p.source == "mcp" && p.caller != nil {
 		if err := s.mcpCellAccess(ctx, p.caller, c, g.src, false); err != nil {

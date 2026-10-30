@@ -47,6 +47,9 @@ func (d mysqlDriver) Open(c *store.Connection, password string) (*sql.DB, error)
 	// One statement per call; see the note on the PostgreSQL exec mode.
 	cfg.MultiStatements = false
 	cfg.AllowNativePasswords = true
+	// Report the rows an UPDATE matched, not only those it changed, as JDBC
+	// does; grid edits check that each change hits exactly one row.
+	cfg.ClientFoundRows = true
 
 	switch tls := optionOr(c.Options, "tls", "preferred"); tls {
 	case "true", "false", "skip-verify", "preferred":

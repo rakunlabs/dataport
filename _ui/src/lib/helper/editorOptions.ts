@@ -14,6 +14,8 @@ export interface EditorOptions {
   vim: boolean;
   // Mark ${name}, #{name} and @set in the text.
   placeholders: boolean;
+  // A blank line ends a statement without a ";".
+  blankLineSplits: boolean;
 }
 
 export const defaultOptions: EditorOptions = {
@@ -27,6 +29,7 @@ export const defaultOptions: EditorOptions = {
   closeBrackets: true,
   vim: false,
   placeholders: false,
+  blankLineSplits: true,
 };
 
 export function editorOptions(p: Prefs): EditorOptions {
@@ -41,5 +44,6 @@ export function editorOptions(p: Prefs): EditorOptions {
     closeBrackets: p.closeBrackets,
     vim: p.vim,
     placeholders: p.variables,
+    blankLineSplits: p.blankLineSplits,
   };
 }

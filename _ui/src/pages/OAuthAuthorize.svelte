@@ -2,7 +2,7 @@
   // An MCP client asks to act as the user (OAuth). The user picks what it
   // may reach and approves; the browser then returns to the client.
   import { router } from 'svelte-spa-router';
-  import { Bot, Check, X, TriangleAlert, LoaderCircle, Lock, LockOpen } from 'lucide-svelte';
+  import { Bot, Check, X, TriangleAlert, LoaderCircle } from 'lucide-svelte';
   import Logo from '@/lib/components/ui/Logo.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { api } from '@/lib/api/client';
@@ -28,7 +28,6 @@
   let busy = $state(false);
   let done = $state('');
   let connection = $state('');
-  let readOnly = $state(true);
   let remember = $state(false);
 
   api
@@ -46,8 +45,6 @@
     .catch((e) => (error = errorMessage(e)));
 
   const chosen = $derived(info?.connections.find((c) => c.id === connection));
-  // Writing is only offered where the user may write.
-  const canWrite = $derived(connection ? !!chosen?.writable : !!info?.connections.some((c) => c.writable));
 
   // Where the client listens, shown so the user can tell a real client
   // from a page that only claims a name.
@@ -63,7 +60,9 @@
   async function answer(approve: boolean) {
     busy = true;
     try {
-      const body: Record<string, unknown> = { approve, connection_id: connection, read_only: readOnly || !canWrite, remember: approve && remember };
+      // What the client may do on each connection (read, write, schema) is
+      // set under Settings → MCP access, not here.
+      const body: Record<string, unknown> = { approve, connection_id: connection, remember: approve && remember };
       for (const [k, v] of query) body[k] = v;
       const res = await api.post<{ redirect: string }>('/oauth/authorize', body);
       done = approve ? t('oauth.approved') : t('oauth.declined');
@@ -121,16 +120,7 @@
         </select>
       {/if}
 
-      <div class="mb-4 space-y-1.5 text-sm">
-        <label class="flex items-start gap-2">
-          <input type="radio" name="mode" class="mt-1" checked={readOnly || !canWrite} onchange={() => (readOnly = true)} />
-          <span><span class="flex items-center gap-1 font-medium"><Lock size={12} /> {t('oauth.readOnly')}</span><span class="text-xs text-muted">{t('oauth.readOnlyHint')}</span></span>
-        </label>
-        <label class="flex items-start gap-2 {canWrite ? '' : 'opacity-50'}">
-          <input type="radio" name="mode" class="mt-1" checked={!readOnly && canWrite} disabled={!canWrite} onchange={() => (readOnly = false)} />
-          <span><span class="flex items-center gap-1 font-medium"><LockOpen size={12} /> {t('oauth.readWrite')}</span><span class="text-xs text-muted">{t('oauth.readWriteHint')}</span></span>
-        </label>
-      </div>
+      <p class="mb-4 text-xs text-muted">{t('oauth.accessHint')}</p>
 
       <label class="mb-3 flex items-start gap-2 text-sm">
         <input type="checkbox" class="mt-1" bind:checked={remember} />

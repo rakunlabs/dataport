@@ -213,7 +213,10 @@ func (s *Server) oauthApprove(w http.ResponseWriter, r *http.Request) {
 		authorizeParams
 		Approve      bool   `json:"approve"`
 		ConnectionID string `json:"connection_id"`
-		ReadOnly     bool   `json:"read_only"`
+		// ReadOnly is sent by pages of earlier versions and ignored: what
+		// the client may do on each connection (read, write, schema) is the
+		// user's MCP access setting, not part of the approval.
+		ReadOnly bool `json:"read_only"`
 		// Remember approves this client again without asking.
 		Remember bool `json:"remember"`
 	}
@@ -264,7 +267,7 @@ func (s *Server) oauthApprove(w http.ResponseWriter, r *http.Request) {
 
 	if req.Remember {
 		if err := s.store.SaveOAuthConsent(r.Context(), &store.OAuthConsent{
-			UserID: user.ID, ClientID: ar.client.ID, ConnectionID: connID, ReadOnly: req.ReadOnly,
+			UserID: user.ID, ClientID: ar.client.ID, ConnectionID: connID,
 		}); err != nil {
 			writeStoreError(w, err)
 
@@ -272,7 +275,7 @@ func (s *Server) oauthApprove(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	next, err := s.issueCode(r, user, ar, connID, req.ReadOnly)
+	next, err := s.issueCode(r, user, ar, connID)
 	if err != nil {
 		writeStoreError(w, err)
 
@@ -284,7 +287,7 @@ func (s *Server) oauthApprove(w http.ResponseWriter, r *http.Request) {
 
 // issueCode makes an authorization code and returns the redirect that
 // hands it to the client.
-func (s *Server) issueCode(r *http.Request, user *store.User, ar *authorizeRequest, connID string, readOnly bool) (string, error) {
+func (s *Server) issueCode(r *http.Request, user *store.User, ar *authorizeRequest, connID string) (string, error) {
 	code, err := randomSecret("")
 	if err != nil {
 		return "", err
@@ -292,7 +295,7 @@ func (s *Server) issueCode(r *http.Request, user *store.User, ar *authorizeReque
 
 	if err := s.store.CreateOAuthCode(r.Context(), &store.OAuthCode{
 		CodeHash: dpauth.HashSecret(code), ClientID: ar.client.ID, UserID: user.ID, RedirectURI: ar.params.RedirectURI,
-		CodeChallenge: ar.params.CodeChallenge, ConnectionID: connID, ReadOnly: readOnly,
+		CodeChallenge: ar.params.CodeChallenge, ConnectionID: connID,
 		ExpiresAt: time.Now().Add(oauthCodeTTL).UnixMilli(),
 	}); err != nil {
 		return "", err
@@ -317,20 +320,14 @@ func (s *Server) rememberedApproval(r *http.Request, user *store.User, ar *autho
 		return ""
 	}
 
-	readOnly := c.ReadOnly
-
+	// A remembered connection the user can no longer reach is asked again.
 	if c.ConnectionID != "" {
-		g, err := s.store.GetGrant(r.Context(), user, c.ConnectionID)
-		if err != nil {
+		if _, err := s.store.GetGrant(r.Context(), user, c.ConnectionID); err != nil {
 			return ""
 		}
-
-		// A grant narrowed to read-only since is honoured; the token would
-		// be refused writes anyway.
-		readOnly = readOnly || g.ReadOnly
 	}
 
-	redirect, err := s.issueCode(r, user, ar, c.ConnectionID, readOnly)
+	redirect, err := s.issueCode(r, user, ar, c.ConnectionID)
 	if err != nil {
 		slog.Error("oauth remembered approval", "error", err)
 

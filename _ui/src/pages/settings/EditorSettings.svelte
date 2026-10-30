@@ -116,6 +116,13 @@ SELECT COUNT(*) FROM orders;
         </span>
       </label>
       <label class="flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5" bind:checked={prefs.blankLineSplits} onchange={change} />
+        <span>
+          <span class="block">{t('settings.blankLineSplits')}</span>
+          <span class="block text-xs text-muted">{t('settings.blankLineSplitsHint')}</span>
+        </span>
+      </label>
+      <label class="flex items-start gap-2 text-sm">
         <input type="checkbox" class="mt-0.5" bind:checked={prefs.resultInNewTab} onchange={change} />
         <span>
           <span class="block">{t('settings.resultInNewTab')}</span>

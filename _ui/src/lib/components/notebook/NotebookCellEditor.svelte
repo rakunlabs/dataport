@@ -58,7 +58,7 @@
   </div>
   {#if !cell.collapsed}
     <input class="input m-2 w-[calc(100%-16px)] text-xs" bind:value={cell.description} readonly={!editable || busy || tab.running} oninput={changed} placeholder={t('notebook.description')} aria-label={t('notebook.description')} />
-    <div class="h-44 border-y border-line-soft"><SqlEditor value={cell.sql} dbType={conn?.db_type || 'postgres'} onchange={(v) => { cell.sql = v; changed(); }} onrun={() => run(cell.path)} onsave={save} readonly={!editable || busy || tab.running} options={editorOptions(prefs)} /></div>
+    <div class="h-44 border-y border-line-soft"><SqlEditor value={cell.sql} dbType={conn?.db_type || 'postgres'} onchange={(v) => { cell.sql = v; changed(); }} onrun={() => run(cell.path)} runsWhole onsave={save} readonly={!editable || busy || tab.running} options={editorOptions(prefs)} /></div>
     <fieldset disabled={!editable || busy || tab.running} class="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 text-xs">
       {#each ['enabled', 'output', 'template', 'write'] as key}
         <label class="flex items-center gap-1.5"><input type="checkbox" disabled={key === 'write' && !!cell.transfer} checked={cell[key as 'enabled']} onchange={(e) => { cell[key as 'enabled'] = e.currentTarget.checked; changed(); }} />{t(`notebook.${key}`)}</label>

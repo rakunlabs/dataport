@@ -25,10 +25,13 @@ type RowEdit struct {
 }
 
 type EditRequest struct {
-	Schema  string
-	Table   string
-	Edits   []RowEdit
-	Timeout time.Duration
+	Schema string
+	Table  string
+	Edits  []RowEdit
+	// KeyColumns is a virtual key chosen by the user for a table without a
+	// primary key, as DBeaver offers. It is ignored when the table has one.
+	KeyColumns []string
+	Timeout    time.Duration
 }
 
 type EditResult struct {
@@ -55,7 +58,8 @@ func placeholder(d Driver, n int) string {
 }
 
 // editSQL builds one parameterised statement and a readable form for the log.
-func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string, e RowEdit) (string, []any, error) {
+// A virtual key may hold NULL values, which are matched with IS NULL.
+func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string, virtual bool, e RowEdit) (string, []any, error) {
 	var (
 		b    strings.Builder
 		args []any
@@ -100,7 +104,13 @@ func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string
 			}
 
 			if v == nil {
-				return fmt.Errorf("%w: key column %q is NULL", ErrBadEdit, k)
+				if !virtual {
+					return fmt.Errorf("%w: key column %q is NULL", ErrBadEdit, k)
+				}
+
+				b.WriteString(d.QuoteIdent(k) + " IS NULL")
+
+				continue
 			}
 
 			b.WriteString(d.QuoteIdent(k) + " = " + param(v))
@@ -133,12 +143,16 @@ func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string
 		if err := where(); err != nil {
 			return "", nil, err
 		}
+
+		limitVirtual(d, &b, virtual)
 	case "delete":
 		b.WriteString("DELETE FROM " + qualified)
 
 		if err := where(); err != nil {
 			return "", nil, err
 		}
+
+		limitVirtual(d, &b, virtual)
 	case "insert":
 		keys, err := sortedKeys(e.Values)
 		if err != nil {
@@ -165,6 +179,16 @@ func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string
 	return b.String(), args, nil
 }
 
+// limitVirtual caps a change found by a virtual key at two rows where the
+// database allows it (MySQL, MariaDB). A key that is not unique then
+// changes at most one row too many before the one-row check rolls it back,
+// even on tables without transactions, such as MyISAM.
+func limitVirtual(d Driver, b *strings.Builder, virtual bool) {
+	if virtual && d.Dialect() == DialectMySQL {
+		b.WriteString(" LIMIT 2")
+	}
+}
+
 // PreviewEdits builds the statements ApplyEdits would run, with their
 // parameters shown inline, without touching the data.
 func (m *Manager) PreviewEdits(ctx context.Context, c *store.Connection, password string, req EditRequest) ([]string, error) {
@@ -188,8 +212,9 @@ type editStmt struct {
 }
 
 type editPlan struct {
-	pool  *pool
-	stmts []editStmt
+	pool    *pool
+	stmts   []editStmt
+	virtual bool
 }
 
 func (m *Manager) planEdits(ctx context.Context, c *store.Connection, password string, req EditRequest) (*editPlan, error) {
@@ -231,9 +256,33 @@ func (m *Manager) planEdits(ctx context.Context, c *store.Connection, password s
 		}
 	}
 
+	// Without a primary key, the user's virtual key finds the rows. The
+	// one-row check in ApplyEdits keeps a key that is not unique from
+	// changing more than one row.
+	virtual := false
+
+	if len(pk) == 0 && len(req.KeyColumns) > 0 {
+		seen := make(map[string]bool, len(req.KeyColumns))
+
+		for _, k := range req.KeyColumns {
+			if _, ok := cols[k]; !ok {
+				return nil, fmt.Errorf("%w: unknown key column %q", ErrBadEdit, k)
+			}
+
+			if seen[k] {
+				return nil, fmt.Errorf("%w: key column %q is given twice", ErrBadEdit, k)
+			}
+
+			seen[k] = true
+			pk = append(pk, k)
+		}
+
+		virtual = true
+	}
+
 	qualified := qualify(d, req.Schema, req.Table)
 
-	plan := &editPlan{pool: p, stmts: make([]editStmt, 0, len(req.Edits))}
+	plan := &editPlan{pool: p, stmts: make([]editStmt, 0, len(req.Edits)), virtual: virtual}
 
 	// Updates first, then deletes, then inserts, so a new row can reuse the
 	// key of one deleted in the same batch.
@@ -244,10 +293,10 @@ func (m *Manager) planEdits(ctx context.Context, c *store.Connection, password s
 			}
 
 			if e.Op != "insert" && len(pk) == 0 {
-				return nil, fmt.Errorf("%w: the table has no primary key; only new rows can be added", ErrBadEdit)
+				return nil, fmt.Errorf("%w: the table has no primary key; choose key columns to change or delete rows", ErrBadEdit)
 			}
 
-			query, args, err := editSQL(d, qualified, cols, pk, e)
+			query, args, err := editSQL(d, qualified, cols, pk, virtual, e)
 			if err != nil {
 				return nil, err
 			}
@@ -312,6 +361,10 @@ func (m *Manager) ApplyEdits(ctx context.Context, c *store.Connection, password 
 		n, _ := res.RowsAffected()
 		if s.op != "insert" && n != 1 {
 			_ = tx.Rollback()
+
+			if plan.virtual && n > 1 {
+				return nil, fmt.Errorf("%w: change %d matched %d rows: the key columns do not identify one row; choose more columns", ErrBadEdit, i+1, n)
+			}
 
 			return nil, fmt.Errorf("%w: change %d matched %d rows instead of 1; reload the table and try again", ErrBadEdit, i+1, n)
 		}

@@ -211,10 +211,27 @@ as `admin` / `change-me-now`).
 
 - Connections marked **production** ask the user to confirm every write after
   showing the exact SQL; the server refuses unconfirmed writes.
+- On **every** connection, an `UPDATE` or `DELETE` without a `WHERE` of its
+  own (one inside a subquery does not count) runs only once the user
+  confirms it, as DBeaver and DataGrip ask; the dialog names the
+  statements. The server checks it, so the SQL editor, notebooks and MCP
+  agents all ask: a notebook shows the cell's exact SQL, an agent's client
+  asks the user, and callers that cannot ask are refused. `WHERE true`
+  states that every row is meant. Routine and trigger definitions, `ON
+  DELETE CASCADE`, `SELECT … FOR UPDATE`, `ON CONFLICT DO UPDATE` and
+  `MERGE` actions are not runs of their own and do not ask.
+- A routine's `BEGIN … END` body (MySQL, MariaDB, SQLite, SQL Server,
+  PostgreSQL's `BEGIN ATOMIC`) is one statement: the `;` inside it does
+  not end the `CREATE`. Oracle PL/SQL blocks end at a line with `/`.
 - Table tabs edit rows in place: changes stay pending until saved, can be
   previewed as SQL, and are applied in one transaction that fails as a whole
-  if any update or delete does not hit exactly one row. Editing needs a
-  primary key; tables without one only accept new rows.
+  if any update or delete does not hit exactly one row. Rows are found by
+  the primary key. For a table without one, dataport asks for a **virtual
+  key** instead of refusing, as DBeaver does: pick the columns that identify
+  a row, starting from a unique index or all columns. NULL values in it are
+  matched with `IS NULL`, and the one-row check still rolls back a save that
+  would change more. The key is kept per table in the browser and can be
+  changed from the toolbar.
 
 ## Workspace
 
@@ -231,16 +248,40 @@ non-admins only see the personal part.
 
 **Query tabs**
 
-- `Ctrl+Enter` runs the selection, or the whole editor, and replaces the
-  current result; `Ctrl+\` adds a new result tab instead.
-  `Ctrl+Shift+Enter` runs only the statement under the cursor, and each
-  statement ending with `;` has a run button in the gutter.
+- `Ctrl+Enter` and the Run button work as in DBX and DBeaver: a selection
+  runs as it is, every statement in it in turn, each with a result of its
+  own; without one, the statement under the cursor runs, the one a green
+  frame outlines. A script of one statement runs whole wherever the cursor
+  is; on a blank line between statements nothing runs. `Alt+X` (or the
+  button beside Run) runs the whole script, and `Ctrl+\` runs into a new
+  result tab instead of replacing the current one. Each statement has a run
+  button in the gutter; it runs the selection instead when that covers part
+  of the statement. A run stops at the first failing statement.
+- Statements end with `;`, or, as DBeaver's "Blank line is statement
+  delimiter" (Smart) does, at a blank line followed by a new statement
+  (`SELECT`, `UPDATE`, `CREATE`…). Lines without a blank line between them
+  are never split, and a blank line never splits a statement that goes on
+  after it: inside brackets, strings, comments or a routine body, after a
+  comma, an operator or a word like `AND` or `UNION`, or before the main
+  query of a `WITH`, `EXPLAIN`, `INSERT … SELECT` or `CREATE … AS`, or the
+  `SET` of an `UPDATE`. A fuzz test builds thousands of statements, puts a
+  blank line between every two lines, and checks none is cut. The missing
+  `;` is added before the script goes to the server. Settings → Editor
+  turns the rule off; SQL Server scripts split at `;` only.
+- After a run each statement's button shows how it went: a spinner while
+  it runs, then a tick, or a cross whose tooltip holds the error. The mark
+  goes when the statement is edited.
+- `Ctrl+Shift+↑` / `Ctrl+Shift+↓` move to the previous or next statement and
+  `Alt+S` selects the statement under the cursor.
 - Variables are filled in in the browser before a run, so the query log
   sees the final SQL: `@set x = 1` then `@x`, `${x}`, `#{x}`, and optionally
   `:x`. Undeclared names are asked for. Settings → Editor turns the
   syntaxes on or off and shows a live preview.
 - Editor settings (font, line height, tab size, vim mode, run buttons…) are
   kept in the browser.
+- `Ctrl+Shift+F` (or the toolbar button) formats the selection, or the whole
+  script, in the connection's dialect; placeholders and `@set` lines are kept
+  as written. `Alt+Z` (or the toolbar button) turns line wrapping on and off.
 - **Explain** (`Ctrl+Shift+E`, or a statement's gutter menu) shows the
   execution plan of the selection or the statement under the cursor, as a
   result of its own. A dialog offers the options the database has: on
@@ -752,7 +793,7 @@ Connections shared later start hidden or read-only, as the user chooses.
 The choice is one per user, read on every call, and applies at once to all
 of the user's tokens and signed-in clients. The user's own grant, read-only
 tokens and production confirmation remain upper limits. Until a user saves a
-choice, agents reach every connection as far as the grant allows.
+choice, agents may only **read**, on every connection the user can reach.
 
 **Endpoints**
 
@@ -767,8 +808,9 @@ choice, agents reach every connection as far as the grant allows.
 - *Browser sign-in (OAuth)*: add the server without a token,
   `claude mcp add --transport http dataport https://dataport.example.com/mcp`.
   The first time, the client opens dataport in the browser; the user signs
-  in (password or SSO), picks the databases and read-only or read-write,
-  and approves. *Remember this client* approves it again later without
+  in (password or SSO), picks the databases and approves. What the client
+  may do on each database follows *Agent access* above, so the sign-in does
+  not ask for it. *Remember this client* approves it again later without
   asking, until its access is revoked. The client renews its access by itself. dataport is the
   OAuth 2.1 server: dynamic client registration, PKCE (S256), one-hour
   access tokens and rotating refresh tokens that live as long as the

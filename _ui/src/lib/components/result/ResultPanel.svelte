@@ -23,6 +23,8 @@
   import { EditState, commitEdits, keepEdits, previewEdits } from '@/lib/stores/edits.svelte';
   import { defaultSchemas, sourceTable } from '@/lib/helper/sourceTable';
   import Modal from '@/lib/components/ui/Modal.svelte';
+  import VirtualKeyDialog from '@/lib/components/dialogs/VirtualKeyDialog.svelte';
+  import { setVirtualKey, virtualKey } from '@/lib/stores/virtualKeys.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import { api, qs } from '@/lib/api/client';
   import { withCredentials } from '@/lib/stores/credentials.svelte';
@@ -166,7 +168,7 @@
 
   // A query result that is one table's rows, read whole by a plain SELECT,
   // can be edited like the table: the source table is found from the SQL
-  // and must have a primary key the result includes.
+  // and must have a primary key, or a virtual key, the result includes.
   const queryConn = $derived(connection(tab.connectionId));
   const canWrite = $derived(tab.kind === 'query' && !!queryConn && !queryConn.read_only && queryConn.editable !== false);
   const source = $derived.by(() => {
@@ -217,7 +219,13 @@
   });
 
   const queryMeta = $derived(resolved ? (ws.columns[`${tab.connectionId}|${resolved.schema}|${resolved.table}`]?.items ?? []) : []);
-  const queryKeys = $derived(queryMeta.filter((c) => c.primary_key).map((c) => c.name));
+  const queryPrimary = $derived(queryMeta.filter((c) => c.primary_key).map((c) => c.name));
+  // Without a primary key, a virtual key the user chose finds the rows.
+  const queryVirtual = $derived(
+    resolved && !queryPrimary.length ? virtualKey(tab.connectionId, resolved.schema, resolved.table, queryMeta.map((c) => c.name)) : [],
+  );
+  const queryKeys = $derived(queryPrimary.length ? queryPrimary : queryVirtual);
+  let keyDialog = $state(false);
   const resultColumns = $derived(current?.columns?.map((c) => c.name) ?? []);
   // Every column must be a column of the table, once, and the key must be
   // among them, so each row can be found again.
@@ -234,7 +242,7 @@
   const queryNoEdit = $derived.by(() => {
     if (!resolved || resolved.statement !== current?.statement || queryEditable) return '';
     if (tab.txOpen) return t('edit.queryTx');
-    if (!queryKeys.length) return t('edit.noKeyHint');
+    if (!queryKeys.length) return t('edit.noKeyChoose');
     return t('edit.queryNeedsKey');
   });
 
@@ -249,7 +257,7 @@
   let querySaving = $state(false);
 
   function queryEdits() {
-    return current?.edit?.edits(resultColumns, queryMeta, current.rows ?? []) ?? [];
+    return current?.edit?.edits(resultColumns, queryMeta, current.rows ?? [], queryVirtual) ?? [];
   }
 
   function queryAddRow() {
@@ -261,7 +269,7 @@
   function queryCloneRows() {
     const sel = gridRef?.selection();
     if (!sel || !current?.rows || !current.edit) return;
-    current.edit.clone(current.rows, sel, resultColumns.length, new Set(queryKeys.map((k) => resultColumns.indexOf(k))));
+    current.edit.clone(current.rows, sel, resultColumns.length, new Set(queryPrimary.map((k) => resultColumns.indexOf(k))));
   }
 
   function queryDeleteRows() {
@@ -272,7 +280,7 @@
   async function queryShowPreview() {
     if (!resolved) return;
     try {
-      queryPreview = (await previewEdits(tab.connectionId, resolved.schema, resolved.table, queryEdits())).statements;
+      queryPreview = (await previewEdits(tab.connectionId, resolved.schema, resolved.table, queryEdits(), queryVirtual)).statements;
     } catch (e) {
       toast(errorMessage(e), 'error');
     }
@@ -283,7 +291,7 @@
     // The user may move to another result while saving: the saved one is
     // the result that was looked at, found again by itself.
     const saved = current;
-    const target = { connectionId: tab.connectionId, connectionName: queryConn?.name ?? '', schema: resolved.schema, table: resolved.table };
+    const target = { connectionId: tab.connectionId, connectionName: queryConn?.name ?? '', schema: resolved.schema, table: resolved.table, keyColumns: queryVirtual };
     querySaving = true;
     try {
       if (!(await commitEdits(target, queryEdits(), queryPreview))) return;
@@ -413,7 +421,12 @@
   const dbType = $derived(conn?.db_type ?? 'postgres');
   // SQL formats name the table only for a table tab; a query result has no
   // reliable source table.
-  const keys = $derived(tab.kind === 'table' ? (ws.columns[tableKey(tab)]?.items ?? []).filter((c) => c.primary_key).map((c) => c.name) : queryKeys);
+  const keys = $derived.by(() => {
+    if (tab.kind !== 'table') return queryKeys;
+    const meta = ws.columns[tableKey(tab)]?.items ?? [];
+    const pk = meta.filter((c) => c.primary_key).map((c) => c.name);
+    return pk.length ? pk : virtualKey(tab.connectionId, tab.schema, tab.table, meta.map((c) => c.name));
+  });
 
   const formats: { id: CopyFormat; label: string; sep?: boolean }[] = [
     { id: 'tsv', label: 'TSV' },
@@ -515,6 +528,11 @@
           <Pencil size={12} class="shrink-0 text-accent" />
           <span class="truncate">{t('edit.queryEditing', { table: (resolved?.schema ? resolved.schema + '.' : '') + resolved?.table })}</span>
         </span>
+        {#if queryVirtual.length}
+          <button class="pill-own ml-1 max-w-56 hover:brightness-110" onclick={() => (keyDialog = true)} title={t('edit.virtualKeyActive', { columns: queryVirtual.join(', ') })}>
+            <KeyRound size={10} class="shrink-0" /> <span class="truncate">{t('edit.virtualKey')}: {queryVirtual.join(', ')}</span>
+          </button>
+        {/if}
         <div class="flex-1"></div>
         <button class="icon-btn size-6" onclick={() => gridRef?.setNull()} title={t('edit.setNull')} aria-label={t('edit.setNull')}><Ban size={13} /></button>
         <button class="icon-btn size-6" onclick={queryCloneRows} title={t('edit.cloneHint')} aria-label={t('edit.clone')}><Copy size={13} /></button>
@@ -535,6 +553,10 @@
           <KeyRound size={12} class="shrink-0" />
           <span class="truncate">{t('edit.queryReadOnly', { table: (resolved?.schema ? resolved.schema + '.' : '') + resolved?.table })} · {queryNoEdit}</span>
         </span>
+        {#if !queryPrimary.length && !tab.txOpen && queryMeta.length}
+          <div class="flex-1"></div>
+          <button class="btn h-6 shrink-0" onclick={() => (keyDialog = true)}><KeyRound size={12} /> {queryVirtual.length ? t('edit.virtualKey') : t('edit.chooseKey')}</button>
+        {/if}
       {/if}
     </div>
   {/if}
@@ -803,6 +825,23 @@
       <button class="menu-item" onclick={() => ((menu = null), queryDeleteRows())}><Trash2 size={13} /> {t('edit.deleteToggle')}</button>
     {/if}
   </div>
+{/if}
+
+{#if keyDialog && resolved}
+  {@const r = resolved}
+  <VirtualKeyDialog
+    connectionId={tab.connectionId}
+    schema={r.schema}
+    table={r.table}
+    columns={queryMeta}
+    initial={queryVirtual}
+    onsave={(cols) => {
+      setVirtualKey(tab.connectionId, r.schema, r.table, cols);
+      keyDialog = false;
+      queryPreview = null;
+    }}
+    onclose={() => (keyDialog = false)}
+  />
 {/if}
 
 {#if queryPreview}

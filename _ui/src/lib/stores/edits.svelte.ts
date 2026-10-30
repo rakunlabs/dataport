@@ -89,8 +89,10 @@ export class EditState {
 
   // edits builds the request for the server. Key values come from the loaded
   // row, never from the pending values, so a changed key still finds the row.
-  edits(columns: string[], meta: ColumnInfo[], rows: unknown[][]): RowEdit[] {
-    const pk = meta.filter((c) => c.primary_key).map((c) => c.name);
+  // virtualKey stands in for a missing primary key.
+  edits(columns: string[], meta: ColumnInfo[], rows: unknown[][], virtualKey: string[] = []): RowEdit[] {
+    const primary = meta.filter((c) => c.primary_key).map((c) => c.name);
+    const pk = primary.length ? primary : virtualKey;
     const keyOf = (row: unknown[]) => Object.fromEntries(pk.map((name) => [name, row[columns.indexOf(name)]]));
     const out: RowEdit[] = [];
 
@@ -138,9 +140,9 @@ function sameValue(a: unknown, b: unknown): boolean {
   return text(a) === text(b);
 }
 
-export async function previewEdits(connectionId: string, schema: string, table: string, edits: RowEdit[]) {
+export async function previewEdits(connectionId: string, schema: string, table: string, edits: RowEdit[], keyColumns?: string[]) {
   return withCredentials(connectionId, () =>
-    api.post<{ statements: string[] }>(`/connections/${connectionId}/edits/preview`, { schema, table, edits }),
+    api.post<{ statements: string[] }>(`/connections/${connectionId}/edits/preview`, { schema, table, edits, key_columns: keyColumns?.length ? keyColumns : undefined }),
   );
 }
 
@@ -150,6 +152,8 @@ export interface EditTarget {
   connectionName: string;
   schema: string;
   table: string;
+  // A virtual key, for a table without a primary key.
+  keyColumns?: string[];
 }
 
 // commitEdits saves edits in one transaction, asking first on a production
@@ -159,7 +163,7 @@ export async function commitEdits(to: EditTarget, edits: RowEdit[], preview?: st
   let confirmed = false;
   for (;;) {
     try {
-      const res = await saveEdits(to.connectionId, to.schema, to.table, edits, confirmed);
+      const res = await saveEdits(to.connectionId, to.schema, to.table, edits, confirmed, to.keyColumns);
       toast(t('edit.saved', { count: res.affected }), 'success');
       return true;
     } catch (e) {
@@ -167,7 +171,7 @@ export async function commitEdits(to: EditTarget, edits: RowEdit[], preview?: st
         let sql = preview?.join(';\n') ?? '';
         if (!sql) {
           try {
-            sql = (await previewEdits(to.connectionId, to.schema, to.table, edits)).statements.join(';\n');
+            sql = (await previewEdits(to.connectionId, to.schema, to.table, edits, to.keyColumns)).statements.join(';\n');
           } catch {
             // The confirmation then shows no statements.
           }
@@ -182,13 +186,14 @@ export async function commitEdits(to: EditTarget, edits: RowEdit[], preview?: st
   }
 }
 
-export async function saveEdits(connectionId: string, schema: string, table: string, edits: RowEdit[], confirm: boolean) {
+export async function saveEdits(connectionId: string, schema: string, table: string, edits: RowEdit[], confirm: boolean, keyColumns?: string[]) {
   return withCredentials(connectionId, () =>
     api.post<{ affected: number; statements: string[]; duration_ms: number }>(`/connections/${connectionId}/edits`, {
       schema,
       table,
       edits,
       confirm,
+      key_columns: keyColumns?.length ? keyColumns : undefined,
     }),
   );
 }

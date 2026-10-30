@@ -55,7 +55,7 @@ func TestEditSQL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, args, err := editSQL(tt.d, `"public"."t"`, cols, pk, tt.edit)
+			got, args, err := editSQL(tt.d, `"public"."t"`, cols, pk, false, tt.edit)
 			if tt.wantErr {
 				if !errors.Is(err, ErrBadEdit) {
 					t.Fatalf("err = %v, want ErrBadEdit", err)
@@ -72,5 +72,31 @@ func TestEditSQL(t *testing.T) {
 				t.Fatalf("got %q %v, want %q with %d args", got, args, tt.wantSQL, tt.wantArgs)
 			}
 		})
+	}
+}
+
+func TestEditSQLVirtualKey(t *testing.T) {
+	pg, _ := GetDriver("postgres")
+
+	cols := map[string]ColumnInfo{"name": {Name: "name"}, "city": {Name: "city"}}
+
+	got, args, err := editSQL(pg, `"t"`, cols, []string{"name", "city"}, true, RowEdit{Op: "delete", Key: map[string]any{"name": "a", "city": nil}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := `DELETE FROM "t" WHERE "name" = $1 AND "city" IS NULL`; got != want || len(args) != 1 {
+		t.Fatalf("got %q %v, want %q", got, args, want)
+	}
+
+	my, _ := GetDriver("mysql")
+
+	got, _, err = editSQL(my, "`t`", cols, []string{"name"}, true, RowEdit{Op: "update", Key: map[string]any{"name": "a"}, Values: map[string]any{"city": "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "UPDATE `t` SET `city` = ? WHERE `name` = ? LIMIT 2"; got != want {
+		t.Fatalf("mysql: got %q, want %q", got, want)
 	}
 }

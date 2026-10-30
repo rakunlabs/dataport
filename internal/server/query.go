@@ -66,7 +66,7 @@ func (s *Server) runQuery(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var confirm *confirmationError
 		if errors.As(err, &confirm) {
-			writeConfirmationRequired(w, confirm.risk)
+			writeConfirmation(w, confirm)
 
 			return
 		}
@@ -101,11 +101,20 @@ type execInput struct {
 	TxContinue bool
 }
 
-// confirmationError means a production connection needs the user to confirm
-// the changes first.
-type confirmationError struct{ risk engine.Risk }
+// confirmationError means the user must confirm the changes first: on a
+// production connection, or for statements that change every row of a
+// table (unbounded), on any connection.
+type confirmationError struct {
+	risk       engine.Risk
+	production bool
+	unbounded  []string
+}
 
 func (e *confirmationError) Error() string {
+	if !e.production {
+		return "UPDATE or DELETE without WHERE changes every row; confirm to run it"
+	}
+
 	return "this is a production database; confirm to run the changes"
 }
 
@@ -116,10 +125,13 @@ func (s *Server) execute(ctx context.Context, user *store.User, g *store.Grant, 
 	c := g.Connection
 	readOnly := g.ReadOnly || in.ReadOnly
 
-	if c.Production && !readOnly && !in.Confirm {
+	if !readOnly && !in.Confirm {
 		if d, err := engine.DriverFor(c); err == nil {
-			if risk := engine.Classify(d, in.SQL); risk != engine.RiskRead {
-				return nil, &confirmationError{risk: risk}
+			unbounded := engine.Unbounded(d, in.SQL)
+			risk := engine.Classify(d, in.SQL)
+
+			if (c.Production && risk != engine.RiskRead) || len(unbounded) > 0 {
+				return nil, &confirmationError{risk: risk, production: c.Production, unbounded: unbounded}
 			}
 		}
 	}

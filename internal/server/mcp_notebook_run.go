@@ -100,7 +100,7 @@ func (s *Server) planWritesProduction(ctx context.Context, user *store.User, doc
 			return false, err
 		}
 
-		if needsConfirmation(c, g) {
+		if needsConfirmation(c, g) || changesEveryRow(c, g) {
 			return true, nil
 		}
 	}
@@ -129,12 +129,17 @@ func (s *Server) confirmNotebookWrites(ctx context.Context, req *mcp.CallToolReq
 		cell := cells[c.Path]
 
 		g, err := s.cellAccess(ctx, user, cell, p, false)
-		if err != nil || !needsConfirmation(cell, g) {
+		if err != nil || !c.NeedsConfirmation {
 			continue
 		}
 
+		why := "production database"
+		if !needsConfirmation(cell, g) {
+			why = "UPDATE or DELETE without WHERE, changes every row"
+		}
+
 		confirmations[c.Path] = c.Confirmation
-		fmt.Fprintf(&b, "\n\ncell %s on %q:\n%s", c.Path, g.src.Connection.Name, c.SQL)
+		fmt.Fprintf(&b, "\n\ncell %s on %q (%s):\n%s", c.Path, g.src.Connection.Name, why, c.SQL)
 
 		if len(c.Args) > 0 {
 			args, _ := json.Marshal(c.Args)
@@ -147,8 +152,12 @@ func (s *Server) confirmNotebookWrites(ctx context.Context, req *mcp.CallToolReq
 		shown = shown[:6000] + "\n…"
 	}
 
-	msg := fmt.Sprintf("Notebook %q writes to production databases. Run these statements?%s", n.Name, shown)
-	if err := elicitConfirmation(ctx, req, msg, "Run on production"); err != nil {
+	if len(confirmations) == 0 {
+		return confirmations, nil
+	}
+
+	msg := fmt.Sprintf("Notebook %q has writes that need your confirmation. Run these statements?%s", n.Name, shown)
+	if err := elicitConfirmation(ctx, req, msg, "Run these statements"); err != nil {
 		return nil, err
 	}
 

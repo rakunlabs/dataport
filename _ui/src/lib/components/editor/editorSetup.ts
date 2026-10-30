@@ -1,77 +1,215 @@
 import { t as tr } from '@/lib/i18n/index.svelte';
-import { StateField, RangeSet, type Extension } from '@codemirror/state';
-import { EditorView, gutter, GutterMarker, Decoration, MatchDecorator, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view';
+import { StateField, StateEffect, RangeSet, type Extension, type EditorState } from '@codemirror/state';
+import { EditorView, gutter, GutterMarker, Decoration, MatchDecorator, ViewPlugin, RectangleMarker, layer, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import { HighlightStyle, syntaxTree } from '@codemirror/language';
 import { PostgreSQL, MySQL, MariaSQL, MSSQL, PLSQL, SQLite, StandardSQL, type SQLDialect } from '@codemirror/lang-sql';
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import { tags as t } from '@lezer/highlight';
-import { statements, type Statement } from '@/lib/helper/statements';
+import { statementAt, statements, type Statement } from '@/lib/helper/statements';
 import { tableRefs } from '@/lib/helper/sqlTables';
 
 // ////////////////////////////////////////////
 // run buttons next to statements
 
+// How the last run of a statement went, as DBX shows it on the statement's
+// run button: running, done, or failed with its error.
+export interface RunStatus {
+  state: 'running' | 'ok' | 'error';
+  error?: string;
+}
+
+// A run marks the statements it ran, by where they are in the editor: all
+// as running when it starts, then each as done or failed from the server's
+// answer. ranges are [from, to) offsets in the document as it was when the
+// run started; marks move with later edits.
+export interface RunMarks {
+  ranges: { from: number; to: number }[];
+  status: (RunStatus | undefined)[];
+}
+
+export const setRunStatus = StateEffect.define<RunMarks | null>({
+  map: (v, change) => v && { ...v, ranges: v.ranges.map((r) => ({ from: change.mapPos(r.from, 1), to: change.mapPos(r.to, -1) })) },
+});
+
+interface StatusEntry {
+  from: number;
+  to: number;
+  status: RunStatus;
+}
+
+// Marks move with the text and go when their statement is edited, so they
+// never point at a statement that is not the one that ran.
+const runStatusField = StateField.define<StatusEntry[]>({
+  create: () => [],
+  update: (list, tr) => {
+    let out = list;
+    if (tr.docChanged) {
+      out = [];
+      for (const e of list) {
+        let touched = false;
+        tr.changes.iterChangedRanges((a, b) => {
+          if (a <= e.to && b >= e.from) touched = true;
+        });
+        if (!touched) out.push({ ...e, from: tr.changes.mapPos(e.from, 1), to: tr.changes.mapPos(e.to, -1) });
+      }
+    }
+    for (const effect of tr.effects) {
+      if (!effect.is(setRunStatus)) continue;
+      if (!effect.value) {
+        out = [];
+        continue;
+      }
+      const { ranges, status } = effect.value;
+      const found: StatusEntry[] = [];
+      ranges.forEach((r, i) => {
+        if (status[i]) found.push({ from: r.from, to: r.to, status: status[i]! });
+      });
+      // A new run replaces the marks of the statements it ran.
+      out = [...out.filter((e) => !ranges.some((f) => f.from < e.to && f.to > e.from)), ...found];
+    }
+    return out;
+  },
+});
+
+// A mark belongs to the statement it lies in: the statement may have
+// grown since, as long as it was not edited where the run was.
+function statusAt(state: EditorState, s: Statement): RunStatus | undefined {
+  return state.field(runStatusField, false)?.find((e) => e.from >= s.from && e.to <= s.to)?.status;
+}
+
 class RunMarker extends GutterMarker {
   stmt: Statement;
+  status?: RunStatus;
 
-  constructor(stmt: Statement) {
+  constructor(stmt: Statement, status?: RunStatus) {
     super();
     this.stmt = stmt;
+    this.status = status;
   }
 
   eq(other: RunMarker) {
-    return other.stmt.from === this.stmt.from && other.stmt.text === this.stmt.text;
+    return other.stmt.from === this.stmt.from && other.stmt.text === this.stmt.text && other.status?.state === this.status?.state && other.status?.error === this.status?.error;
   }
 
   toDOM() {
     const b = document.createElement('button');
     b.className = 'cm-run-stmt';
     b.type = 'button';
-    b.title = tr('editor.runStatement');
-    b.setAttribute('aria-label', tr('editor.runStatement'));
+    let label = tr('editor.runStatement');
+    if (this.status?.state === 'ok') label += ' · ' + tr('editor.statusOk');
+    else if (this.status?.state === 'running') label += ' · ' + tr('editor.statusRunning');
+    else if (this.status?.state === 'error') label += ' · ' + tr('editor.statusError', { error: this.status.error ?? '' });
+    b.title = label;
+    b.setAttribute('aria-label', label);
     b.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 4l15 8-15 8z"/></svg>';
+    if (this.status) {
+      const badge = document.createElement('span');
+      badge.className = 'cm-run-badge cm-run-badge-' + this.status.state;
+      badge.setAttribute('aria-hidden', 'true');
+      badge.innerHTML =
+        this.status.state === 'running'
+          ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>'
+          : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="${this.status.state === 'error' ? 'm16 8-8 8m0-8 8 8' : 'm7 12 3 3 7-7'}"/></svg>`;
+      b.appendChild(badge);
+    }
     return b;
   }
 }
 
 export interface StatementFields {
   stmtField: StateField<Statement[]>;
-  activeField: StateField<DecorationSet>;
+  activeField: StateField<Statement | null>;
 }
 
-// statementFields tracks the statements of the document and outlines the
-// one under the cursor. dbType and highlight are read when the document or
-// selection changes, so they follow the editor's current props.
-export function statementFields(dbType: () => string, highlight: () => boolean): StatementFields {
+// statementFields tracks the statements of the document and the one a run
+// without a selection takes. dbType and highlight are read when the
+// document or selection changes, so they follow the editor's current props.
+export function statementFields(dbType: () => string, highlight: () => boolean, blankLines: () => boolean = () => true): StatementFields & { extension: Extension } {
   // The statements of the document, recomputed when it changes.
   const stmtField = StateField.define<Statement[]>({
-    create: (st) => statements(st.doc.toString(), dbType()),
-    update: (v, tr) => (tr.docChanged ? statements(tr.state.doc.toString(), dbType()) : v),
+    create: (st) => statements(st.doc.toString(), dbType(), blankLines()),
+    update: (v, tr) => (tr.docChanged || tr.reconfigured ? statements(tr.state.doc.toString(), dbType(), blankLines()) : v),
   });
 
-  // The statement under the cursor is outlined, so it is clear what a
-  // button or Ctrl+Enter without a selection runs.
-  const activeMark = Decoration.mark({ class: 'cm-active-stmt' });
-  const activeField = StateField.define<DecorationSet>({
-    create: () => Decoration.none,
-    update: (_, tr) => {
+  // The statement under the cursor, framed as DBX does, so it is clear what
+  // Ctrl+Enter or the Run button takes. A selection runs as it is, so it
+  // has no frame.
+  const activeField = StateField.define<Statement | null>({
+    create: () => null,
+    update: (prev, tr) => {
+      const sel = tr.state.selection.main;
+      if (!highlight() || !sel.empty) return null;
       const list = tr.state.field(stmtField);
-      if (list.length < 2 || !highlight()) return Decoration.none;
-      const pos = tr.state.selection.main.head;
-      const s = list.find((x) => pos >= x.from && pos <= x.to + 1);
-      return s ? Decoration.set([activeMark.range(s.from, s.to)]) : Decoration.none;
+      // Inside the statement already framed nothing changes; this keeps
+      // moving the cursor cheap in a long script.
+      if (prev && !tr.docChanged && !tr.reconfigured && sel.head >= prev.from && sel.head <= prev.to) return prev;
+      const inside = list.find((x) => sel.head >= x.from && sel.head <= x.to);
+      if (inside) return inside;
+      // Only between statements is the text around the cursor read.
+      const line = tr.state.doc.lineAt(sel.head);
+      return statementAt(list, tr.state.doc.sliceString(0, line.to), sel.head) ?? null;
     },
-    provide: (f) => EditorView.decorations.from(f),
   });
 
-  return { stmtField, activeField };
+  return { stmtField, activeField, extension: [stmtField, activeField, runStatusField, statementFrame(activeField)] };
 }
 
-export function runGutterExtension({ stmtField, activeField }: StatementFields, onrunstatement?: (sql: string, e: MouseEvent) => void): Extension {
+// The frame stands a little off the text. Only lines in the viewport can be
+// measured, so a long statement is as wide as its visible lines.
+const frameInset = 2;
+
+function statementFrame(activeField: StateField<Statement | null>): Extension {
+  return layer({
+    above: true,
+    class: 'cm-stmt-frame-layer',
+    update: (u) =>
+      u.docChanged || u.selectionSet || u.viewportChanged || u.geometryChanged || u.startState.field(activeField) !== u.state.field(activeField),
+    markers: (v) => {
+      const s = v.state.field(activeField);
+      if (!s) return [];
+      const doc = v.state.doc;
+      const first = doc.lineAt(s.from);
+      const last = doc.lineAt(s.to);
+      const base = v.scrollDOM.getBoundingClientRect();
+      const baseLeft = base.left - v.scrollDOM.scrollLeft;
+      const baseTop = base.top - v.scrollDOM.scrollTop;
+      const top = v.documentTop + v.lineBlockAt(first.from).top - baseTop;
+      const bottom = v.documentTop + v.lineBlockAt(last.from).bottom - baseTop;
+
+      let left = Infinity;
+      let right = -Infinity;
+      const from = Math.max(first.number, doc.lineAt(v.viewport.from).number);
+      const to = Math.min(last.number, doc.lineAt(v.viewport.to).number);
+      for (let n = from; n <= to; n++) {
+        const line = doc.line(n);
+        const start = v.coordsAtPos(n === first.number ? s.from : line.from, 1);
+        const end = v.coordsAtPos(n === last.number ? s.to : line.to, -1);
+        if (start) left = Math.min(left, start.left);
+        if (end) right = Math.max(right, end.right);
+      }
+      if (v.lineWrapping || !Number.isFinite(right)) {
+        const content = v.contentDOM.getBoundingClientRect();
+        right = Math.max(Number.isFinite(right) ? right : -Infinity, content.right - frameInset * 2);
+      }
+      if (!Number.isFinite(left)) left = v.contentDOM.getBoundingClientRect().left;
+
+      return [
+        new RectangleMarker(
+          'cm-stmt-frame',
+          left - baseLeft - frameInset,
+          top,
+          Math.max(8, right - left + frameInset * 2),
+          Math.max(4, bottom - top),
+        ),
+      ];
+    },
+  });
+}
+
+// onrunstatement gets the part of the document to run.
+export function runGutterExtension({ stmtField }: StatementFields, onrunstatement?: (span: { from: number; to: number }, e: MouseEvent) => void): Extension {
   if (!onrunstatement) return [];
   return [
-    stmtField,
-    activeField,
     gutter({
       class: 'cm-run-gutter',
       markers: (v) => {
@@ -83,7 +221,7 @@ export function runGutterExtension({ stmtField, activeField }: StatementFields, 
           const at = v.state.doc.lineAt(s.from).from;
           if (seen.has(at)) continue;
           seen.add(at);
-          marks.push(new RunMarker(s).range(at));
+          marks.push(new RunMarker(s, statusAt(v.state, s)).range(at));
         }
         return RangeSet.of(marks, true);
       },
@@ -94,7 +232,11 @@ export function runGutterExtension({ stmtField, activeField }: StatementFields, 
           const s = v.state.field(stmtField).find((x) => v.state.doc.lineAt(x.from).from === line.from);
           if (s) {
             e.preventDefault();
-            onrunstatement(s.text, e as MouseEvent);
+            // A selection that covers part of the statement runs instead, as
+            // in DBX, so a few selected lines can be run from their button.
+            const sel = v.state.selection.main;
+            const overlaps = !sel.empty && sel.from < s.to && sel.to > s.from;
+            onrunstatement(overlaps ? { from: sel.from, to: sel.to } : { from: s.from, to: s.to }, e as MouseEvent);
           }
           return true;
         },
@@ -187,7 +329,28 @@ export const editorTheme = EditorView.theme({
     opacity: '0.75',
   },
   '.cm-run-stmt:hover': { opacity: '1', backgroundColor: 'var(--color-ok-soft)' },
-  '.cm-active-stmt': { backgroundColor: 'var(--cm-active-stmt)' },
+  '.cm-run-stmt:has(.cm-run-badge)': { opacity: '1', position: 'relative' },
+  '.cm-run-badge': {
+    position: 'absolute',
+    right: '-5px',
+    bottom: '-4px',
+    display: 'flex',
+    width: '11px',
+    height: '11px',
+    borderRadius: '9999px',
+    padding: '1.5px',
+    color: '#fff',
+    boxShadow: '0 0 0 1.5px var(--color-bg)',
+    pointerEvents: 'none',
+  },
+  '.cm-run-badge svg': { width: '100%', height: '100%' },
+  '.cm-run-badge-ok': { backgroundColor: 'var(--color-ok)' },
+  '.cm-run-badge-error': { backgroundColor: 'var(--color-danger)' },
+  '.cm-run-badge-running': { backgroundColor: 'var(--color-accent)' },
+  '.cm-run-badge-running svg': { animation: 'cm-run-spin 0.9s linear infinite' },
+  '@keyframes cm-run-spin': { to: { transform: 'rotate(360deg)' } },
+  '.cm-stmt-frame-layer': { pointerEvents: 'none' },
+  '.cm-stmt-frame': { boxSizing: 'border-box', border: '1px solid var(--cm-stmt-frame)', borderRadius: '2px', pointerEvents: 'none' },
   '.cm-placeholder-var': { color: 'var(--cm-type)', backgroundColor: 'var(--cm-match)', borderRadius: '2px' },
   '.cm-fat-cursor': { backgroundColor: 'var(--color-accent) !important', color: 'var(--color-accent-fg) !important' },
   '.cm-vim-panel': { fontFamily: 'var(--font-mono)', fontSize: '12px', padding: '0 6px' },

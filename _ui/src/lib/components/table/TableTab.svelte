@@ -30,6 +30,8 @@
   import ResultPanel from '@/lib/components/result/ResultPanel.svelte';
   import TotalCount from '@/lib/components/result/TotalCount.svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
+  import VirtualKeyDialog from '@/lib/components/dialogs/VirtualKeyDialog.svelte';
+  import { setVirtualKey, virtualKey } from '@/lib/stores/virtualKeys.svelte';
   import {
     connection,
     loadColumns,
@@ -61,6 +63,11 @@
   const rowCount = $derived(current?.rows?.length ?? 0);
   const meta = $derived(ws.columns[tableKey(tab)]?.items ?? []);
   const hasKey = $derived(meta.some((c) => c.primary_key));
+  // Without a primary key, rows are found by the columns the user chose.
+  const vkey = $derived(hasKey ? [] : virtualKey(tab.connectionId, tab.schema, tab.table, meta.map((c) => c.name)));
+  const canFind = $derived(hasKey || vkey.length > 0);
+  // The key dialog, and what to do once a key is chosen.
+  let keyDialog = $state<{ then?: () => void } | null>(null);
   const writable = $derived(!!conn && !conn.read_only && conn.editable !== false && current?.kind === 'rows');
   const pending = $derived(tab.edit.count);
 
@@ -132,16 +139,40 @@
 
   function deleteRows() {
     const sel = panel?.grid()?.selection();
-    if (sel) tab.edit.remove(sel);
+    if (!sel) return;
+    // New rows can always go; existing ones need a key to be found.
+    if (sel.existing.length && !canFind) {
+      keyDialog = { then: () => tab.edit.remove(sel) };
+      return;
+    }
+    tab.edit.remove(sel);
   }
 
   function edits() {
-    return tab.edit.edits(columnNames(), meta, current?.rows ?? []);
+    return tab.edit.edits(columnNames(), meta, current?.rows ?? [], vkey);
+  }
+
+  // Changes to existing rows need a key; without one the user is asked to
+  // choose columns instead of being refused, as DBeaver does.
+  function needsKey() {
+    return !canFind && edits().some((e) => e.op !== 'insert');
+  }
+
+  function saveKey(columns: string[]) {
+    const then = keyDialog?.then;
+    setVirtualKey(tab.connectionId, tab.schema, tab.table, columns);
+    keyDialog = null;
+    preview = null;
+    if (columns.length) then?.();
   }
 
   async function showPreview() {
+    if (needsKey()) {
+      keyDialog = { then: showPreview };
+      return;
+    }
     try {
-      preview = (await previewEdits(tab.connectionId, tab.schema, tab.table, edits())).statements;
+      preview = (await previewEdits(tab.connectionId, tab.schema, tab.table, edits(), vkey)).statements;
     } catch (e) {
       toast(errorMessage(e), 'error');
     }
@@ -149,9 +180,13 @@
 
   async function save() {
     if (saving || !pending) return;
+    if (needsKey()) {
+      keyDialog = { then: save };
+      return;
+    }
     saving = true;
     try {
-      const target = { connectionId: tab.connectionId, connectionName: conn?.name ?? '', schema: tab.schema, table: tab.table };
+      const target = { connectionId: tab.connectionId, connectionName: conn?.name ?? '', schema: tab.schema, table: tab.table, keyColumns: vkey };
       if (await commitEdits(target, edits(), preview)) {
         preview = null;
         await runTable(tab.id);
@@ -210,7 +245,13 @@
     {/if}
 
     {#if writable && tab.view === 'data' && !hasKey && meta.length}
-      <span class="pill-rw" title={t('edit.noKeyHint')}><KeyRound size={10} /> {t('edit.noKey')}</span>
+      {#if vkey.length}
+        <button class="pill-own max-w-64 hover:brightness-110" onclick={() => (keyDialog = {})} title={t('edit.virtualKeyActive', { columns: vkey.join(', ') })}>
+          <KeyRound size={10} class="shrink-0" /> <span class="truncate">{t('edit.virtualKey')}: {vkey.join(', ')}</span>
+        </button>
+      {:else}
+        <button class="pill-rw hover:brightness-110" onclick={() => (keyDialog = {})} title={t('edit.noKeyHint')}><KeyRound size={10} /> {t('edit.noKey')} · {t('edit.chooseKey')}</button>
+      {/if}
     {/if}
 
     <div class="flex-1"></div>
@@ -223,7 +264,7 @@
       {#if writable}
         <button class="icon-btn" onclick={() => panel?.grid()?.setNull()} title={t('edit.setNull')} aria-label={t('edit.setNull')}><Ban size={14} /></button>
         <button class="icon-btn" onclick={cloneRows} title={t('edit.cloneHint')} aria-label={t('edit.clone')}><Copy size={14} /></button>
-        <button class="icon-btn hover:text-danger" onclick={deleteRows} disabled={!hasKey} title={t('edit.deleteHint')} aria-label={t('edit.deleteToggle')}><Trash2 size={14} /></button>
+        <button class="icon-btn hover:text-danger" onclick={deleteRows} title={t('edit.deleteHint')} aria-label={t('edit.deleteToggle')}><Trash2 size={14} /></button>
         <button class="btn" onclick={addRow} title={t('edit.addRowHint')}><Plus size={14} /> {t('edit.addRow')}</button>
       {/if}
       <div class="toolbar-sep"></div>
@@ -306,7 +347,7 @@
             <button class="menu-item" onclick={cloneRows}><Copy size={13} /> {t('edit.clone')}</button>
             <button class="menu-item" onclick={addRow}><Plus size={13} /> {t('edit.addRow')}</button>
             <div class="menu-sep"></div>
-            <button class="menu-item" onclick={deleteRows} disabled={!hasKey}>
+            <button class="menu-item" onclick={deleteRows}>
               <Trash2 size={13} /> {t('edit.deleteToggle')}
             </button>
           {/if}
@@ -340,6 +381,10 @@
     </div>
   {/if}
 </div>
+
+{#if keyDialog}
+  <VirtualKeyDialog connectionId={tab.connectionId} schema={tab.schema} table={tab.table} columns={meta} initial={vkey} onsave={saveKey} onclose={() => (keyDialog = null)} />
+{/if}
 
 {#if preview}
   <Modal title={t('edit.previewTitle')} onclose={() => (preview = null)} width="max-w-3xl">

@@ -82,9 +82,9 @@ func TestMCPAccessPolicy(t *testing.T) {
 	shop := mustConnection(t, st, alice, "shop")
 	prod := mustConnection(t, st, alice, "shop-prod")
 
-	// Without a saved policy agents reach every shared connection.
+	// The test environment allows everything for alice.
 	if got := connections(); got["shop"] != "ddl" || got["shop-prod"] != "ddl" {
-		t.Fatalf("no policy: %v", got)
+		t.Fatalf("allowed: %v", got)
 	}
 
 	setPolicy := func(def store.MCPMode, modes map[string]store.MCPMode) {
@@ -200,7 +200,7 @@ func TestMCPAccessSettings(t *testing.T) {
 	}
 
 	v := request("GET", "", http.StatusOK)
-	if v.Saved || len(v.Connections) != 2 {
+	if !v.Saved || len(v.Connections) != 2 {
 		t.Fatalf("initial: %+v", v)
 	}
 
@@ -228,4 +228,35 @@ func TestMCPAccessSettings(t *testing.T) {
 	// New connections cannot start with write access.
 	request("PUT", `{"default_mode":"write","connections":{}}`, http.StatusBadRequest)
 	request("PUT", `{"default_mode":"bogus","connections":{}}`, http.StatusBadRequest)
+}
+
+// Without a saved policy agents may only read, whatever the grant.
+func TestMCPDefaultReadOnly(t *testing.T) {
+	ctx := context.Background()
+	env := newMCPEnv(t, "")
+
+	p, err := env.st.GetMCPPolicy(ctx, env.bob.ID)
+	if err != nil || p != nil {
+		t.Fatalf("bob has a policy: %v %v", p, err)
+	}
+
+	grants, err := env.st.ListGrants(ctx, env.bob)
+	if err != nil || len(grants) == 0 {
+		t.Fatal("bob has no grant", err)
+	}
+
+	if g := grants[0]; g.ReadOnly {
+		t.Fatal("the test needs a writable grant")
+	} else if mode := capMCPMode(p, &mcpCaller{user: env.bob, token: &store.AccessToken{}}, g); mode != store.MCPRead {
+		t.Fatalf("mode without a policy: %s", mode)
+	}
+
+	view, err := env.srv.mcpAccessView(ctx, env.bob)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if view.Saved || view.DefaultMode != store.MCPRead || len(view.Connections) == 0 || view.Connections[0].Mode != store.MCPRead {
+		t.Fatalf("view: %+v", view)
+	}
 }

@@ -42,6 +42,9 @@ export interface NotebookCellResult {
   sql?: string;
   args?: unknown[];
   confirmation?: string;
+  // The cell runs only with its confirmation: a production write, or an
+  // UPDATE or DELETE without WHERE.
+  needs_confirmation?: boolean;
 }
 export interface NotebookResult { id: string; status: string; error?: string; cells: NotebookCellResult[]; duration_ms: number }
 export interface NotebookRun {

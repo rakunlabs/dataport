@@ -26,8 +26,9 @@ func (s *Server) mcpMode(ctx context.Context, caller *mcpCaller, g *store.Grant)
 }
 
 func capMCPMode(p *store.MCPPolicy, caller *mcpCaller, g *store.Grant) store.MCPMode {
-	// Without a saved policy, agents get what the grant allows, as before.
-	mode := store.MCPDDL
+	// Without a saved policy, agents may only read; the user allows more
+	// per connection under Settings → MCP access.
+	mode := store.MCPRead
 	if p != nil {
 		mode = p.Mode(g.Connection.ID)
 	}
@@ -77,8 +78,8 @@ type mcpAccessConnection struct {
 }
 
 type mcpAccessView struct {
-	// Saved is false until the user saves a policy; agents then reach every
-	// connection as far as the grant allows.
+	// Saved is false until the user saves a policy; agents may then only
+	// read, on every connection the user can reach.
 	Saved       bool                  `json:"saved"`
 	DefaultMode store.MCPMode         `json:"default_mode"`
 	Connections []mcpAccessConnection `json:"connections"`
@@ -95,7 +96,7 @@ func (s *Server) mcpAccessView(ctx context.Context, user *store.User) (*mcpAcces
 		return nil, err
 	}
 
-	out := &mcpAccessView{Saved: p != nil, DefaultMode: store.MCPOff, Connections: make([]mcpAccessConnection, 0, len(grants))}
+	out := &mcpAccessView{Saved: p != nil, DefaultMode: store.MCPRead, Connections: make([]mcpAccessConnection, 0, len(grants))}
 	if p != nil {
 		out.DefaultMode = p.DefaultMode
 	}
@@ -107,10 +108,6 @@ func (s *Server) mcpAccessView(ctx context.Context, user *store.User) (*mcpAcces
 		}
 
 		mode := store.MCPRead
-		if !g.ReadOnly {
-			mode = store.MCPDDL
-		}
-
 		if p != nil {
 			mode = p.Mode(c.ID)
 		}

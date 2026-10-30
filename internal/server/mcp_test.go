@@ -112,6 +112,12 @@ INSERT INTO customers VALUES (1, 'Ada'), (2, '` + strings.Repeat("x", 50) + `');
 		}
 	}
 
+	// Agents may only read until the user allows more under Settings → MCP
+	// access; the tests act as a user who allowed everything.
+	if err := st.SetMCPPolicy(ctx, alice.ID, &store.MCPPolicy{DefaultMode: store.MCPDDL}); err != nil {
+		t.Fatal(err)
+	}
+
 	httpSrv := httptest.NewServer(srv.mux)
 	// Sessions keep an SSE stream open; Cleanup closes them first.
 	t.Cleanup(func() {

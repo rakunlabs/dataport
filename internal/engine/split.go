@@ -22,10 +22,10 @@ const (
 
 // Split cuts a script into single statements. It understands quoted strings,
 // quoted identifiers, line and block comments and, for PostgreSQL, dollar
-// quoting, so semicolons inside any of them do not end a statement. Empty
-// statements are dropped.
+// quoting, so semicolons inside any of them do not end a statement, nor do
+// those inside a routine's BEGIN … END. Empty statements are dropped.
 func Split(script string, dialect Dialect) []string {
-	ranges := splitRanges(script, dialect)
+	ranges := splitRanges(script, dialect, true)
 	out := make([]string, 0, len(ranges))
 
 	for _, r := range ranges {
@@ -40,13 +40,17 @@ func Split(script string, dialect Dialect) []string {
 }
 
 // splitRanges returns the [start, end) offsets of each statement, without
-// its semicolon.
-func splitRanges(script string, dialect Dialect) [][2]int {
+// its semicolon. A routine body that never ends (a missing END) would take
+// the rest of the script with it, so then the script is split again at
+// every ";", as before routines were known: a broken routine fails on its
+// own and the statements after it stay whole.
+func splitRanges(script string, dialect Dialect, routines bool) [][2]int {
 	var (
 		out   [][2]int
 		start int
 		i     int
 		n     = len(script)
+		body  = routineBody{dialect: dialect}
 	)
 
 	flush := func(end int) {
@@ -59,8 +63,24 @@ func splitRanges(script string, dialect Dialect) [][2]int {
 	for i < n {
 		c := script[i]
 
+		oracleQuote := (c == 'q' || c == 'Q') && dialect == DialectOracle && i+2 < n && script[i+1] == '\'' && (i == 0 || !isWordChar(rune(script[i-1])))
+
+		if routines && !oracleQuote && isWordStart(script, i) {
+			end := wordEnd(script, i)
+			body.word(strings.ToUpper(script[i:end]))
+			i = end
+
+			continue
+		}
+
+		// Signs between words count for the body: IF( is a function, and
+		// "END," closes a CASE before the next one.
+		if routines && (c == '(' || c == ',' || c == ':') {
+			body.sign(c)
+		}
+
 		switch {
-		case (c == 'q' || c == 'Q') && dialect == DialectOracle && i+2 < n && script[i+1] == '\'' && (i == 0 || !isWordChar(rune(script[i-1]))):
+		case oracleQuote:
 			i = skipOracleQuote(script, i)
 		case c == '\'' || c == '"' || (c == '`' && (dialect == DialectMySQL || dialect == DialectClickHouse || dialect == DialectSQLite)):
 			i = skipQuoted(script, i, c, backslashEscapes(script, i, c, dialect))
@@ -83,18 +103,188 @@ func splitRanges(script string, dialect Dialect) [][2]int {
 			} else {
 				i++
 			}
+		case c == ';' && body.open():
+			// A ";" inside a routine's BEGIN … END ends one of its
+			// statements, not the CREATE.
+			body.semicolon()
+			i++
 		case c == ';':
 			flush(i)
 			i++
 			start = i
+			body = routineBody{dialect: dialect}
 		default:
 			i++
 		}
 	}
 
+	if body.open() {
+		return splitRanges(script, dialect, false)
+	}
+
 	flush(n)
 
 	return out
+}
+
+// routineBody follows a CREATE of a procedure, function, trigger or event
+// to find its BEGIN … END body (MySQL, MariaDB, SQLite, SQL Server,
+// PostgreSQL's BEGIN ATOMIC). Its statements end with ";" too, so without
+// this the routine would be cut at the first one and sent in pieces.
+//
+// Only a routine definition opens a body: in CREATE TABLE, CREATE INDEX and
+// the like, begin, case or end are names or expressions, and a body there
+// could hide the statements after it. Inside the body, CASE … END, IF …
+// END IF and loops nest; IF and FOR open a block only where a statement
+// starts (not IF(…), IF EXISTS, FOR UPDATE), and BEGIN TRANSACTION is no
+// block.
+type routineBody struct {
+	dialect Dialect
+	words   int  // words read in the statement
+	create  bool // the statement is a CREATE
+	routine bool // … of a procedure, function, trigger or event
+	depth   int  // open BEGIN / CASE / IF / LOOP … blocks
+	// The last word or ";", and the word before it.
+	last string
+	// A word whose block is decided by the next word: BEGIN (TRAN …).
+	pending string
+}
+
+func (b *routineBody) open() bool { return b.depth > 0 }
+
+func (b *routineBody) semicolon() {
+	b.settle("")
+	b.last = ";"
+}
+
+// sign notes punctuation: "(" right after IF makes it a function, and a
+// label ("lbl:") starts a statement as ";" does.
+func (b *routineBody) sign(c byte) {
+	if c == ':' {
+		if b.depth > 0 && b.pending == "" {
+			b.last = ";"
+		}
+
+		return
+	}
+
+	if c == '(' && (b.pending == "IF" || b.pending == "FOR") {
+		b.pending = ""
+	}
+
+	b.settle("(")
+	b.last = string(c)
+}
+
+var routineKinds = map[string]bool{
+	"PROCEDURE": true, "PROC": true, "FUNCTION": true, "TRIGGER": true, "EVENT": true,
+}
+
+// Words after which a statement starts inside a body.
+var statementStarts = map[string]bool{
+	";": true, "BEGIN": true, "THEN": true, "ELSE": true, "DO": true, "LOOP": true, "REPEAT": true, "ATOMIC": true,
+}
+
+// kindWords is how many words after CREATE the kind of object may come:
+// CREATE OR REPLACE DEFINER = `u`@`h` SQL SECURITY INVOKER PROCEDURE.
+const kindWords = 10
+
+func (b *routineBody) word(w string) {
+	b.words++
+	prev := b.last
+	b.last = w
+
+	switch {
+	case b.words == 1:
+		b.create = w == "CREATE"
+
+		return
+	case b.create && !b.routine && b.words <= kindWords && routineKinds[w]:
+		// The kind comes before any name or body, so the words before it
+		// were modifiers.
+		b.routine = true
+
+		return
+	case !b.routine:
+		return
+	}
+
+	b.settle(w)
+
+	switch w {
+	case "BEGIN":
+		// Decided by the next word: BEGIN TRAN / TRANSACTION / WORK /
+		// DISTRIBUTED / DIALOG / CONVERSATION.
+		b.pending = "BEGIN"
+	case "CASE":
+		// CASE … END wherever it is; END CASE closes a CASE statement.
+		if b.depth > 0 && prev != "END" {
+			b.depth++
+		}
+	case "LOOP", "REPEAT", "WHILE":
+		// MySQL loops end with END LOOP / END REPEAT / END WHILE; T-SQL's
+		// WHILE takes a statement or a BEGIN … END that counts on its own.
+		if b.depth > 0 && prev != "END" && b.dialect != DialectMSSQL {
+			b.depth++
+		}
+	case "IF", "FOR":
+		// IF and FOR open a block where a statement starts.
+		if b.depth > 0 && prev != "END" && statementStarts[prev] {
+			b.pending = w
+		}
+	case "END":
+		if b.depth > 0 {
+			b.depth--
+		}
+	}
+}
+
+// settle decides a pending BEGIN, IF or FOR by the word after it.
+func (b *routineBody) settle(next string) {
+	p := b.pending
+	if p == "" {
+		return
+	}
+
+	b.pending = ""
+
+	switch p {
+	case "BEGIN":
+		switch next {
+		case "TRAN", "TRANSACTION", "WORK", "DISTRIBUTED", "DIALOG", "CONVERSATION":
+			return
+		}
+
+		b.depth++
+	case "IF":
+		// MySQL IF … THEN … END IF; not IF EXISTS / IF NOT EXISTS, and not
+		// T-SQL's IF, which has no END IF (its BEGIN counts on its own).
+		if b.dialect != DialectMSSQL && next != "EXISTS" && next != "NOT" && next != "" {
+			b.depth++
+		}
+	case "FOR":
+		// FOR … DO / LOOP … END FOR; not FOR UPDATE, FOR EACH ROW.
+		if next != "UPDATE" && next != "EACH" && next != "SHARE" && next != "XML" && next != "JSON" && next != "BROWSE" && next != "" {
+			b.depth++
+		}
+	}
+}
+
+func isWordStart(s string, i int) bool {
+	c := s[i]
+	if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_') {
+		return false
+	}
+
+	return i == 0 || !isWordChar(rune(s[i-1])) && s[i-1] != '$' && s[i-1] != '@' && s[i-1] != '.'
+}
+
+func wordEnd(s string, i int) int {
+	for i < len(s) && (isWordChar(rune(s[i])) || s[i] == '$') {
+		i++
+	}
+
+	return i
 }
 
 // backslashEscapes reports whether a backslash escapes the next character in

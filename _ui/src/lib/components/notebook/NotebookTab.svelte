@@ -111,12 +111,17 @@
     try {
       // A read-only preview executes dependencies, but no write cells. We
       // never automatically replay a partially committed failed notebook.
-      const prodWrite = note.document.cells.some((c) => c.write && c.enabled && connection(c.connection_id)?.production);
+      // A write that may change every row (UPDATE or DELETE without WHERE)
+      // asks first on any connection too; the preview tells which cells
+      // need it, so no cell runs before the user has seen them.
+      const prodWrite = note.document.cells.some(
+        (c) => c.write && c.enabled && !c.transfer && (connection(c.connection_id)?.production || /update|delete/i.test(c.sql)),
+      );
       if (previewOnly || prodWrite) {
         const out = await requestRun(cell, false, {}, true) as NotebookResult;
         tab.notebookResult = out; selected = out.cells.at(-1)?.path || '';
         if (prodWrite && !previewOnly) {
-          if (out.cells.some((c) => c.confirmation)) { preview = out; pending = { cell, background }; return; }
+          if (out.cells.some((c) => c.confirmation && c.needs_confirmation)) { preview = { ...out, cells: out.cells.filter((c) => c.needs_confirmation) }; pending = { cell, background }; return; }
           await doRun(cell, background);
         }
       } else await doRun(cell, background);
@@ -127,6 +132,8 @@
     else error = errorMessage(e);
   }
   async function doRun(cell: string, background: boolean, confirmations: Record<string, string> = {}) {
+    // A cell held back for confirmation after others ran is shown as failed:
+    // running again would repeat the writes already committed.
     const out = await requestRun(cell, background, confirmations);
     if (!out) return;
     if (background) { toast(t('notebook.backgroundStarted'), 'info', 5000); if (section === 'runs') await runsView?.loadRuns(); else section = 'runs'; }

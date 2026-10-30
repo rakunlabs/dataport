@@ -3,7 +3,7 @@ import type { CountResult, ExecResult, ExplainOptions, ExplainResult, ResultSet,
 import { t as tr } from '@/lib/i18n/index.svelte';
 import { prefs, savePrefs } from '@/lib/stores/prefs.svelte';
 import { persist } from '@/lib/stores/workspace/persist';
-import { confirmProduction } from '@/lib/stores/confirm.svelte';
+import { confirmAsked } from '@/lib/stores/confirm.svelte';
 import { quoteIdent } from '@/lib/helper/copy';
 import { askCredentials, needsCredentials, withCredentials } from '@/lib/stores/credentials.svelte';
 import { declarationLines, placeholders, substitute } from '@/lib/helper/variables';
@@ -11,6 +11,7 @@ import { askVariables } from '@/lib/stores/variables.svelte';
 import { errorMessage, toast } from '@/lib/stores/toast.svelte';
 import { connection, findTab, newId, ws, type Tab } from '@/lib/stores/workspace/state.svelte';
 import { loadColumns } from '@/lib/stores/workspace/tree';
+import { separate } from '@/lib/helper/statements';
 
 export { quoteIdent };
 
@@ -72,7 +73,8 @@ export function setRunElsewhere(fn: typeof runElsewhere) {
   runElsewhere = fn;
 }
 
-async function execute(t: Tab, sql: string, confirm = false, mode: RunMode = 'replace'): Promise<void> {
+// execute returns the results of the run, or nothing when it did not run.
+async function execute(t: Tab, sql: string, confirm = false, mode: RunMode = 'replace'): Promise<ResultSet[] | undefined> {
   if (t.running) return;
   t.running = true;
   t.runStartedAt = Date.now();
@@ -117,20 +119,20 @@ async function execute(t: Tab, sql: string, confirm = false, mode: RunMode = 're
     const firstError = res.results.findIndex((r) => r.error);
     const lastRows = res.results.map((r) => r.kind).lastIndexOf('rows');
     place(t, res, res.results, mode, firstError >= 0 ? firstError : Math.max(lastRows, 0));
+    return res.results;
   } catch (e) {
     if (needsCredentials(e)) {
       t.running = false;
       t.queryId = '';
       // await: the finally below must not end the retried run.
       if (await askCredentials(t.connectionId, (e as ApiError).message)) return await execute(t, sql, confirm, mode);
-      fail(t, sql, run, (e as ApiError).message, mode);
-      return;
+      return fail(t, sql, run, (e as ApiError).message, mode);
     }
     if (e instanceof ApiError && e.status === 409 && e.data?.confirmation_required) {
       t.running = false;
       t.queryId = '';
       const conn = connection(t.connectionId);
-      if (await confirmProduction({ connection: conn?.name ?? '', sql, risk: String(e.data.risk ?? 'write') })) {
+      if (await confirmAsked(conn?.name ?? '', sql, e.data)) {
         return await execute(t, sql, true, mode);
       }
       return;
@@ -138,7 +140,7 @@ async function execute(t: Tab, sql: string, confirm = false, mode: RunMode = 're
     if (e instanceof ApiError && e.status === 410 && e.data?.tx_lost) {
       txLost(t);
     }
-    fail(t, sql, run, errorMessage(e), mode);
+    return fail(t, sql, run, errorMessage(e), mode);
   } finally {
     t.running = false;
     t.cancelling = false;
@@ -176,16 +178,17 @@ function place(t: Tab, res: ExecResult, list: ResultSet[], mode: RunMode, active
 // fail shows a run that did not reach the database. With other results
 // open it becomes one more result, so they stay; otherwise the panel shows
 // the error alone.
-function fail(t: Tab, sql: string, run: number, msg: string, mode: RunMode) {
+function fail(t: Tab, sql: string, run: number, msg: string, mode: RunMode): ResultSet[] {
   const old = t.result?.results ?? [];
   const others = old.length > 0 && (mode === 'append' || new Set(old.map((r) => r.run)).size > 1 || old.some((r) => r.pending));
+  const rs: ResultSet = { statement: sql, kind: 'exec', rows_affected: 0, truncated: false, duration_ms: 0, error: msg, run };
   if (t.kind === 'query' && others) {
-    const rs: ResultSet = { statement: sql, kind: 'exec', rows_affected: 0, truncated: false, duration_ms: 0, error: msg, run };
     place(t, { ...t.result!, results: [] }, [rs], mode, 0);
-    return;
+    return [rs];
   }
   t.error = msg;
   t.result = null;
+  return [rs];
 }
 
 // ////////////////////////////////////////////
@@ -197,7 +200,7 @@ function fail(t: Tab, sql: string, run: number, msg: string, mode: RunMode) {
 // keep to one at a time, as the transaction does.
 // With at, the run reads one result again in its place, as after saving
 // its edits.
-async function executeBeside(t: Tab, sql: string, at = -1): Promise<void> {
+async function executeBeside(t: Tab, sql: string, at = -1): Promise<ResultSet[] | undefined> {
   t.error = '';
   if (!t.result) t.result = { results: [], duration_ms: 0, committed: false, transactional: false };
   const again = at >= 0 && at < t.result.results.length;
@@ -245,7 +248,7 @@ async function executeBeside(t: Tab, sql: string, at = -1): Promise<void> {
       const firstError = res.results.findIndex((r) => r.error);
       const lastRows = res.results.map((r) => r.kind).lastIndexOf('rows');
       settle(t, slot(), res.results, firstError >= 0 ? firstError : Math.max(lastRows, 0));
-      return;
+      return res.results;
     } catch (e) {
       if (!pending()) return;
       if (needsCredentials(e)) {
@@ -255,7 +258,7 @@ async function executeBeside(t: Tab, sql: string, at = -1): Promise<void> {
         }
       } else if (e instanceof ApiError && e.status === 409 && e.data?.confirmation_required) {
         const conn = connection(t.connectionId);
-        if (await confirmProduction({ connection: conn?.name ?? '', sql, risk: String(e.data.risk ?? 'write') })) {
+        if (await confirmAsked(conn?.name ?? '', sql, e.data)) {
           confirm = true;
           restart(pending());
           continue;
@@ -265,7 +268,7 @@ async function executeBeside(t: Tab, sql: string, at = -1): Promise<void> {
       }
       const rs: ResultSet = { statement: sql, kind: 'exec', rows_affected: 0, truncated: false, duration_ms: 0, error: errorMessage(e), run };
       settle(t, slot(), [rs], 0);
-      return;
+      return [rs];
     }
   }
 }
@@ -320,7 +323,9 @@ export function cancelPending(t: Tab) {
   }
 }
 
-export async function run(id: string, sql?: string, mode: RunMode = 'replace') {
+// run returns the results of the statements that ran, in order, or nothing
+// when the run did not start (cancelled, or sent to another tab).
+export async function run(id: string, sql?: string, mode: RunMode = 'replace'): Promise<ResultSet[] | undefined> {
   const t = findTab(id);
   if (!t) return;
   let text = (sql ?? t.sql).trim();
@@ -353,6 +358,10 @@ export async function run(id: string, sql?: string, mode: RunMode = 'replace') {
     text = substitute(scope, syn, given, dbType);
     if (!text) return;
   }
+
+  // Statements the editor tells apart by their lines alone get the ";" the
+  // server splits at.
+  text = separate(text, connection(t.connectionId)?.db_type ?? '', prefs.blankLineSplits);
 
   if (beside) return executeBeside(t, text);
 
@@ -548,7 +557,7 @@ export async function explain(id: string, sql: string, options: ExplainOptions) 
         }
       } else if (e instanceof ApiError && e.status === 409 && e.data?.confirmation_required) {
         const conn = connection(t.connectionId);
-        if (await confirmProduction({ connection: conn?.name ?? '', sql: text, risk: String(e.data.risk ?? 'write') })) {
+        if (await confirmAsked(conn?.name ?? '', text, e.data)) {
           confirm = true;
           restart(t.result?.results[slot()]?.pending);
           continue;

@@ -14,10 +14,11 @@ import (
 // writes may use it; the SQL is built by the engine from the table metadata.
 func (s *Server) applyEdits(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Schema  string           `json:"schema"`
-		Table   string           `json:"table"`
-		Edits   []engine.RowEdit `json:"edits"`
-		Confirm bool             `json:"confirm"`
+		Schema     string           `json:"schema"`
+		Table      string           `json:"table"`
+		Edits      []engine.RowEdit `json:"edits"`
+		KeyColumns []string         `json:"key_columns"`
+		Confirm    bool             `json:"confirm"`
 	}
 
 	if !readJSON(w, r, &req) {
@@ -39,10 +40,11 @@ func (s *Server) applyEdits(w http.ResponseWriter, r *http.Request) {
 	c := g.Connection
 
 	result, err := s.engine.ApplyEdits(r.Context(), c, password, engine.EditRequest{
-		Schema:  req.Schema,
-		Table:   req.Table,
-		Edits:   req.Edits,
-		Timeout: s.timeout(c),
+		Schema:     req.Schema,
+		Table:      req.Table,
+		Edits:      req.Edits,
+		KeyColumns: req.KeyColumns,
+		Timeout:    s.timeout(c),
 	})
 
 	entry := &store.QueryLog{
@@ -83,9 +85,10 @@ func (s *Server) applyEdits(w http.ResponseWriter, r *http.Request) {
 // previewEdits returns the statements a save would run, without running them.
 func (s *Server) previewEdits(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Schema string           `json:"schema"`
-		Table  string           `json:"table"`
-		Edits  []engine.RowEdit `json:"edits"`
+		Schema     string           `json:"schema"`
+		Table      string           `json:"table"`
+		Edits      []engine.RowEdit `json:"edits"`
+		KeyColumns []string         `json:"key_columns"`
 	}
 
 	if !readJSON(w, r, &req) {
@@ -104,7 +107,7 @@ func (s *Server) previewEdits(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stmts, err := s.engine.PreviewEdits(r.Context(), g.Connection, password, engine.EditRequest{
-		Schema: req.Schema, Table: req.Table, Edits: req.Edits,
+		Schema: req.Schema, Table: req.Table, Edits: req.Edits, KeyColumns: req.KeyColumns,
 	})
 	if err != nil {
 		writeEngineError(w, r, err)

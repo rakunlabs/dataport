@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -11,6 +12,28 @@ import (
 	"github.com/rakunlabs/dataport/internal/engine"
 	"github.com/rakunlabs/dataport/internal/store"
 )
+
+// confirmRun asks the user, through the MCP client, to confirm a run the
+// server held back: a change on a production connection, or statements
+// without WHERE that change every row of a table.
+func confirmRun(ctx context.Context, req *mcp.CallToolRequest, c *store.Connection, sqlText string, e *confirmationError) error {
+	if e.production {
+		return confirmProduction(ctx, req, c, sqlText, e.risk)
+	}
+
+	shown := strings.Join(e.unbounded, ";\n\n")
+	if len(shown) > 4000 {
+		shown = shown[:4000] + "\n…"
+	}
+
+	err := elicitConfirmation(ctx, req, fmt.Sprintf("These statements have no WHERE and change every row of their table on %q. Run them?\n\n%s", c.Name, shown), "Change every row")
+	if err != nil && !canElicit(req) {
+		return fmt.Errorf("UPDATE or DELETE without WHERE changes every row and needs the user's confirmation, which this MCP client cannot ask for. "+
+			"Add a WHERE clause (WHERE true to mean every row) or let the user run it in dataport: %w", err)
+	}
+
+	return err
+}
 
 // confirmProduction asks the user, through the MCP client, to confirm a
 // change on a production connection. Clients that cannot ask are refused:

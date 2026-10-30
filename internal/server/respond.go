@@ -109,6 +109,18 @@ func writeConfirmationRequired(w http.ResponseWriter, risk engine.Risk) {
 	})
 }
 
+// writeConfirmation asks the user to confirm a run: its risk, whether the
+// connection is production, and the statements without WHERE.
+func writeConfirmation(w http.ResponseWriter, e *confirmationError) {
+	writeJSON(w, http.StatusConflict, map[string]any{
+		"message":               e.Error(),
+		"confirmation_required": true,
+		"risk":                  e.risk,
+		"production":            e.production,
+		"unbounded":             e.unbounded,
+	})
+}
+
 // writeGrantError answers a failure to load a grant. notFound names the
 // connection in the 404 message.
 func writeGrantError(w http.ResponseWriter, err error, notFound string) {

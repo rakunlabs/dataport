@@ -1,7 +1,7 @@
 <script lang="ts">
   import { keepEdits } from '@/lib/stores/edits.svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity } from 'lucide-svelte';
+  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity, WrapText, AlignLeft, ListVideo } from 'lucide-svelte';
   import ExplainDialog from '@/lib/components/dialogs/ExplainDialog.svelte';
   import type { SQLNamespace } from '@codemirror/lang-sql';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
@@ -13,7 +13,7 @@
   import { defaultSchemas } from '@/lib/helper/sourceTable';
   import { qualifiers, tableRefs } from '@/lib/helper/sqlTables';
   import type { ExplainOptions } from '@/lib/api/types';
-  import { prefs } from '@/lib/stores/prefs.svelte';
+  import { prefs, savePrefs } from '@/lib/stores/prefs.svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';
   import TreeMenu, { type MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
@@ -129,6 +129,16 @@
     return (first ? look(first) : undefined) ?? schemas.filter((s) => s !== first).map(look).find(Boolean);
   }
 
+  // Alt+letter shortcuts are Ctrl+Option+letter on macOS, where Option
+  // types characters.
+  const altKeys = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? 'Ctrl+Option+' : 'Alt+';
+
+  // Wrapping is a preference, shared with Settings → Editor.
+  function toggleWrap() {
+    prefs.wrap = !prefs.wrap;
+    savePrefs();
+  }
+
   function onchange(v: string) {
     tab.sql = v;
     tab.dirty = true;
@@ -188,7 +198,7 @@
     }
 
     if (prefs.resultInNewTab) elsewhere();
-    else void here();
+    else return here();
   }
 
   // Explain asks for its options first, as DBeaver does, then shows the
@@ -267,22 +277,22 @@
   <div class="toolbar">
     {#if tab.running}
       <button class="btn-danger" onclick={() => cancel(tab.id)} disabled={tab.cancelling}><Square size={12} fill="currentColor" /> {t('query.stop')}</button>
-      <button class="btn" onclick={() => run(tab.id, editor?.currentSQL())} disabled={!tab.sql.trim()} title={t('query.runParallel')}>
+      <button class="btn" onclick={() => editor?.run()} disabled={!tab.sql.trim()} title={t('query.runParallel')}>
         <Play size={12} fill="currentColor" /> {t('query.run')}
       </button>
       {#if besideRuns}
-        <button class="btn" onclick={() => run(tab.id, editor?.currentSQL(), 'append')} disabled={!tab.sql.trim()} title="{t('query.runNewResult')} (Ctrl+\)" aria-label={t('query.runNewResult')}>
+        <button class="btn" onclick={() => editor?.run(true)} disabled={!tab.sql.trim()} title="{t('query.runNewResult')} (Ctrl+\)" aria-label={t('query.runNewResult')}>
           <CopyPlus size={13} />
         </button>
       {/if}
     {:else}
       <div class="flex">
-        <button class="btn-primary rounded-r-none" onclick={() => run(tab.id, editor?.currentSQL())} disabled={!tab.sql.trim()} title="{t('query.run')} (Ctrl+Enter)">
+        <button class="btn-primary rounded-r-none" onclick={() => editor?.run()} disabled={!tab.sql.trim()} title="{t('query.runHint')} (Ctrl+Enter)">
           <Play size={12} fill="currentColor" /> {t('query.run')}
         </button>
         <button
           class="btn-primary rounded-l-none border-l border-white/25 px-1.5"
-          onclick={() => run(tab.id, editor?.currentSQL(), 'append')}
+          onclick={() => editor?.run(true)}
           disabled={!tab.sql.trim() || (!tab.result && !besideRuns)}
           title="{t('query.runNewResult')} (Ctrl+\)"
           aria-label={t('query.runNewResult')}
@@ -290,6 +300,7 @@
           <CopyPlus size={13} />
         </button>
       </div>
+      <button class="icon-btn" onclick={() => editor?.script()} disabled={!tab.sql.trim()} title="{t('query.runScript')} ({altKeys}X)" aria-label={t('query.runScript')}><ListVideo size={15} /></button>
     {/if}
     {#if conn?.explain?.supported}
       <button class="btn" onclick={() => openExplain()} disabled={!tab.sql.trim()} title="{t('explain.button')} (Ctrl+Shift+E)">
@@ -297,6 +308,8 @@
       </button>
     {/if}
     <button class="btn" onclick={save} title="Ctrl+S"><Save size={14} /> {tab.savedId ? t('query.save') : t('query.saveAs')}</button>
+    <button class="icon-btn" onclick={() => editor?.format()} disabled={!tab.sql.trim()} title="{t('editor.format')} (Ctrl+Shift+F)" aria-label={t('editor.format')}><AlignLeft size={14} /></button>
+    <button class="icon-btn" aria-pressed={prefs.wrap} onclick={toggleWrap} title="{t('editor.wrap')} ({altKeys}Z)" aria-label={t('editor.wrap')}><WrapText size={14} /></button>
     {#if session.user?.can_use_notebooks}
       <button class="btn" onclick={() => openNotebook('', tab.sql, tab.connectionId)}>{t('notebook.fromQuery')}</button>
     {/if}
@@ -391,6 +404,7 @@
       onrunstatement={prefs.statementRun ? runStatement : undefined}
       onsave={save}
       onexplain={conn?.explain?.supported ? openExplain : undefined}
+      onwrap={toggleWrap}
       options={editorOptions(prefs)}
     />
   </div>

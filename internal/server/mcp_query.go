@@ -49,7 +49,7 @@ func (s *Server) mcpRun(ctx context.Context, req *mcp.CallToolRequest, name, sql
 
 	var confirm *confirmationError
 	if errors.As(err, &confirm) {
-		if err := confirmProduction(ctx, req, g.Connection, sqlText, confirm.risk); err != nil {
+		if err := confirmRun(ctx, req, g.Connection, sqlText, confirm); err != nil {
 			return nil, queryOut{}, err
 		}
 

@@ -37,6 +37,8 @@ export interface Prefs {
   vim: boolean;
   // Show the run buttons next to each statement of the SQL editor.
   statementRun: boolean;
+  // A blank line ends a statement that has no ";", as in DBeaver.
+  blankLineSplits: boolean;
   // Results of a statement run from its gutter button open in a new tab.
   resultInNewTab: boolean;
   // Fill in placeholders before a run.
@@ -59,6 +61,7 @@ export const defaultPrefs: Prefs = {
   closeBrackets: true,
   vim: false,
   statementRun: true,
+  blankLineSplits: true,
   resultInNewTab: false,
   variables: true,
   variableSyntaxes: { atSet: true, shell: true, named: false, mybatis: true },

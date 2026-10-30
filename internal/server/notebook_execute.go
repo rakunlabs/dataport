@@ -144,15 +144,24 @@ func (s *Server) executeNotebook(ctx context.Context, user *store.User, n *store
 			}
 			if cell.Write {
 				cr.Confirmation = confirmationDigest(cell.ConnectionID, sql, args)
+				// UPDATE or DELETE without WHERE asks on every connection,
+				// as a production write does; the exact SQL confirmed for it
+				// lets it run. The rendered SQL is what is checked.
+				production := needsConfirmation(cell, access)
+				everyRow := len(engine.Unbounded(d, sql)) > 0
+				cr.NeedsConfirmation = production || everyRow
 				if req.Preview {
 					cr.Status = "preview"
 					cr.SQL, cr.Args = sql, args
 					return nil
 				}
-				if needsConfirmation(cell, access) && req.Confirmations[cell.Path] != cr.Confirmation {
+				if cr.NeedsConfirmation && req.Confirmations[cell.Path] != cr.Confirmation {
 					cr.Status = "confirmation_required"
 					cr.SQL, cr.Args = sql, args
-					return errors.New("confirm the exact SQL and parameters before running this production cell")
+					if production {
+						return errors.New("confirm the exact SQL and parameters before running this production cell")
+					}
+					return errors.New("UPDATE or DELETE without WHERE changes every row; confirm the exact SQL before running this cell")
 				}
 			}
 			result, err = s.execute(ctx, fresh, g, password, execInput{SQL: sql, Args: args, QueryID: run.ID + ":" + cell.ID, Confirm: cell.Write, ReadOnly: !cell.Write, Rows: cell.MaxRows, MaxRows: 10000, TimeoutSec: cell.TimeoutSec, Source: run.Source})
