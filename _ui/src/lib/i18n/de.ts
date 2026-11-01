@@ -914,6 +914,10 @@ const de: Messages = {
         title: 'Doppelte Indizes',
         hint: 'Zwei Indizes auf denselben Spalten kosten Schreibzeit und Speicherplatz ohne Nutzen.',
       },
+      duplicate_foreign_key: {
+        title: 'Doppelte Fremdschlüssel',
+        hint: 'Derselbe Schlüssel ist zweimal deklariert und wird bei jedem Schreiben zweimal geprüft; einer kann weg.',
+      },
     },
     report: {
       title: '{schema} — Datenbankdokumentation',
@@ -1605,7 +1609,8 @@ const de: Messages = {
       counts: '{done} / {total}',
       nothingDue: 'nichts zu aktualisieren',
       snapshots: 'Gespeicherte Dokumentation',
-      snapshotsHint: 'Jeder Benutzer behält pro Schema seine eigene Dokumentation, erstellt mit seinen Zugriffsrechten. Ein Stand wird angelegt, wenn jemand die Dokumentation eines Schemas öffnet.',
+      snapshotsHint: 'Verbindungen, die alle mit einem Datenbankkonto anmelden, teilen sich einen Stand pro Schema; wer ihn aktualisiert, aktualisiert ihn für alle. Wo sich Benutzer mit eigenen Konten anmelden, hat jeder seinen eigenen. Ein Stand entsteht, wenn jemand die Dokumentation eines Schemas öffnet.',
+      sharedOwner: 'Gemeinsam',
       snapshotsEmpty: 'Noch niemand hat eine Dokumentation geöffnet.',
       owner: 'Benutzer',
       schema: 'Schema',

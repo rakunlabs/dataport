@@ -407,7 +407,7 @@ JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_catalog.pg_class rc ON rc.oid = con.confrelid
 JOIN pg_catalog.pg_namespace rn ON rn.oid = rc.relnamespace
-WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2
+WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2 AND con.conparentid = 0
 ORDER BY con.conname`, schema, table)
 	if err != nil {
 		return nil, err

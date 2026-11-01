@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -339,14 +340,27 @@ func schemaReport(doc *engine.SchemaDoc, rows func(int64) string) string {
 
 		fmt.Fprintf(&b, ", %d columns", len(t.Columns))
 
+		if p := t.Partition; p != nil {
+			fmt.Fprintf(&b, ", partitioned by %s into %d", p.Key, p.Count)
+		}
+
+		// A key declared twice is one join; duplicate_foreign_key reports it.
+		shown := map[string]bool{}
+
 		for _, fk := range t.ForeignKeys {
-			fmt.Fprintf(&b, "; %s -> %s(%s)", strings.Join(fk.Columns, ","), fk.RefTable, strings.Join(fk.RefColumns, ","))
+			line := fmt.Sprintf("; %s -> %s(%s)", strings.Join(fk.Columns, ","), fk.RefTable, strings.Join(fk.RefColumns, ","))
+			if !shown[line] {
+				shown[line] = true
+				b.WriteString(line)
+			}
 		}
 
 		if len(t.ReferencedBy) > 0 {
-			refs := make([]string, len(t.ReferencedBy))
-			for i, r := range t.ReferencedBy {
-				refs[i] = r.Table
+			refs := []string{}
+			for _, r := range t.ReferencedBy {
+				if !slices.Contains(refs, r.Table) {
+					refs = append(refs, r.Table)
+				}
 			}
 
 			b.WriteString("; referenced by " + strings.Join(refs, ", "))
@@ -370,7 +384,7 @@ func schemaReport(doc *engine.SchemaDoc, rows func(int64) string) string {
 	}
 
 	for _, a := range doc.Anomalies {
-		b.WriteString(a.Kind + ": " + a.Table)
+		b.WriteString(anomalyLabel(a.Kind) + ": " + a.Table)
 
 		if len(a.Columns) > 0 {
 			b.WriteString("(" + strings.Join(a.Columns, ", ") + ")")

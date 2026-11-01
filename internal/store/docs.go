@@ -141,6 +141,9 @@ type DocInfo struct {
 	// System is set on documentation the server builds for every user of
 	// the connection.
 	System bool `json:"system,omitempty"`
+	// Shared is set on the one snapshot every user of a shared database
+	// account reads.
+	Shared bool `json:"shared,omitempty"`
 }
 
 const docInfoSelect = `SELECT d.connection_id, c.name, c.db_type, d.user_id, COALESCE(u.username, ''), d.schema_name,
@@ -172,6 +175,7 @@ func (s *Store) scanDocInfos(ctx context.Context, query string, args ...any) ([]
 		d.Refreshing = lease > ts
 		d.Ready = d.GeneratedAt > 0
 		d.System = d.UserID == DocSystemUser
+		d.Shared = d.UserID == DocSharedUser
 		list = append(list, d)
 	}
 	return list, rows.Err()

@@ -33,6 +33,37 @@ type DocConnection struct {
 // connection. It is no user's id.
 const DocSystemUser = "system"
 
+// DocSharedUser is the user id of the snapshots of a connection whose users
+// all sign in with its one database account: they see the same catalog, so
+// they share one snapshot per schema, whoever builds it. It is no user's id.
+const DocSharedUser = "shared"
+
+// docOwnersSQL lists the snapshot owners that are no user.
+const docOwnersSQL = "('" + DocSystemUser + "', '" + DocSharedUser + "')"
+
+// AdoptSharedDocs turns users' snapshots of a connection into its shared
+// ones: the newest of every schema becomes the shared snapshot, unless
+// there is one, and the users' copies go.
+func (s *Store) AdoptSharedDocs(ctx context.Context, connectionID string) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		docs := s.t("schema_docs")
+
+		if _, err := tx.ExecContext(ctx, s.q("INSERT INTO "+docs+
+			" (connection_id, user_id, schema_name, source_version, payload, generated_at, attempted_at, last_error, lease_token, lease_until)"+
+			" SELECT d.connection_id, ?, d.schema_name, d.source_version, d.payload, d.generated_at, d.attempted_at, d.last_error, '', 0"+
+			" FROM "+docs+" d WHERE d.connection_id = ? AND d.user_id NOT IN "+docOwnersSQL+
+			" AND NOT EXISTS (SELECT 1 FROM "+docs+" o WHERE o.connection_id = d.connection_id AND o.schema_name = d.schema_name"+
+			" AND o.user_id NOT IN "+docOwnersSQL+" AND (o.generated_at > d.generated_at OR (o.generated_at = d.generated_at AND o.user_id < d.user_id)))"+
+			" ON CONFLICT (connection_id, user_id, schema_name) DO NOTHING"), DocSharedUser, connectionID); err != nil {
+			return err
+		}
+
+		_, err := tx.ExecContext(ctx, s.q("DELETE FROM "+docs+" WHERE connection_id = ? AND user_id NOT IN "+docOwnersSQL), connectionID)
+
+		return err
+	})
+}
+
 const docConnColumns = "connection_id, enabled, include_schemas, exclude_schemas, username, password_enc, discovered_at, last_error, updated_at, block_excluded"
 
 func scanDocConnection(row interface{ Scan(...any) error }) (*DocConnection, error) {

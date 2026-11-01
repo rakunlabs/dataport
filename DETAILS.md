@@ -336,23 +336,32 @@ in and working on every database: an overview with counts and the largest
 and most referenced tables; every table and column with types, defaults,
 keys and comments; the relationships; estimated row counts from the
 database's statistics; and a page per table with what it references, what
-references it, its indexes and a view's definition. It reads only the
-catalog, as the signed-in user, never table data.
+references it, its indexes and a view's definition. A partitioned table is
+documented once, with its partition key and count and rows summed over its
+partitions; its partitions are not listed. It reads the catalog, as the
+signed-in user, and of the table data only the rows of small lookup tables:
+tables another table references by a foreign key, of at most 50 rows and 6
+columns (binary and JSON columns left out), so the codes a column holds
+elsewhere are explained.
 
 It also lists SchemaSpy's anomalies: tables without a primary key, foreign
 keys without an index, implied relationships (`customer_id` next to
 `customers.id` with no foreign key), tables with no relationships, single
 column tables, nullable unique columns, defaults of the text `'null'`,
-numbered columns (`phone1`, `phone2`) and duplicate indexes. Where one
-statement fixes it (a missing index, an implied foreign key, a duplicate
-index) *Write the fix* opens it in an editor. *Download HTML* saves the
+numbered columns (`phone1`, `phone2`), duplicate indexes and foreign keys
+declared twice. Where one statement fixes it (a missing index, an implied
+foreign key, a duplicate index or foreign key) *Write the fix* opens it in an editor. *Download HTML* saves the
 whole report, diagram included, as one file to share.
 
 The first read saves a documentation snapshot in the application store;
 subsequent UI and MCP reads use it rather than scanning the target database
-again. Snapshots (including triggers) are isolated by user, connection and
-schema, survive restarts, and are invalidated when the connection or saved
-database identity changes. Current access is checked on every read and job.
+again. On a connection that signs every user in with its one database
+account, all its users see the same catalog, so they share one snapshot per
+schema: whoever builds or refreshes it updates it for everyone. Where users
+sign in with their own accounts, snapshots are kept per user, as accounts
+may see different tables. Snapshots (including triggers) survive restarts and
+are invalidated when the connection or saved database identity changes.
+Current access is checked on every read.
 
 *Refresh now* rebuilds the snapshot. Scheduled refreshes use one server-wide
 cron schedule, powered by [hardloop](https://github.com/rakunlabs/hardloop),
@@ -361,8 +370,8 @@ switch turns it on or off (keeping the expression), and *Refresh all now*
 rebuilds every saved snapshot at once, with progress and an estimated finish
 time. Users keep seeing the previous document until its new one is ready.
 The schedule defaults to midnight
-(`0 0 * * *`, server time) and rebuilds every saved snapshot, each with its
-owner's current access. Use
+(`0 0 * * *`, server time) and rebuilds every saved snapshot: a user's own
+with their current access, a shared one with the connection's account. Use
 `@hourly`, or e.g. `CRON_TZ=Europe/Istanbul 0 3 * * *` for 03:00 Istanbul
 time daily. The minimum interval is one minute. Day-of-month and weekday
 restrictions use AND, not traditional cron's OR. The UI shows the snapshot
@@ -453,7 +462,10 @@ saved documentation into a `push` collection of a search service such as
 the service's full-text and vector search. Each table or view becomes one
 Markdown item (columns, keys, ready JOIN clauses, indexes, triggers, a view's
 definition, design notes and related tables), and each schema gets an
-overview item. Item ids are `dataport/<connection id>/<schema>/<table>` and
+overview item. A table item starts with its qualified name
+(`# schema.table`); the overview groups the tables by the keys that join
+them and by name prefix, and draws the joins as a Mermaid ER diagram.
+Item ids are `dataport/<connection id>/<schema>/<table>` and
 `dataport/<connection id>/<schema>/_schema`; the connection name is set as
 the item's team so searches can be filtered by it.
 
@@ -470,12 +482,21 @@ changed are sent, and items that are no longer documented are pruned. If any
 connection fails, nothing is pruned and that connection's items stay as they
 were. The collection is created when missing.
 
+An optional *collection description* replaces the default one; agents read
+it to decide whether to search the collection, so say which databases it
+holds and which services or repositories use them. It is sent again
+whenever it changes. *Notes* per connection, for one schema or for all of
+them, tell what a schema is for, such as the repository that owns it; they
+are written into the overview and into every table item of the schema, so a
+table found alone still names its owner.
+
 The protocol is krabby's push source API, so any service that answers these
 requests can be the target:
 
 ```text
 GET    {url}/api/v1/sources/{collection}              -> {"source":{"type":"push","page_count":n}}, 404 when missing
 POST   {url}/api/v1/sources                           {"name","type":"push","description"}
+PUT    {url}/api/v1/sources/{collection}              {"description"}, when it differs
 POST   {url}/api/v1/sources/{collection}/items        {"items":[{id,title,content_type,content,teams,updated_at}]}, at most 20
 POST   {url}/api/v1/sources/{collection}/items/prune  {"keep":[ids]} -> {"removed":n}
 DELETE {url}/api/v1/sources/{collection}/items?id=    when nothing is kept

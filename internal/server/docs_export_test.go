@@ -22,8 +22,10 @@ type fakePushTarget struct {
 	pushes  int
 	// requests counts every request, to see a push that should not have
 	// contacted the target.
-	requests int
-	auth     string
+	requests    int
+	auth        string
+	description string
+	updates     int
 }
 
 func (f *fakePushTarget) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -44,10 +46,23 @@ func (f *fakePushTarget) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reply(http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		reply(http.StatusOK, map[string]any{"source": map[string]any{"type": "push", "page_count": len(f.items)}})
+		reply(http.StatusOK, map[string]any{"source": map[string]any{"type": "push", "page_count": len(f.items), "description": f.description}})
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sources":
+		var in struct {
+			Description string `json:"description"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
 		f.created = true
+		f.description = in.Description
 		reply(http.StatusAccepted, map[string]any{})
+	case r.Method == http.MethodPut && r.URL.Path == "/api/v1/sources/docs":
+		var in struct {
+			Description string `json:"description"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		f.description = in.Description
+		f.updates++
+		reply(http.StatusOK, map[string]any{})
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sources/docs/items":
 		var in struct {
 			Items []pushItem `json:"items"`
@@ -87,6 +102,67 @@ func (f *fakePushTarget) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func TestDocExportDescriptionAndNotes(t *testing.T) {
+	ctx := context.Background()
+	env := newMCPEnv(t, "")
+	s := env.srv
+	k := docKeyFor(t, env)
+
+	fake := &fakePushTarget{items: map[string]pushItem{}, created: true, description: "old"}
+	ks := httptest.NewServer(fake)
+	t.Cleanup(ks.Close)
+
+	save := func(description string, notes map[string]string) {
+		t.Helper()
+
+		cfg, msg := s.checkDocExport(ctx, docExportIn{
+			Enabled: true, URL: ks.URL, Collection: "docs", Description: description,
+			Targets: []docExportTarget{{ConnectionID: k.ConnectionID, UserID: env.alice.ID, Notes: notes}},
+		}, docExportConfig{})
+		if msg != "" {
+			t.Fatal(msg)
+		}
+		raw, _ := json.Marshal(cfg)
+		if err := env.st.SetSetting(ctx, docExportSetting, string(raw)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	save("Shop database. Used by the repo shop/orders-service.", map[string]string{"": "Owned by the orders team.", "main": "Written by orders-service.", "other": "  "})
+	s.exportDocs(ctx, 0)
+
+	if status := s.docExportStatusNow(ctx); status.Error != "" {
+		t.Fatal(status.Error)
+	}
+	if fake.description != "Shop database. Used by the repo shop/orders-service." || fake.updates != 1 {
+		t.Fatalf("description %q after %d updates", fake.description, fake.updates)
+	}
+
+	orders := fake.items["dataport/"+k.ConnectionID+"/main/orders"].Content
+	if !strings.Contains(orders, "about this schema: Owned by the orders team. Written by orders-service.\n") {
+		t.Fatalf("orders item lacks the note:\n%s", orders)
+	}
+	overview := fake.items["dataport/"+k.ConnectionID+"/main/_schema"].Content
+	if !strings.Contains(overview, "## about this schema\nOwned by the orders team.\nWritten by orders-service.\n") {
+		t.Fatalf("overview lacks the note:\n%s", overview)
+	}
+
+	// Only the description changes: the target is contacted for it, and no
+	// item is sent again.
+	save("Shop database.", map[string]string{"": "Owned by the orders team.", "main": "Written by orders-service."})
+	pushes := fake.pushes
+	s.exportDocs(ctx, 0)
+	if status := s.docExportStatusNow(ctx); status.Unchanged || fake.description != "Shop database." || fake.pushes != pushes {
+		t.Fatalf("description change: %+v %q pushes %d", status, fake.description, fake.pushes-pushes)
+	}
+
+	if _, msg := s.checkDocExport(ctx, docExportIn{
+		URL: ks.URL, Targets: []docExportTarget{{ConnectionID: k.ConnectionID, UserID: env.alice.ID, Notes: map[string]string{"": strings.Repeat("x", docExportMaxNote+1)}}},
+	}, docExportConfig{}); msg == "" {
+		t.Fatal("an overlong note was accepted")
+	}
+}
+
 func TestDocExport(t *testing.T) {
 	ctx := context.Background()
 	env := newMCPEnv(t, "")
@@ -123,13 +199,16 @@ func TestDocExport(t *testing.T) {
 	if !ok {
 		t.Fatalf("items: %v", fake.items)
 	}
-	for _, want := range []string{"# orders", "connection: shop (sqlite)", "customer_id INTEGER NOT NULL -> customers.id", "trigger orders_audit", "# related tables"} {
+	for _, want := range []string{"# main.orders\n", "connection: shop (sqlite)", "customer_id INTEGER NOT NULL -> customers.id", "trigger orders_audit", "# related tables"} {
 		if !strings.Contains(orders.Content, want) {
 			t.Fatalf("orders item lacks %q:\n%s", want, orders.Content)
 		}
 	}
 	if _, ok := fake.items["dataport/"+k.ConnectionID+"/main/_schema"]; !ok {
 		t.Fatal("schema overview missing")
+	}
+	if fake.description != docExportDefaultDescription {
+		t.Fatalf("collection created with description %q", fake.description)
 	}
 
 	// Nothing changed: the target is not even contacted.
@@ -140,7 +219,7 @@ func TestDocExport(t *testing.T) {
 	}
 
 	// Row estimates drift between refreshes; small drift is not a change.
-	saved, _ := env.st.GetDoc(ctx, k)
+	saved, _ := env.st.GetDoc(ctx, sharedKey(k))
 	var doc engine.SchemaDoc
 	_ = json.Unmarshal([]byte(saved.Payload), &doc)
 	for i := range doc.Tables {
@@ -153,7 +232,7 @@ func TestDocExport(t *testing.T) {
 	setDoc := func() {
 		b, _ := json.Marshal(doc)
 		saved.Payload = string(b)
-		if ok, err := env.st.ClaimDoc(ctx, k, "t", time.Now().Add(time.Minute).UnixMilli(), 0); err != nil || !ok {
+		if ok, err := env.st.ClaimDoc(ctx, sharedKey(k), "t", time.Now().Add(time.Minute).UnixMilli(), 0); err != nil || !ok {
 			t.Fatal(ok, err)
 		}
 		if ok, err := env.st.FinishDoc(ctx, saved, "t", true); err != nil || !ok {

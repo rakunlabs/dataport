@@ -30,6 +30,13 @@ func docKeyFor(t *testing.T, env *mcpEnv) store.DocKey {
 	return store.DocKey{}
 }
 
+// sharedKey is where the snapshot of a key is kept on a connection whose
+// users share one database account.
+func sharedKey(k store.DocKey) store.DocKey {
+	k.UserID = store.DocSharedUser
+	return k
+}
+
 func TestSavedDocumentation(t *testing.T) {
 	ctx := context.Background()
 	env := newMCPEnv(t, "")
@@ -82,7 +89,7 @@ func TestSavedDocumentation(t *testing.T) {
 	if err := other.dispatchDocsAt(ctx, later); err != nil {
 		t.Fatal(err)
 	}
-	d, _ := env.st.GetDoc(ctx, k)
+	d, _ := env.st.GetDoc(ctx, sharedKey(k))
 	if d.LastError != "" {
 		t.Fatalf("scheduled refresh failed: %+v", d)
 	}
@@ -90,7 +97,7 @@ func TestSavedDocumentation(t *testing.T) {
 	if err := s.dispatchDocs(ctx); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := env.st.GetDoc(ctx, k)
+	after, _ := env.st.GetDoc(ctx, sharedKey(k))
 	if d.GeneratedAt != after.GeneratedAt {
 		t.Fatal("second dispatcher regenerated the same occurrence")
 	}
@@ -113,12 +120,20 @@ func TestSavedDocumentation(t *testing.T) {
 	if _, err := s.documentation(ctx, k, false); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("revoked user read cache: %v", err)
 	}
+	// The shared snapshot is refreshed with the connection's own account,
+	// whoever built it, and still served to nobody without access.
 	if err := s.dispatchDocsAt(ctx, later.Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	after, _ = env.st.GetDoc(ctx, k)
-	if after.GeneratedAt != d.GeneratedAt || after.LastError == "" {
-		t.Fatal("revoked user's job ran with an old grant")
+	after, _ = env.st.GetDoc(ctx, sharedKey(k))
+	if after.GeneratedAt == d.GeneratedAt || after.LastError != "" {
+		t.Fatalf("shared snapshot not refreshed: %+v", after)
+	}
+	if _, err := s.documentation(ctx, k, false); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("revoked user read the refreshed snapshot: %v", err)
+	}
+	if _, err := env.st.GetDoc(ctx, k); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("a user's copy kept next to the shared snapshot")
 	}
 }
 
@@ -188,7 +203,7 @@ func TestDocScheduleHTTP(t *testing.T) {
 	if _, err := env.srv.documentation(context.Background(), k, false); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := env.st.GetDoc(context.Background(), k)
+	before, _ := env.st.GetDoc(context.Background(), sharedKey(k))
 	runURL := env.httpSrv.URL + "/dp/api/v1/admin/docs/run"
 	request(alice(), "POST", runURL, "", http.StatusForbidden)
 	request(admin, "POST", runURL, "", http.StatusOK)
@@ -206,7 +221,7 @@ func TestDocScheduleHTTP(t *testing.T) {
 	if !v.Run.Manual || v.Run.Total != 1 || v.Run.Done != 1 || v.Run.Failed != 0 || v.Run.Status != store.DocRunDone || v.Run.Username != "admin" {
 		t.Fatalf("run status: %+v", v.Run)
 	}
-	after, _ := env.st.GetDoc(context.Background(), k)
+	after, _ := env.st.GetDoc(context.Background(), sharedKey(k))
 	if after.AttemptedAt <= before.AttemptedAt || after.Payload == "" {
 		t.Fatalf("snapshot not refreshed: %+v", after)
 	}
@@ -219,7 +234,7 @@ func TestDocScheduleHTTP(t *testing.T) {
 	}
 	_ = json.Unmarshal(request(admin, "GET", url, "", http.StatusOK), &page)
 	if len(page.History) != 1 || page.History[0].Status != store.DocRunDone || page.History[0].Username != "admin" ||
-		len(page.Snapshots) != 1 || !page.Snapshots[0].Ready || page.Snapshots[0].Username != "alice" {
+		len(page.Snapshots) != 1 || !page.Snapshots[0].Ready || !page.Snapshots[0].Shared || page.Snapshots[0].Username != "" {
 		t.Fatalf("history: %+v snapshots: %+v", page.History, page.Snapshots)
 	}
 	env.srv.docRunMu.Lock()
@@ -255,7 +270,7 @@ func TestDocRunKeepsOldDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	// While a refresh holds the lease, readers keep getting the old document.
-	if ok, err := env.st.ClaimDoc(ctx, k, "running", time.Now().Add(time.Minute).UnixMilli(), 0); err != nil || !ok {
+	if ok, err := env.st.ClaimDoc(ctx, sharedKey(k), "running", time.Now().Add(time.Minute).UnixMilli(), 0); err != nil || !ok {
 		t.Fatalf("claim: %v %v", ok, err)
 	}
 	during, err := s.documentation(ctx, k, false)

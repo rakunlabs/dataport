@@ -914,6 +914,10 @@ const zhCN: Messages = {
         title: '重复的索引',
         hint: '同一组列上的两个索引只会白白增加写入开销和占用空间。',
       },
+      duplicate_foreign_key: {
+        title: '重复的外键',
+        hint: '同一个外键声明了两次，每次写入都会检查两次；可以删除其中一个。',
+      },
     },
     report: {
       title: '{schema} — 数据库文档',
@@ -1605,7 +1609,8 @@ const zhCN: Messages = {
       counts: '{done} / {total}',
       nothingDue: '无需刷新',
       snapshots: '已保存的文档',
-      snapshotsHint: '每个用户按模式保存自己的文档，依据其自身权限生成。有人打开某个模式的文档时会创建快照。',
+      snapshotsHint: '所有人使用同一数据库账号连接的连接，每个模式共享一份快照，任何人刷新都会为所有人更新。用户使用各自账号连接时，每人保留自己的快照。有人打开某个模式的文档时创建快照。',
+      sharedOwner: '共享',
       snapshotsEmpty: '还没有人打开过任何文档。',
       owner: '用户',
       schema: '模式',

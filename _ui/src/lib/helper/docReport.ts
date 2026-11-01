@@ -12,6 +12,7 @@ export const anomalyKinds: AnomalyKind[] = [
   'unindexed_foreign_key',
   'implied_relationship',
   'duplicate_index',
+  'duplicate_foreign_key',
   'nullable_unique',
   'null_string_default',
   'incrementing_columns',
@@ -52,6 +53,12 @@ export function fixSQL(db: string, schema: string, a: Anomaly): string {
       if (db === 'mysql' || db === 'mariadb') return `DROP INDEX ${quoteIdent(db, second)} ON ${qualified(db, schema, a.table)};`;
       if (db === 'mssql') return `DROP INDEX ${quoteIdent(db, second)} ON ${qualified(db, schema, a.table)};`;
       return `DROP INDEX ${qualified(db, schema, second)};`;
+    }
+    case 'duplicate_foreign_key': {
+      const second = a.ref?.split(' / ')[1];
+      if (!second || db === 'sqlite') return '';
+      const drop = db === 'mysql' || db === 'mariadb' ? 'DROP FOREIGN KEY' : 'DROP CONSTRAINT';
+      return `ALTER TABLE ${qualified(db, schema, a.table)} ${drop} ${quoteIdent(db, second)};`;
     }
     default:
       return '';

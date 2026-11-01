@@ -591,3 +591,77 @@ func TestIntegrationPostgresRowLimit(t *testing.T) {
 	}
 	run(t, m, c, pw, "DROP SCHEMA dp_other CASCADE; DROP TABLE dp_lock", false)
 }
+
+// A partitioned table is documented once, like the transaction schema of
+// production: rows summed over its partitions, its partitions summarised,
+// and a self reference shown as one key rather than one per partition.
+func TestIntegrationPostgresPartitionDoc(t *testing.T) {
+	m := NewManager(store.Limits{MaxOpen: 2}, time.Minute)
+	defer m.Close()
+
+	c := &store.Connection{ID: "pgp", DBType: "postgres", Host: "127.0.0.1", Port: 55432, Database: "postgres", Username: "postgres",
+		Options: map[string]string{"sslmode": "disable"}, UpdatedAt: 1}
+
+	if err := m.Test(context.Background(), c, "pw"); err != nil {
+		t.Skip("postgres is not reachable:", err)
+	}
+
+	run(t, m, c, "pw", `DROP SCHEMA IF EXISTS dp_p CASCADE; CREATE SCHEMA dp_p;
+CREATE TABLE dp_p.event_type (event_type varchar(8) PRIMARY KEY, type_name varchar(64) NOT NULL, payload jsonb);
+INSERT INTO dp_p.event_type VALUES ('CAP', 'Capture', NULL), ('AUTH', 'Authorisation', '{}');
+CREATE TABLE dp_p.ev (id bigint NOT NULL, event_type varchar(8) REFERENCES dp_p.event_type, linked_event_id bigint,
+  refs jsonb, PRIMARY KEY (id)) PARTITION BY RANGE (id);
+CREATE TABLE dp_p.ev_part_1 PARTITION OF dp_p.ev FOR VALUES FROM (0) TO (1000);
+CREATE TABLE dp_p.ev_part_2 PARTITION OF dp_p.ev FOR VALUES FROM (1000) TO (2000);
+CREATE TABLE dp_p.ev_part_3 PARTITION OF dp_p.ev FOR VALUES FROM (2000) TO (3000);
+ALTER TABLE dp_p.ev ADD FOREIGN KEY (linked_event_id) REFERENCES dp_p.ev(id);
+CREATE INDEX ev_refs ON dp_p.ev USING gin (refs);
+INSERT INTO dp_p.ev (id, event_type) SELECT g, 'CAP' FROM generate_series(1, 2500) g;
+ANALYZE dp_p.ev_part_1; ANALYZE dp_p.ev_part_2; ANALYZE dp_p.ev_part_3; ANALYZE dp_p.event_type;`, false)
+
+	doc, err := m.SchemaDoc(context.Background(), c, "pw", "dp_p")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	byName := map[string]DocTable{}
+	for _, tb := range doc.Tables {
+		byName[tb.Name] = tb
+	}
+
+	if len(doc.Tables) != 2 {
+		t.Fatalf("partitions documented on their own: %v", byName)
+	}
+
+	ev := byName["ev"]
+	if ev.Rows == nil || *ev.Rows != 2500 {
+		t.Fatalf("rows of the partitioned table: %v", ev.Rows)
+	}
+
+	if p := ev.Partition; p == nil || p.Key != "RANGE (id)" || p.Count != 3 || p.First != "ev_part_1" || p.Last != "ev_part_3" {
+		t.Fatalf("partition: %+v", ev.Partition)
+	}
+
+	if len(ev.ForeignKeys) != 2 {
+		t.Fatalf("keys, partition clones included: %+v", ev.ForeignKeys)
+	}
+
+	gin := false
+	for _, ix := range ev.Indexes {
+		gin = gin || (ix.Name == "ev_refs" && ix.Method == "gin")
+	}
+
+	if !gin {
+		t.Fatalf("index method: %+v", ev.Indexes)
+	}
+
+	// The jsonb column is left out; rows come in key order.
+	v := byName["event_type"].Values
+	if v == nil || strings.Join(v.Columns, ",") != "event_type,type_name" || len(v.Rows) != 2 || v.Rows[0][0] != "AUTH" || v.Rows[1][1] != "Capture" {
+		t.Fatalf("lookup values: %+v", v)
+	}
+
+	if ev.Values != nil {
+		t.Fatal("values read from a partitioned table")
+	}
+}

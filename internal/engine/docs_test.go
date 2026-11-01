@@ -27,7 +27,9 @@ CREATE INDEX lines_order ON order_lines(order_id);
 CREATE INDEX lines_order_again ON order_lines(order_id);
 CREATE TABLE products (id INTEGER PRIMARY KEY, title TEXT);
 CREATE TABLE audit (msg TEXT);
-CREATE VIEW big_orders AS SELECT * FROM orders WHERE total > 100;`); err != nil {
+CREATE VIEW big_orders AS SELECT * FROM orders WHERE total > 100;
+INSERT INTO customers (id, name) VALUES (1, 'Ada');
+INSERT INTO orders (id, customer_id, total) VALUES (1, 1, 5);`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -61,6 +63,16 @@ CREATE VIEW big_orders AS SELECT * FROM orders WHERE total > 100;`); err != nil 
 
 	if byName["big_orders"].Definition == "" {
 		t.Fatal("view without definition")
+	}
+
+	// customers is referenced by orders and small: its rows are documented.
+	// products is referenced by no declared key, so it is not read.
+	if v := byName["customers"].Values; v == nil || len(v.Rows) != 1 || v.Rows[0][1] != "Ada" {
+		t.Fatalf("lookup values of customers: %+v", v)
+	}
+
+	if byName["products"].Values != nil || byName["orders"].Values != nil {
+		t.Fatal("values read from a table nothing references")
 	}
 
 	has := func(kind, table string, cols ...string) bool {

@@ -914,6 +914,10 @@ const pl: Messages = {
         title: 'Zduplikowane indeksy',
         hint: 'Dwa indeksy na tych samych kolumnach kosztują zapisy i miejsce bez żadnej korzyści.',
       },
+      duplicate_foreign_key: {
+        title: 'Zduplikowane klucze obce',
+        hint: 'Ten sam klucz zadeklarowany dwa razy jest sprawdzany dwukrotnie przy każdym zapisie; jeden można usunąć.',
+      },
     },
     report: {
       title: '{schema} — dokumentacja bazy danych',
@@ -1605,7 +1609,8 @@ const pl: Messages = {
       counts: '{done} / {total}',
       nothingDue: 'nic do odświeżenia',
       snapshots: 'Zapisana dokumentacja',
-      snapshotsHint: 'Każdy użytkownik ma własną dokumentację dla każdego schematu, tworzoną z jego uprawnieniami. Migawka powstaje, gdy ktoś otworzy dokumentację schematu.',
+      snapshotsHint: 'Połączenia logujące wszystkich jednym kontem bazy mają jedną wspólną migawkę na schemat; kto ją odświeży, odświeża ją dla wszystkich. Tam, gdzie użytkownicy logują się własnymi kontami, każdy ma własną. Migawka powstaje, gdy ktoś otworzy dokumentację schematu.',
+      sharedOwner: 'Wspólna',
       snapshotsEmpty: 'Nikt jeszcze nie otworzył żadnej dokumentacji.',
       owner: 'Użytkownik',
       schema: 'Schemat',

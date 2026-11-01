@@ -33,7 +33,8 @@ export type AnomalyKind =
   | 'nullable_unique'
   | 'null_string_default'
   | 'incrementing_columns'
-  | 'duplicate_index';
+  | 'duplicate_index'
+  | 'duplicate_foreign_key';
 
 export interface Anomaly {
   kind: AnomalyKind;
@@ -87,6 +88,8 @@ export interface DocInfo {
   refreshing: boolean;
   ready: boolean;
   system?: boolean;
+  // Set on the one snapshot every user of a shared database account reads.
+  shared?: boolean;
 }
 
 // A refresh of every snapshot, scheduled or started by an admin.

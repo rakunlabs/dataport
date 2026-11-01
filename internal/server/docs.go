@@ -57,6 +57,10 @@ func (s *Server) docAccess(ctx context.Context, k store.DocKey) (*store.Grant, s
 		return s.systemDocAccess(ctx, k.ConnectionID)
 	}
 
+	if k.UserID == store.DocSharedUser {
+		return s.sharedDocAccess(ctx, k.ConnectionID)
+	}
+
 	u, err := s.store.GetUser(ctx, k.UserID)
 	if err != nil {
 		return nil, "", "", err
@@ -99,12 +103,13 @@ var errDocsReadOnly = errors.New("no documentation has been built for this schem
 
 // documentation serves the saved snapshot without querying the target DB.
 // A schema the connection documents for everyone is read from that
-// snapshot, without the user's own database account. Otherwise every user
-// reads the newest snapshot built with the same connection and database
-// account, whoever built it, so documentation an admin built is there for
-// everyone on a shared-account connection. Only a builder's explicit
-// refresh, or a schema nobody built yet, reads catalogs. Users who may not
-// build documentation never start a scan.
+// snapshot, without the user's own database account. A connection that
+// signs every user in with one account keeps one snapshot per schema that
+// all its users read and builders refresh. Otherwise every user reads the
+// newest snapshot built with the same connection and database account,
+// whoever built it. Only a builder's explicit refresh, or a schema nobody
+// built yet, reads catalogs. Users who may not build documentation never
+// start a scan.
 func (s *Server) documentation(ctx context.Context, k store.DocKey, force bool) (*docResponse, error) {
 	u, err := s.store.GetUser(ctx, k.UserID)
 	if err != nil {
@@ -121,6 +126,10 @@ func (s *Server) documentation(ctx context.Context, k store.DocKey, force bool) 
 	canBuild := s.docsBuildAllowed(ctx, u)
 
 	if out, ok, err := s.systemDocumentation(ctx, u, k, force, canBuild); ok {
+		return out, err
+	}
+
+	if out, ok, err := s.sharedAccountDocumentation(ctx, u, k, force, canBuild); ok {
 		return out, err
 	}
 
@@ -466,6 +475,20 @@ func (s *Server) listDocs(w http.ResponseWriter, r *http.Request) {
 			add(list, func(sc string) bool { return docSchemaIncluded(dc, sc) })
 		}
 		notSystem := func(sc string) bool { return dc == nil || !docSchemaIncluded(dc, sc) }
+		if sharedDocs(g.Connection) {
+			list, err := s.store.ConnectionDocs(ctx, g.Connection.ID, store.DocSharedUser)
+			if err != nil {
+				writeStoreError(w, err)
+				return
+			}
+			for _, d := range list {
+				if !canBuild && !d.Ready {
+					seen[d.Schema] = true
+				}
+			}
+			add(list, notSystem)
+			continue
+		}
 		// The version does not depend on the schema.
 		if _, _, version, err := s.docAccess(ctx, store.DocKey{ConnectionID: g.Connection.ID, UserID: u.ID}); err == nil {
 			list, err := s.store.SharedDocs(ctx, g.Connection.ID, version)

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -135,6 +136,20 @@ func writeRelatedTables(b *strings.Builder, related []engine.DocTable) {
 		}
 
 		fmt.Fprintf(b, "%s(%s)\n", t.Name, strings.Join(cols, ", "))
+		writeLookupValues(b, t.Values, "  ")
+	}
+}
+
+// writeLookupValues lists the rows of a lookup table, one per line.
+func writeLookupValues(b *strings.Builder, v *engine.LookupValues, indent string) {
+	if v == nil || len(v.Rows) == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "%svalues (%s):\n", indent, strings.Join(v.Columns, " | "))
+
+	for _, r := range v.Rows {
+		b.WriteString(indent + "  " + strings.Join(r, " | ") + "\n")
 	}
 }
 
@@ -163,6 +178,16 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 
 	if t.Comment != "" {
 		b.WriteString(t.Comment + "\n")
+	}
+
+	if p := t.Partition; p != nil {
+		fmt.Fprintf(b, "partitioned by %s, %d partitions", p.Key, p.Count)
+
+		if p.First != "" && p.First != p.Last {
+			fmt.Fprintf(b, " (%s … %s)", p.First, p.Last)
+		}
+
+		b.WriteString("; query the parent table, partitions are not listed\n")
 	}
 
 	refs := map[string]string{}
@@ -220,25 +245,41 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 			uniques = append(uniques, "("+strings.Join(ix.Columns, ", ")+")")
 		}
 
-		fmt.Fprintf(b, "%s %s (%s)\n", kind, ix.Name, strings.Join(ix.Columns, ", "))
+		fmt.Fprintf(b, "%s %s (%s)", kind, ix.Name, strings.Join(ix.Columns, ", "))
+
+		// B-tree is the default nearly everywhere; others change which
+		// operators the index serves, such as GIN for jsonb @>.
+		if m := strings.ToLower(ix.Method); m != "" && m != "btree" {
+			b.WriteString(" using " + m)
+		}
+
+		b.WriteString("\n")
 	}
 
 	if len(uniques) > 0 {
 		b.WriteString("unique keys (upsert targets): " + strings.Join(uniques, ", ") + "\n")
 	}
 
-	for _, fk := range t.ForeignKeys {
-		fmt.Fprintf(b, "references: %s", join(t.Name, fk.Columns, fk.RefTable, fk.RefColumns))
+	shownJoins := map[string]bool{}
 
+	for _, fk := range t.ForeignKeys {
+		line := "references: " + join(t.Name, fk.Columns, fk.RefTable, fk.RefColumns)
 		if fk.OnDelete != "" && fk.OnDelete != "NO ACTION" {
-			b.WriteString("  (on delete " + fk.OnDelete + ")")
+			line += "  (on delete " + fk.OnDelete + ")"
 		}
 
-		b.WriteString("\n")
+		if !shownJoins[line] {
+			shownJoins[line] = true
+			b.WriteString(line + "\n")
+		}
 	}
 
 	for _, r := range t.ReferencedBy {
-		fmt.Fprintf(b, "referenced by: %s\n", join(t.Name, r.RefColumns, r.Table, r.Columns))
+		line := "referenced by: " + join(t.Name, r.RefColumns, r.Table, r.Columns)
+		if !shownJoins[line] {
+			shownJoins[line] = true
+			b.WriteString(line + "\n")
+		}
 	}
 
 	for _, a := range out.Anomalies {
@@ -249,6 +290,10 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 
 	for _, tr := range out.Triggers[t.Name] {
 		fmt.Fprintf(b, "trigger %s %s %s", tr.Name, tr.Timing, tr.Event)
+
+		if fn := triggerFunction(tr.Definition); fn != "" {
+			b.WriteString(" -> " + fn)
+		}
 
 		if !tr.Enabled {
 			b.WriteString(" (disabled)")
@@ -261,6 +306,8 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 		b.WriteString("definition:\n" + t.Definition + "\n")
 	}
 
+	writeLookupValues(b, t.Values, "")
+
 	var notes []string
 
 	for _, a := range out.Anomalies {
@@ -268,7 +315,7 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 			continue
 		}
 
-		n := a.Kind
+		n := anomalyLabel(a.Kind)
 		if len(a.Columns) > 0 {
 			n += "(" + strings.Join(a.Columns, ", ") + ")"
 		}
@@ -279,6 +326,28 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 	if len(notes) > 0 {
 		b.WriteString("design notes: " + strings.Join(notes, "; ") + "\n")
 	}
+}
+
+// anomalyLabel names an anomaly kind in text for models. "orphan" reads
+// as unused, while it only means no key links the table to another.
+func anomalyLabel(kind string) string {
+	if kind == engine.AnomalyOrphan {
+		return "no_fk_relations"
+	}
+
+	return kind
+}
+
+var triggerFunctionRe = regexp.MustCompile(`(?i)\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\s+([^\s(]+)`)
+
+// triggerFunction is the function a PostgreSQL trigger runs, from its
+// definition; "" where the definition names none.
+func triggerFunction(def string) string {
+	if m := triggerFunctionRe.FindStringSubmatch(def); m != nil {
+		return m[1] + "()"
+	}
+
+	return ""
 }
 
 func docFreshness(at int64, status docStatus) string {

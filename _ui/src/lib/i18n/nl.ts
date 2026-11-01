@@ -914,6 +914,10 @@ const nl: Messages = {
         title: 'Dubbele indexen',
         hint: 'Twee indexen op dezelfde kolommen kosten schrijfwerk en ruimte voor niets.',
       },
+      duplicate_foreign_key: {
+        title: 'Dubbele vreemde sleutels',
+        hint: 'Dezelfde sleutel twee keer gedeclareerd wordt bij elke schrijfactie twee keer gecontroleerd; één kan weg.',
+      },
     },
     report: {
       title: '{schema} — databasedocumentatie',
@@ -1605,7 +1609,8 @@ const nl: Messages = {
       counts: '{done} / {total}',
       nothingDue: 'niets te vernieuwen',
       snapshots: 'Opgeslagen documentatie',
-      snapshotsHint: 'Elke gebruiker heeft per schema een eigen documentatie, opgebouwd met zijn eigen toegang. Een momentopname wordt gemaakt wanneer iemand de documentatie van een schema opent.',
+      snapshotsHint: 'Verbindingen die iedereen met één databaseaccount aanmelden delen één momentopname per schema; wie hem vernieuwt, vernieuwt hem voor iedereen. Waar gebruikers met een eigen account aanmelden, houdt ieder een eigen. Een momentopname ontstaat als iemand de documentatie van een schema opent.',
+      sharedOwner: 'Gedeeld',
       snapshotsEmpty: 'Nog niemand heeft documentatie geopend.',
       owner: 'Gebruiker',
       schema: 'Schema',

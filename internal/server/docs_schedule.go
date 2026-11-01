@@ -179,10 +179,41 @@ func (s *Server) refreshAllDocs(ctx context.Context, before int64, manual bool, 
 			}
 			tried[k] = true
 			// Snapshots of users who may no longer build documentation are
-			// kept as they are, not rebuilt with their access.
-			if k.UserID != store.DocSystemUser {
+			// kept as they are, not rebuilt with their access. A shared
+			// snapshot belongs to no user; one of a connection that no
+			// longer shares its account goes.
+			if k.UserID == store.DocSharedUser {
+				if _, _, _, err := s.sharedDocAccess(ctx, k.ConnectionID); errors.Is(err, store.ErrNotFound) {
+					if err := s.store.DeleteDoc(ctx, k); err != nil {
+						status = store.DocRunStopped
+						return err
+					}
+					claimed = true
+					s.docRunSkip(ctx, rec)
+					continue
+				}
+				if covered(k) {
+					if err := s.store.SkipDoc(ctx, k); err != nil {
+						status = store.DocRunStopped
+						return err
+					}
+					claimed = true
+					s.docRunSkip(ctx, rec)
+					continue
+				}
+			}
+			if k.UserID != store.DocSystemUser && k.UserID != store.DocSharedUser {
 				skip := covered(k)
 				if u, err := s.store.GetUser(ctx, k.UserID); err == nil && !s.docsBuildAllowed(ctx, u) {
+					skip = true
+				}
+				// A user's copy on a connection whose users share their
+				// snapshots becomes the shared one rather than a scan.
+				if c, err := s.store.GetConnection(ctx, k.ConnectionID); err == nil && sharedDocs(c) {
+					if err := s.store.AdoptSharedDocs(ctx, k.ConnectionID); err != nil {
+						status = store.DocRunStopped
+						return err
+					}
 					skip = true
 				}
 				if skip {

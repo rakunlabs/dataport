@@ -199,7 +199,7 @@ func TestBlockedDocs(t *testing.T) {
 	if err := s.dropBlockedDocs(ctx, dc); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.st.GetDoc(ctx, k); !errors.Is(err, store.ErrNotFound) {
+	if _, err := env.st.GetDoc(ctx, sharedKey(k)); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("snapshot of a closed schema kept")
 	}
 	for _, force := range []bool{false, true} {
@@ -207,7 +207,7 @@ func TestBlockedDocs(t *testing.T) {
 			t.Fatalf("force %v: %v", force, err)
 		}
 	}
-	if _, err := env.st.GetDoc(ctx, k); !errors.Is(err, store.ErrNotFound) {
+	if _, err := env.st.GetDoc(ctx, sharedKey(k)); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("a closed schema was built")
 	}
 	if d := listedDocs(t, s, env.alice); len(d) != 0 {
@@ -235,7 +235,7 @@ func TestBlockedDocs(t *testing.T) {
 	if err := s.dispatchDocsAt(ctx, time.Now().Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.st.GetDoc(ctx, k); !errors.Is(err, store.ErrNotFound) {
+	if _, err := env.st.GetDoc(ctx, sharedKey(k)); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("schedule kept a closed schema")
 	}
 	if run := s.docRunStatus(ctx); run.Failed != 0 || run.Status == store.DocRunFailed || run.Done != run.Total {

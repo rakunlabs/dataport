@@ -914,6 +914,10 @@ const zhTW: Messages = {
         title: '重複的索引',
         hint: '同一組欄位上的兩個索引只會白白增加寫入成本與占用空間。',
       },
+      duplicate_foreign_key: {
+        title: '重複的外鍵',
+        hint: '同一個外鍵宣告了兩次，每次寫入都會檢查兩次；可以刪除其中一個。',
+      },
     },
     report: {
       title: '{schema} — 資料庫文件',
@@ -1605,7 +1609,8 @@ const zhTW: Messages = {
       counts: '{done} / {total}',
       nothingDue: '沒有需要重新整理的項目',
       snapshots: '已儲存的文件',
-      snapshotsHint: '每位使用者依結構描述保有自己的文件，並以其存取權建立。有人開啟結構描述的文件時即會建立快照。',
+      snapshotsHint: '所有人使用同一資料庫帳號連線的連線，每個結構描述共用一份快照，任何人重新整理都會為所有人更新。使用者以各自帳號連線時，每人保留自己的快照。有人開啟某個結構描述的文件時建立快照。',
+      sharedOwner: '共用',
       snapshotsEmpty: '尚無人開啟任何文件。',
       owner: '使用者',
       schema: '結構描述',

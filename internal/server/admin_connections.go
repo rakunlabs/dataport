@@ -252,6 +252,20 @@ func (s *Server) adminUpdateConnection(w http.ResponseWriter, r *http.Request) {
 
 	s.engine.Forget(c.ID)
 
+	// Users share the snapshots of a shared account and keep their own on
+	// a connection of their own accounts.
+	if sharedDocs(c) {
+		err = s.store.AdoptSharedDocs(ctx, c.ID)
+	} else {
+		err = s.store.KeepDocs(ctx, c.ID, store.DocSharedUser, nil)
+	}
+
+	if err != nil {
+		writeStoreError(w, err)
+
+		return
+	}
+
 	// Documentation kept for everyone was built against the old settings.
 	if _, err := s.docConnection(ctx, c.ID); err == nil {
 		s.docsChanged(c.ID, currentUser(r))

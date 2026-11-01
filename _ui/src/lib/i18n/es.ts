@@ -914,6 +914,10 @@ const es: Messages = {
         title: 'Índices duplicados',
         hint: 'Dos índices sobre las mismas columnas cuestan escrituras y espacio para nada.',
       },
+      duplicate_foreign_key: {
+        title: 'Claves foráneas duplicadas',
+        hint: 'La misma clave declarada dos veces se comprueba dos veces en cada escritura; una sobra.',
+      },
     },
     report: {
       title: '{schema} — documentación de la base de datos',
@@ -1605,7 +1609,8 @@ const es: Messages = {
       counts: '{done} / {total}',
       nothingDue: 'nada que actualizar',
       snapshots: 'Documentación guardada',
-      snapshotsHint: 'Cada usuario tiene su propia documentación por esquema, generada con su acceso. Se crea una instantánea cuando alguien abre la documentación de un esquema.',
+      snapshotsHint: 'En las conexiones que conectan a todos con una sola cuenta de base de datos, los usuarios comparten una instantánea por esquema; quien la actualiza la actualiza para todos. Donde cada usuario entra con su propia cuenta, cada uno guarda la suya. La instantánea se crea cuando alguien abre la documentación de un esquema.',
+      sharedOwner: 'Compartida',
       snapshotsEmpty: 'Nadie ha abierto todavía ninguna documentación.',
       owner: 'Usuario',
       schema: 'Esquema',

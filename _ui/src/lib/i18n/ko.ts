@@ -914,6 +914,10 @@ const ko: Messages = {
         title: '중복 인덱스',
         hint: '같은 컬럼에 대한 두 인덱스는 쓰기 성능과 공간만 낭비합니다.',
       },
+      duplicate_foreign_key: {
+        title: '중복 외래 키',
+        hint: '같은 키가 두 번 선언되어 쓰기마다 두 번 검사됩니다. 하나는 지워도 됩니다.',
+      },
     },
     report: {
       title: '{schema} — 데이터베이스 문서',
@@ -1605,7 +1609,8 @@ const ko: Messages = {
       counts: '{done} / {total}',
       nothingDue: '새로 고칠 항목 없음',
       snapshots: '저장된 문서',
-      snapshotsHint: '각 사용자는 본인 권한으로 생성한 스키마별 문서를 따로 가집니다. 누군가 스키마 문서를 열면 스냅샷이 생성됩니다.',
+      snapshotsHint: '모두를 하나의 데이터베이스 계정으로 연결하는 연결에서는 스키마마다 스냅샷 하나를 공유하며, 누가 새로 고치든 모두에게 반영됩니다. 사용자가 각자 계정으로 연결하는 경우에는 각자 자신의 것을 가집니다. 스냅샷은 누군가 스키마 문서를 열 때 만들어집니다.',
+      sharedOwner: '공유',
       snapshotsEmpty: '아직 아무도 문서를 열지 않았습니다.',
       owner: '사용자',
       schema: '스키마',

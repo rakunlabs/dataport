@@ -228,11 +228,11 @@
                   <tr class="border-t border-line-soft">
                     <td class="px-3 py-1.5">{d.connection_name}</td>
                     <td class="px-3 py-1.5 font-mono">
-                      {#if d.user_id === sessionUser || d.system}
+                      {#if d.user_id === sessionUser || d.system || d.shared}
                         <button class="text-accent hover:underline" onclick={() => openDocs(d.connection_id, d.schema)}>{d.schema}</button>
                       {:else}{d.schema}{/if}
                     </td>
-                    <td class="px-3 py-1.5 text-muted">{d.system ? t('admin.docConn.everyone') : d.username}</td>
+                    <td class="px-3 py-1.5 text-muted">{d.system ? t('admin.docConn.everyone') : d.shared ? t('admin.docs.sharedOwner') : d.username}</td>
                     <td class="px-3 py-1.5">
                       <span class="inline-flex items-center gap-1.5">
                         {#if d.refreshing}<LoaderCircle size={12} class="animate-spin text-accent" />

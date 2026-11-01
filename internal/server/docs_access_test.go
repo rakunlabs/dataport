@@ -42,7 +42,7 @@ func TestDocBuildAccess(t *testing.T) {
 	if _, err := s.documentation(ctx, bobKey, false); !errors.Is(err, errDocsReadOnly) {
 		t.Fatalf("unbuilt: %v", err)
 	}
-	if _, err := env.st.GetDoc(ctx, bobKey); !errors.Is(err, store.ErrNotFound) {
+	if _, err := env.st.GetDoc(ctx, sharedKey(bobKey)); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("a read-only user created a snapshot")
 	}
 

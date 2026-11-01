@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -12,8 +13,8 @@ import (
 
 // Schema documentation in the manner of SchemaSpy: every table with its
 // columns, keys, comments and estimated size, who references whom, and the
-// design smells SchemaSpy reports as anomalies. It reads only the catalog,
-// never table data.
+// design smells SchemaSpy reports as anomalies. It reads the catalog, and
+// of the table data only the rows of small lookup tables.
 
 // DocColumn is a column of a documented table, with its comment.
 type DocColumn struct {
@@ -44,7 +45,27 @@ type DocTable struct {
 	Triggers     []TriggerInfo `json:"triggers"`
 	// Definition is the source of a view.
 	Definition string `json:"definition,omitempty"`
+	// Partition describes a partitioned table; its partitions are not
+	// documented on their own.
+	Partition *PartitionInfo `json:"partition,omitempty"`
+	// Values are the rows of a small lookup table, one that other tables
+	// reference, such as status codes and their names.
+	Values *LookupValues `json:"values,omitempty"`
 }
+
+// LookupValues are the rows of a lookup table, as text, in key order.
+type LookupValues struct {
+	Columns []string   `json:"columns"`
+	Rows    [][]string `json:"rows"`
+}
+
+// Lookup tables are read when they are this small; the codes of a status
+// or type table explain the columns that hold them elsewhere.
+const (
+	maxLookupRows    = 50
+	maxLookupColumns = 6
+	maxLookupValue   = 80
+)
 
 // Anomaly kinds, after SchemaSpy's list.
 const (
@@ -57,6 +78,7 @@ const (
 	AnomalyNullDefault    = "null_string_default"
 	AnomalyIncrementing   = "incrementing_columns"
 	AnomalyDuplicateIndex = "duplicate_index"
+	AnomalyDuplicateFK    = "duplicate_foreign_key"
 )
 
 // Anomaly is a design smell found in a table. Ref names the table an
@@ -128,6 +150,11 @@ func (m *Manager) SchemaDoc(ctx context.Context, c *store.Connection, password, 
 			rows, _ = re.RowEstimates(ctx, conn, schema)
 		}
 
+		var parts map[string]PartitionInfo
+		if pt, ok := d.(Partitioner); ok {
+			parts, _ = pt.Partitions(ctx, conn, schema)
+		}
+
 		s, _ := d.(Structurer)
 		cm, _ := d.(Commenter)
 		out.Keys = s != nil && d.Type() != "clickhouse" && d.Type() != "trino"
@@ -142,8 +169,14 @@ func (m *Manager) SchemaDoc(ctx context.Context, c *store.Connection, password, 
 				t.Rows = &n
 			}
 
+			if p, ok := parts[o.Name]; ok {
+				t.Partition = &p
+			}
+
 			out.Tables = append(out.Tables, t)
 		}
+
+		readLookups(ctx, d, conn, schema, out.Tables)
 
 		if p, ok := d.(Programmer); ok {
 			if list, err := p.Routines(ctx, conn, schema); err == nil {
@@ -219,6 +252,135 @@ func sameSchema(fk ForeignKey, schema string) bool {
 	return fk.RefSchema == "" || fk.RefSchema == schema
 }
 
+// readLookups fills the values of the small tables other tables of the
+// schema reference. A table it cannot read, or one larger than it looked,
+// is left without values.
+func readLookups(ctx context.Context, d Driver, conn *sql.Conn, schema string, tables []DocTable) {
+	referenced := map[string]bool{}
+
+	for _, t := range tables {
+		for _, fk := range t.ForeignKeys {
+			if sameSchema(fk, schema) && fk.RefTable != t.Name {
+				referenced[fk.RefTable] = true
+			}
+		}
+	}
+
+	for i := range tables {
+		t := &tables[i]
+		if t.Kind != "table" || !referenced[t.Name] || t.Partition != nil || (t.Rows != nil && *t.Rows > maxLookupRows) {
+			continue
+		}
+
+		if ctx.Err() != nil {
+			return
+		}
+
+		t.Values = readLookup(ctx, d, conn, schema, *t)
+	}
+}
+
+func readLookup(ctx context.Context, d Driver, conn *sql.Conn, schema string, t DocTable) *LookupValues {
+	var cols []string
+
+	for _, c := range t.Columns {
+		switch baseType(c.Type) {
+		case "bytea", "blob", "longblob", "mediumblob", "varbinary", "binary", "image", "raw", "json", "jsonb", "xml":
+			continue
+		}
+
+		cols = append(cols, c.Name)
+	}
+
+	if len(cols) == 0 || len(cols) > maxLookupColumns {
+		return nil
+	}
+
+	quoted := make([]string, len(cols))
+	for i, c := range cols {
+		quoted[i] = d.QuoteIdent(c)
+	}
+
+	sel := strings.Join(quoted, ", ")
+	from := qualify(d, schema, t.Name)
+	// One row more than kept tells a table that outgrew its estimate.
+	n := maxLookupRows + 1
+
+	var stmt string
+
+	switch d.Dialect() {
+	case DialectMSSQL:
+		stmt = fmt.Sprintf("SELECT TOP %d %s FROM %s ORDER BY 1", n, sel, from)
+	case DialectOracle:
+		stmt = fmt.Sprintf("SELECT %s FROM %s ORDER BY 1 FETCH FIRST %d ROWS ONLY", sel, from, n)
+	default:
+		stmt = fmt.Sprintf("SELECT %s FROM %s ORDER BY 1 LIMIT %d", sel, from, n)
+	}
+
+	rows, err := conn.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := &LookupValues{Columns: cols, Rows: [][]string{}}
+
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil
+		}
+
+		if len(out.Rows) == maxLookupRows {
+			return nil
+		}
+
+		row := make([]string, len(cols))
+		for i, v := range vals {
+			row[i] = lookupText(v)
+		}
+
+		out.Rows = append(out.Rows, row)
+	}
+
+	if rows.Err() != nil || len(out.Rows) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+func lookupText(v any) string {
+	var s string
+
+	switch x := v.(type) {
+	case nil:
+		return "NULL"
+	case []byte:
+		s = string(x)
+	case time.Time:
+		s = x.Format(time.RFC3339)
+	default:
+		s = fmt.Sprint(x)
+	}
+
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > maxLookupValue {
+		r := []rune(s)
+		if len(r) > maxLookupValue {
+			s = string(r[:maxLookupValue]) + "…"
+		}
+	}
+
+	return s
+}
+
 func linkReferences(tables []DocTable, schema string) {
 	at := map[string]int{}
 	for i, t := range tables {
@@ -277,10 +439,73 @@ func scanEstimates(rows *sql.Rows, err error) (map[string]int64, error) {
 	return out, rows.Err()
 }
 
+// A partitioned table keeps no statistics of its own; its estimate is the
+// sum of its leaf partitions.
+// pg_partition_tree arrived in PostgreSQL 12; older servers fall back to
+// plain tables.
 func (postgresDriver) RowEstimates(ctx context.Context, q Querier, schema string) (map[string]int64, error) {
+	out, err := scanEstimates(q.QueryContext(ctx, `SELECT c.relname,
+CASE WHEN c.relkind = 'p' THEN (SELECT COALESCE(sum(GREATEST(l.reltuples, 0)), 0)
+  FROM pg_catalog.pg_partition_tree(c.oid) pt JOIN pg_catalog.pg_class l ON l.oid = pt.relid WHERE pt.isleaf)
+ELSE c.reltuples END::bigint::text
+FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relkind IN ('r', 'm', 'p')`, schema))
+	if err == nil || ctx.Err() != nil {
+		return out, err
+	}
+
 	return scanEstimates(q.QueryContext(ctx, `SELECT c.relname, c.reltuples::bigint::text
 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relkind IN ('r', 'm')`, schema))
+}
+
+// ////////////////////////////////////////////
+// partitions
+
+// Partitioner is implemented by drivers that describe the partitioned
+// tables of a schema in one query, by table name.
+type Partitioner interface {
+	Partitions(ctx context.Context, q Querier, schema string) (map[string]PartitionInfo, error)
+}
+
+// PartitionInfo is how a table is split: its key, as the database writes
+// it, and its direct partitions, the first and last by name.
+type PartitionInfo struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+	First string `json:"first,omitempty"`
+	Last  string `json:"last,omitempty"`
+}
+
+func (postgresDriver) Partitions(ctx context.Context, q Querier, schema string) (map[string]PartitionInfo, error) {
+	rows, err := q.QueryContext(ctx, `SELECT c.relname, pg_catalog.pg_get_partkeydef(c.oid), count(ch.oid),
+COALESCE(min(ch.relname::text), ''), COALESCE(max(ch.relname::text), '')
+FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_catalog.pg_inherits i ON i.inhparent = c.oid
+LEFT JOIN pg_catalog.pg_class ch ON ch.oid = i.inhrelid
+WHERE n.nspname = $1 AND c.relkind = 'p'
+GROUP BY c.oid, c.relname`, schema)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[string]PartitionInfo{}
+
+	for rows.Next() {
+		var (
+			name string
+			p    PartitionInfo
+		)
+
+		if err := rows.Scan(&name, &p.Key, &p.Count, &p.First, &p.Last); err != nil {
+			return nil, err
+		}
+
+		out[name] = p
+	}
+
+	return out, rows.Err()
 }
 
 func (mysqlDriver) RowEstimates(ctx context.Context, q Querier, schema string) (map[string]int64, error) {

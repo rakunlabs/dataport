@@ -914,6 +914,10 @@ const fr: Messages = {
         title: 'Index en double',
         hint: "Deux index sur les mêmes colonnes coûtent des écritures et de l'espace pour rien.",
       },
+      duplicate_foreign_key: {
+        title: 'Clés étrangères en double',
+        hint: 'La même clé déclarée deux fois est vérifiée deux fois à chaque écriture ; l\'une peut être supprimée.',
+      },
     },
     report: {
       title: '{schema} — documentation de la base de données',
@@ -1605,7 +1609,8 @@ const fr: Messages = {
       counts: '{done} / {total}',
       nothingDue: 'rien à actualiser',
       snapshots: 'Documentation enregistrée',
-      snapshotsHint: "Chaque utilisateur conserve sa propre documentation par schéma, générée avec ses accès. Un instantané est créé lorsque quelqu'un ouvre la documentation d'un schéma.",
+      snapshotsHint: 'Les connexions qui connectent tout le monde avec un seul compte de base partagent un instantané par schéma ; qui l\'actualise l\'actualise pour tous. Là où chacun se connecte avec son propre compte, chacun garde le sien. L\'instantané est créé quand quelqu\'un ouvre la documentation d\'un schéma.',
+      sharedOwner: 'Partagé',
       snapshotsEmpty: "Personne n'a encore ouvert de documentation.",
       owner: 'Utilisateur',
       schema: 'Schéma',

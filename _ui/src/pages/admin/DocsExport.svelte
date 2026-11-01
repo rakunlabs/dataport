@@ -11,6 +11,8 @@
     connection_id: string;
     user_id: string;
     schemas: string[];
+    // By schema; "" for every schema of the connection.
+    notes?: Record<string, string>;
   }
 
   interface Status {
@@ -31,21 +33,29 @@
     enabled: boolean;
     url: string;
     collection: string;
+    description: string;
     has_token: boolean;
     targets: Target[];
     status: Status;
+  }
+
+  interface FormNote {
+    schema: string;
+    text: string;
   }
 
   interface FormTarget {
     connection_id: string;
     user_id: string;
     schemas: string;
+    notes: FormNote[];
   }
 
   let saved = $state<Export | null>(null);
   let enabled = $state(false);
   let url = $state('');
   let collection = $state('');
+  let description = $state('');
   let token = $state('');
   let clearToken = $state(false);
   let targets = $state<FormTarget[]>([]);
@@ -59,10 +69,24 @@
   const users = $derived(admin.users.filter((u) => !u.disabled));
 
   const splitSchemas = (v: string) => v.split(',').map((s) => s.trim()).filter(Boolean);
-  const norm = (v: { enabled: boolean; url: string; collection: string; targets: Target[] }) =>
-    JSON.stringify([v.enabled, v.url.trim().replace(/\/+$/, ''), v.collection.trim() || 'dataport', v.targets.map((x) => [x.connection_id, x.user_id, x.schemas])]);
-  const formTargets = $derived(targets.map((x) => ({ connection_id: x.connection_id, user_id: x.user_id, schemas: splitSchemas(x.schemas) })));
-  const dirty = $derived(!!saved && (norm({ enabled, url, collection, targets: formTargets }) !== norm(saved) || token.trim() !== '' || clearToken));
+  const toNotes = (list: FormNote[]) => {
+    const out: Record<string, string> = {};
+    for (const n of list) if (n.text.trim()) out[n.schema.trim()] = n.text.trim();
+    return out;
+  };
+  const sortedNotes = (n?: Record<string, string>) => Object.entries(n ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  const norm = (v: { enabled: boolean; url: string; collection: string; description: string; targets: Target[] }) =>
+    JSON.stringify([
+      v.enabled,
+      v.url.trim().replace(/\/+$/, ''),
+      v.collection.trim() || 'dataport',
+      v.description.trim(),
+      v.targets.map((x) => [x.connection_id, x.user_id, x.schemas, sortedNotes(x.notes)]),
+    ]);
+  const formTargets = $derived(
+    targets.map((x) => ({ connection_id: x.connection_id, user_id: x.user_id, schemas: splitSchemas(x.schemas), notes: toNotes(x.notes) })),
+  );
+  const dirty = $derived(!!saved && (norm({ enabled, url, collection, description, targets: formTargets }) !== norm(saved) || token.trim() !== '' || clearToken));
   const complete = $derived(targets.every((x) => x.connection_id && x.user_id));
 
   function apply(v: Export, form = true) {
@@ -71,9 +95,15 @@
     enabled = v.enabled;
     url = v.url;
     collection = v.collection;
+    description = v.description ?? '';
     token = '';
     clearToken = false;
-    targets = v.targets.map((x) => ({ connection_id: x.connection_id, user_id: x.user_id, schemas: x.schemas.join(', ') }));
+    targets = v.targets.map((x) => ({
+      connection_id: x.connection_id,
+      user_id: x.user_id,
+      schemas: x.schemas.join(', '),
+      notes: sortedNotes(x.notes).map(([schema, text]) => ({ schema, text })),
+    }));
   }
 
   async function load(form = true) {
@@ -99,7 +129,7 @@
     saving = true;
     error = '';
     try {
-      const body: Record<string, unknown> = { enabled, url: url.trim(), collection: collection.trim(), targets: formTargets };
+      const body: Record<string, unknown> = { enabled, url: url.trim(), collection: collection.trim(), description: description.trim(), targets: formTargets };
       if (token.trim()) body.token = token.trim();
       else if (clearToken) body.token = '';
       apply(await api.put<Export>('/admin/docs/export', body));
@@ -127,6 +157,8 @@
     '       → {"source":{"type":"push","page_count":n}}, 404 when missing',
     'POST   {url}/api/v1/sources',
     '       {"name":"{collection}","type":"push","description":"…"}',
+    'PUT    {url}/api/v1/sources/{collection}',
+    '       {"description":"…"}   (when the description differs)',
     'POST   {url}/api/v1/sources/{collection}/items',
     '       {"items":[{"id","title","content_type":"text/markdown",',
     '                  "content","teams","updated_at"}]}   (≤ 20 per request)',
@@ -198,6 +230,12 @@
   </div>
 
   <div>
+    <label class="label" for="push-description">{t('admin.docsExport.descriptionLabel')}</label>
+    <textarea id="push-description" class="input w-full" rows="3" maxlength="4000" placeholder={t('admin.docsExport.descriptionPlaceholder')} bind:value={description} disabled={!saved || saving}></textarea>
+    <p class="hint mt-1">{t('admin.docsExport.descriptionHint')}</p>
+  </div>
+
+  <div>
     <label class="label" for="push-token">{t('admin.docsExport.token')}</label>
     <input id="push-token" class="input w-full font-mono" type="password" autocomplete="off" placeholder={saved?.has_token ? t('admin.docsExport.tokenKept') : t('admin.docsExport.tokenNone')} bind:value={token} disabled={!saved || saving || clearToken} />
     {#if saved?.has_token}
@@ -212,6 +250,7 @@
   <div class="space-y-1.5">
     <p class="label">{t('admin.docsExport.targets')}</p>
     <p class="hint">{t('admin.docsExport.targetsHint')}</p>
+    <p class="hint">{t('admin.docsExport.notesHint')}</p>
     {#each targets as target, i (i)}
       <div class="flex flex-wrap items-center gap-2">
         <select class="input w-48" bind:value={target.connection_id} aria-label={t('admin.log.connection')} disabled={saving}>
@@ -225,10 +264,23 @@
         <input class="input min-w-40 flex-1 font-mono" placeholder={t('admin.docsExport.schemasPlaceholder')} aria-label={t('admin.docs.schema')} bind:value={target.schemas} disabled={saving} />
         <button type="button" class="btn" onclick={() => targets.splice(i, 1)} aria-label={t('admin.docsExport.remove')} disabled={saving}><Trash2 size={14} /></button>
       </div>
+      <div class="ml-4 space-y-1.5 border-l border-line pl-3">
+        {#each target.notes as note, j (j)}
+          <div class="flex items-start gap-2">
+            <input class="input w-40 font-mono" placeholder={t('admin.docsExport.noteSchemaAll')} aria-label={t('admin.docs.schema')} bind:value={note.schema} disabled={saving} />
+            <textarea class="input min-w-40 flex-1" rows="2" maxlength="1000" placeholder={t('admin.docsExport.notePlaceholder')} aria-label={t('admin.docsExport.notes')} bind:value={note.text} disabled={saving}></textarea>
+            <button type="button" class="btn" onclick={() => target.notes.splice(j, 1)} aria-label={t('admin.docsExport.remove')} disabled={saving}><Trash2 size={14} /></button>
+          </div>
+        {/each}
+        <button type="button" class="btn text-xs" onclick={() => target.notes.push({ schema: '', text: '' })} disabled={saving}>
+          <Plus size={12} />
+          {t('admin.docsExport.addNote')}
+        </button>
+      </div>
     {:else}
       <p class="text-xs text-muted">{t('admin.docsExport.noTargets')}</p>
     {/each}
-    <button type="button" class="btn" onclick={() => targets.push({ connection_id: '', user_id: '', schemas: '' })} disabled={saving}>
+    <button type="button" class="btn" onclick={() => targets.push({ connection_id: '', user_id: '', schemas: '', notes: [] })} disabled={saving}>
       <Plus size={14} />
       {t('admin.docsExport.add')}
     </button>

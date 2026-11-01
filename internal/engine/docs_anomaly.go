@@ -46,6 +46,7 @@ func findAnomalies(tables []DocTable, keys bool, schema string) []Anomaly {
 			list = append(list, implied[t.Name]...)
 			list = append(list, nullableUnique(t)...)
 			list = append(list, duplicateIndexes(t)...)
+			list = append(list, duplicateFKs(t)...)
 
 			if len(linked) > 0 && !linked[t.Name] {
 				list = append(list, Anomaly{Kind: AnomalyOrphan, Table: t.Name})
@@ -73,14 +74,42 @@ func findAnomalies(tables []DocTable, keys bool, schema string) []Anomaly {
 func unindexedFKs(t DocTable) []Anomaly {
 	var list []Anomaly
 
+	seen := map[string]bool{}
+
 	for _, fk := range t.ForeignKeys {
 		covered := slices.ContainsFunc(t.Indexes, func(ix IndexInfo) bool {
 			return len(ix.Columns) >= len(fk.Columns) && sameSet(ix.Columns[:len(fk.Columns)], fk.Columns)
 		})
 
-		if !covered {
+		// A key declared twice needs one index; duplicate_foreign_key
+		// reports the second declaration.
+		key := strings.Join(fk.Columns, "\x1f") + "\x00" + fk.RefTable
+		if !covered && !seen[key] {
+			seen[key] = true
 			list = append(list, Anomaly{Kind: AnomalyUnindexedFK, Table: t.Name, Columns: fk.Columns, Ref: fk.RefTable})
 		}
+	}
+
+	return list
+}
+
+// duplicateFKs finds foreign keys declared more than once: the same
+// columns to the same columns of the same table. Each one is checked on
+// every write.
+func duplicateFKs(t DocTable) []Anomaly {
+	seen := map[string]string{}
+
+	var list []Anomaly
+
+	for _, fk := range t.ForeignKeys {
+		key := strings.Join(fk.Columns, "\x1f") + "\x00" + fk.RefSchema + "." + fk.RefTable + "\x00" + strings.Join(fk.RefColumns, "\x1f")
+		if first, ok := seen[key]; ok {
+			list = append(list, Anomaly{Kind: AnomalyDuplicateFK, Table: t.Name, Columns: fk.Columns, Ref: first + " / " + fk.Name})
+
+			continue
+		}
+
+		seen[key] = fk.Name
 	}
 
 	return list

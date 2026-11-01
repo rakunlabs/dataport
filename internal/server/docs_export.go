@@ -48,6 +48,14 @@ const (
 	docExportDefaultCollection = "dataport"
 	docExportMaxTargets        = 200
 	docExportMaxSchemas        = 50
+	// Descriptions are read by models choosing where to search, and notes
+	// travel in every item of their schema; both stay short.
+	docExportMaxDescription = 4000
+	docExportMaxNote        = 1000
+
+	// docExportDefaultDescription describes the collection when no
+	// description is configured.
+	docExportDefaultDescription = "Database schema documentation from dataport: one item per table or view, with columns, keys, joins, indexes, triggers and design notes, and an overview per schema."
 
 	// Limits of one push request.
 	pushBatchItems = 20
@@ -66,14 +74,45 @@ type docExportTarget struct {
 	UserID       string `json:"user_id"`
 	// Schemas to export; empty exports the connection's default schema.
 	Schemas []string `json:"schemas"`
+	// Notes tell a reader what a schema is for, such as the services or
+	// repositories that own it, by schema name; "" applies to every schema
+	// of the connection. They are written into each item of the schema.
+	Notes map[string]string `json:"notes,omitempty"`
+}
+
+// docExportNote is the note of a schema, the general one first.
+func (t docExportTarget) note(schema string) string {
+	parts := []string{}
+
+	if n := strings.TrimSpace(t.Notes[""]); n != "" {
+		parts = append(parts, n)
+	}
+
+	if n := strings.TrimSpace(t.Notes[schema]); schema != "" && n != "" {
+		parts = append(parts, n)
+	}
+
+	return strings.Join(parts, "\n")
 }
 
 type docExportConfig struct {
-	Enabled    bool              `json:"enabled"`
-	URL        string            `json:"url"`
-	Collection string            `json:"collection"`
-	TokenEnc   string            `json:"token_enc,omitempty"`
-	Targets    []docExportTarget `json:"targets"`
+	Enabled    bool   `json:"enabled"`
+	URL        string `json:"url"`
+	Collection string `json:"collection"`
+	// Description is the collection's description on the target, which
+	// search agents read to decide whether to look there; empty keeps
+	// the default.
+	Description string            `json:"description,omitempty"`
+	TokenEnc    string            `json:"token_enc,omitempty"`
+	Targets     []docExportTarget `json:"targets"`
+}
+
+func (c docExportConfig) description() string {
+	if c.Description != "" {
+		return c.Description
+	}
+
+	return docExportDefaultDescription
 }
 
 // docExportStatus is the outcome of the last export, shown to admins.
@@ -306,7 +345,8 @@ func (s *Server) runDocExport(ctx context.Context, cfg docExportConfig, state do
 	status.Failed = failed
 	status.Tables = len(items)
 
-	fingerprint := docExportFingerprint(items)
+	// A new description alone is reason enough to contact the target.
+	fingerprint := docExportFingerprint(items, cfg.description())
 	if !full && len(failed) == 0 && state.Fingerprint != "" && state.Fingerprint == fingerprint {
 		status.Unchanged = true
 
@@ -316,7 +356,7 @@ func (s *Server) runDocExport(ctx context.Context, cfg docExportConfig, state do
 	// Until this push completes, the next one compares again.
 	state.Fingerprint = ""
 
-	count, created, err := k.ensureCollection(ctx)
+	count, created, err := k.ensureCollection(ctx, cfg.description())
 	if err != nil {
 		status.Error = err.Error()
 
@@ -399,8 +439,9 @@ func (s *Server) runDocExport(ctx context.Context, cfg docExportConfig, state do
 	return state
 }
 
-// docExportFingerprint stands for every item of a push, in any order.
-func docExportFingerprint(items []pushItem) string {
+// docExportFingerprint stands for every item of a push, in any order, and
+// the collection's description.
+func docExportFingerprint(items []pushItem, description string) string {
 	ids := make([]string, len(items))
 	hashes := make(map[string]string, len(items))
 
@@ -412,6 +453,8 @@ func docExportFingerprint(items []pushItem) string {
 	slices.Sort(ids)
 
 	h := sha256.New()
+	_, _ = io.WriteString(h, description+"\x00")
+
 	for _, id := range ids {
 		_, _ = io.WriteString(h, id+"\x00"+hashes[id]+"\n")
 	}
@@ -511,7 +554,7 @@ func (s *Server) docExportItems(ctx context.Context, targets []docExportTarget) 
 				continue
 			}
 
-			items = append(items, docExportSchemaItems(conn, saved.Document)...)
+			items = append(items, docExportSchemaItems(conn, saved.Document, t.note(schema))...)
 		}
 	}
 
@@ -540,8 +583,10 @@ func docExportError(err error) string {
 }
 
 // docExportSchemaItems turns one schema document into push items: an
-// overview of the schema and one item per table or view.
-func docExportSchemaItems(conn *store.Connection, doc *engine.SchemaDoc) []pushItem {
+// overview of the schema and one item per table or view. The note of the
+// schema goes into every item, so a table found alone still says who
+// owns it.
+func docExportSchemaItems(conn *store.Connection, doc *engine.SchemaDoc, note string) []pushItem {
 	prefix := "dataport/" + conn.ID + "/" + doc.Schema + "/"
 	teams := []string{conn.Name}
 	items := make([]pushItem, 0, len(doc.Tables)+1)
@@ -555,11 +600,18 @@ func docExportSchemaItems(conn *store.Connection, doc *engine.SchemaDoc) []pushI
 		b.WriteString("\n" + conn.Description + "\n")
 	}
 
+	if note != "" {
+		b.WriteString("\n## about this schema\n" + note + "\n")
+	}
+
 	fmt.Fprintf(&b, "\ntables: %d\n", doc.TableCount)
 
 	if doc.Truncated {
 		fmt.Fprintf(&b, "truncated: the first %d tables are documented\n", len(doc.Tables))
 	}
+
+	writeSchemaGroups(&b, schemaGroups(doc))
+	writeSchemaDiagram(&b, doc)
 
 	// Estimates are rounded, so their drift does not resend the overview.
 	b.WriteString("\n" + schemaReport(doc, roughCount))
@@ -588,13 +640,19 @@ func docExportSchemaItems(conn *store.Connection, doc *engine.SchemaDoc) []pushI
 		}
 
 		b.Reset()
-		b.WriteString("# " + t.Name)
+		// Qualified, so a table name found in two schemas is told apart in
+		// search results that show only the heading.
+		b.WriteString("# " + doc.Schema + "." + t.Name)
 
 		if t.Kind != "table" {
 			b.WriteString(" [" + t.Kind + "]")
 		}
 
 		b.WriteString("\n\n" + docExportContext(conn, doc.Schema))
+
+		if note != "" {
+			b.WriteString("about this schema: " + strings.ReplaceAll(note, "\n", " ") + "\n")
+		}
 
 		// Estimates are rounded, so their drift does not resend the table.
 		if t.Rows != nil {
@@ -778,11 +836,12 @@ func cmpOr(values ...string) string {
 
 // ensureCollection creates the push collection when it is missing and
 // returns how many items it holds.
-func (k *pushClient) ensureCollection(ctx context.Context) (int, bool, error) {
+func (k *pushClient) ensureCollection(ctx context.Context, description string) (int, bool, error) {
 	var got struct {
 		Source *struct {
-			Type      string `json:"type"`
-			PageCount int    `json:"page_count"`
+			Type        string `json:"type"`
+			PageCount   int    `json:"page_count"`
+			Description string `json:"description"`
 		} `json:"source"`
 	}
 
@@ -792,7 +851,7 @@ func (k *pushClient) ensureCollection(ctx context.Context) (int, bool, error) {
 	if code == http.StatusNotFound {
 		_, err = k.do(ctx, http.MethodPost, "/api/v1/sources", map[string]any{
 			"name": k.collection, "type": "push",
-			"description": "Database schema documentation from dataport: one item per table or view, with columns, keys, joins, indexes, triggers and design notes, and an overview per schema.",
+			"description": description,
 		}, nil)
 		if err != nil {
 			return 0, false, err
@@ -811,6 +870,13 @@ func (k *pushClient) ensureCollection(ctx context.Context) (int, bool, error) {
 
 	if got.Source.Type != "push" {
 		return 0, false, fmt.Errorf("collection %s is of type %q; choose another name for a push collection", k.collection, got.Source.Type)
+	}
+
+	// The target merges an update, so only the description changes.
+	if got.Source.Description != description {
+		if _, err := k.do(ctx, http.MethodPut, "/api/v1/sources/"+url.PathEscape(k.collection), map[string]any{"description": description}, nil); err != nil {
+			return 0, false, fmt.Errorf("updating the collection description: %w", err)
+		}
 	}
 
 	return got.Source.PageCount, false, nil
@@ -866,18 +932,20 @@ func (k *pushClient) removeAllBut(ctx context.Context, keep map[string]docExport
 // handlers
 
 type docExportView struct {
-	Enabled    bool              `json:"enabled"`
-	URL        string            `json:"url"`
-	Collection string            `json:"collection"`
-	HasToken   bool              `json:"has_token"`
-	Targets    []docExportTarget `json:"targets"`
-	Status     docExportStatus   `json:"status"`
+	Enabled     bool              `json:"enabled"`
+	URL         string            `json:"url"`
+	Collection  string            `json:"collection"`
+	Description string            `json:"description"`
+	HasToken    bool              `json:"has_token"`
+	Targets     []docExportTarget `json:"targets"`
+	Status      docExportStatus   `json:"status"`
 }
 
 type docExportIn struct {
-	Enabled    bool   `json:"enabled"`
-	URL        string `json:"url"`
-	Collection string `json:"collection"`
+	Enabled     bool   `json:"enabled"`
+	URL         string `json:"url"`
+	Collection  string `json:"collection"`
+	Description string `json:"description"`
 	// Token nil keeps the stored token; empty removes it.
 	Token   *string           `json:"token"`
 	Targets []docExportTarget `json:"targets"`
@@ -892,7 +960,7 @@ func (s *Server) adminGetDocExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, docExportView{
-		Enabled: v.Enabled, URL: v.URL, Collection: v.Collection, HasToken: v.TokenEnc != "",
+		Enabled: v.Enabled, URL: v.URL, Collection: v.Collection, Description: v.Description, HasToken: v.TokenEnc != "",
 		Targets: v.Targets, Status: s.docExportStatusNow(r.Context()),
 	})
 }
@@ -956,6 +1024,11 @@ func (s *Server) checkDocExport(ctx context.Context, in docExportIn, current doc
 		return out, "the collection name may use lowercase letters, digits, dot, dash and underscore"
 	}
 
+	out.Description = strings.TrimSpace(in.Description)
+	if len(out.Description) > docExportMaxDescription {
+		return out, fmt.Sprintf("the collection description may be at most %d characters", docExportMaxDescription)
+	}
+
 	if in.Token != nil {
 		token := strings.TrimSpace(*in.Token)
 		if len(token) > 4096 {
@@ -1016,7 +1089,26 @@ func (s *Server) checkDocExport(ctx context.Context, in docExportIn, current doc
 
 		seen[conn.ID] = true
 
-		out.Targets = append(out.Targets, docExportTarget{ConnectionID: conn.ID, UserID: t.UserID, Schemas: schemas})
+		var notes map[string]string
+
+		for sc, n := range t.Notes {
+			sc, n = strings.TrimSpace(sc), strings.TrimSpace(n)
+			if n == "" {
+				continue
+			}
+
+			if len(n) > docExportMaxNote {
+				return out, fmt.Sprintf("a note of %s is longer than %d characters", conn.Name, docExportMaxNote)
+			}
+
+			if notes == nil {
+				notes = map[string]string{}
+			}
+
+			notes[sc] = n
+		}
+
+		out.Targets = append(out.Targets, docExportTarget{ConnectionID: conn.ID, UserID: t.UserID, Schemas: schemas, Notes: notes})
 	}
 
 	return out, ""
