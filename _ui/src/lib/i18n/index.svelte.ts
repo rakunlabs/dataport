@@ -20,6 +20,7 @@ type Later = {
     conn: 'visibility' | 'visibilityHint' | 'showWorkspace' | 'showWorkspaceHint' | 'showNotebooks' | 'showNotebooksHint' | 'showMcp' | 'showMcpHint' | 'notebookOnly' | 'notebookOnlyHint' | 'notebookOnlyShared' | 'notebookOnlyChip' | 'personalTitle' | 'personalHint' | 'owner';
     docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' };
   grid: 'sortBy';
+  diagram: 'fromDocs';
   login: 'forClient';
   conn: 'useReadOnly' | 'allowWrites' | 'selfReadOnlyOn' | 'selfReadOnlyOff' | 'selfReadOnlyHint' | 'writeToggleHint' | 'selfReadOnlyTx';
   processes: 'mine' | 'mineHint';

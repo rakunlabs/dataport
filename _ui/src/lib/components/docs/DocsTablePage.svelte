@@ -39,7 +39,7 @@
       <div class="flex-1"></div>
       <button class="btn" onclick={() => openTableTab(tab.connectionId, tab.schema, current.name, 'data')}><Table2 size={14} /> {t('docs.openData')}</button>
       <button class="btn" onclick={() => openTableTab(tab.connectionId, tab.schema, current.name, 'structure')}><ListTree size={14} /> {t('docs.openStructure')}</button>
-      <button class="btn" onclick={() => openDiagram(tab.connectionId, tab.schema)}><Network size={14} /> {t('docs.showDiagram')}</button>
+      <button class="btn" onclick={() => openDiagram(tab.connectionId, tab.schema, true)}><Network size={14} /> {t('docs.showDiagram')}</button>
     </div>
     {#if current.comment}<p class="mt-2 text-sm whitespace-pre-line text-fg-2">{current.comment}</p>{/if}
   </div>

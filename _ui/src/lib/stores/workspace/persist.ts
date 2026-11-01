@@ -13,6 +13,7 @@ export interface PersistedTab {
   manualTx?: boolean;
   txId?: string;
   kind: TabKind;
+  fromDocs?: boolean;
   title: string;
   connectionId: string;
   schema: string;
@@ -46,6 +47,7 @@ export function persist() {
         ...(t.kind === 'notebook' ? { notebook: t.notebook, notebookInput: t.notebookInput, dirty: t.dirty } : {}),
         schema: t.schema, table: t.table, sql: t.sql, savedId: t.savedId, maxRows: t.maxRows, timeoutSec: t.timeoutSec,
         ...(t.kind === 'query' ? { manualTx: t.manualTx, txId: t.txId } : {}),
+        ...(t.kind === 'diagram' && t.fromDocs ? { fromDocs: true } : {}),
       }));
       const active = ws.tabs.findIndex((t) => t.id === ws.activeId);
       localStorage.setItem(storageKey(), JSON.stringify({ tabs, active }));

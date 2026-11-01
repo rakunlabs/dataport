@@ -780,6 +780,7 @@ const tr: Messages = {
     },
   },
   diagram: {
+    fromDocs: '{time} tarihli kayıtlı dokümantasyondan',
     title: '{schema} diyagramı',
     count: '{count} tablo | {count} tablo',
     truncated: 'ilk {n} tane gösteriliyor',

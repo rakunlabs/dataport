@@ -2,7 +2,7 @@
   import { t } from '@/lib/i18n/index.svelte';
   import { RefreshCw, LoaderCircle, TriangleAlert, ZoomIn, ZoomOut, Maximize, Key, Link } from 'lucide-svelte';
   import { api, qs } from '@/lib/api/client';
-  import type { Diagram, DiagramTable } from '@/lib/api/types';
+  import type { Diagram, DiagramTable, SavedDoc } from '@/lib/api/types';
   import { connection, openTableTab, type Tab } from '@/lib/stores/workspace.svelte';
   import { withCredentials } from '@/lib/stores/credentials.svelte';
   import { cardHeight, edges, extent, HEAD, layout as placeCards, ROW, W, type Positions } from '@/lib/helper/diagramLayout';
@@ -19,13 +19,25 @@
   let view = $state({ x: 20, y: 20, k: 1 });
   let hover = $state('');
 
+  // The live diagram's limit, so a large schema stays readable.
+  const maxTables = 150;
+  let generatedAt = $state(0);
+
+  // fromDoc draws the saved documentation: it needs no database account,
+  // only the right to read the documentation.
+  function fromDoc(saved: SavedDoc): Diagram {
+    const tables: DiagramTable[] = saved.document.tables.map((t) => ({ name: t.name, kind: t.kind, columns: t.columns, foreign_keys: t.foreign_keys ?? [] }));
+    generatedAt = saved.document.generated_at;
+    return { tables: tables.slice(0, maxTables), truncated: tables.length > maxTables || saved.document.truncated };
+  }
+
   async function load() {
     loading = true;
     error = '';
     try {
-      data = await withCredentials(tab.connectionId, () =>
-        api.get<Diagram>(`/connections/${tab.connectionId}/diagram${qs({ schema: tab.schema })}`),
-      );
+      data = tab.fromDocs
+        ? fromDoc(await withCredentials(tab.connectionId, () => api.get<SavedDoc>(`/connections/${tab.connectionId}/docs${qs({ schema: tab.schema })}`)))
+        : await withCredentials(tab.connectionId, () => api.get<Diagram>(`/connections/${tab.connectionId}/diagram${qs({ schema: tab.schema })}`));
       layout();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -109,6 +121,7 @@
     <span class="text-sm font-medium">{t('diagram.title', { schema: tab.schema })}</span>
     {#if conn}<span class="text-xs text-muted">{conn.name}</span>{/if}
     {#if data}<span class="text-xs text-faint tabular-nums">{t('diagram.count', { count: data.tables.length })}</span>{/if}
+    {#if tab.fromDocs && generatedAt}<span class="text-xs text-muted">{t('diagram.fromDocs', { time: new Date(generatedAt).toLocaleString() })}</span>{/if}
     {#if data?.truncated}<span class="text-xs text-warn">{t('diagram.truncated', { n: data.tables.length })}</span>{/if}
     <div class="flex-1"></div>
     <button class="icon-btn" onclick={() => zoomAt(1 / 1.2, 300, 200)} title={t('diagram.zoomOut')} aria-label={t('diagram.zoomOut')}><ZoomOut size={14} /></button>

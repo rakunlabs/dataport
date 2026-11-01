@@ -11,6 +11,9 @@ export interface Tab {
   notebookInput?: string;
   id: string;
   kind: TabKind;
+  // A diagram drawn from the saved documentation rather than the live
+  // catalog, so readers without a database account see it too.
+  fromDocs?: boolean;
   title: string;
   connectionId: string;
   schema: string;

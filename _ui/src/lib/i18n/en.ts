@@ -779,6 +779,7 @@ const en = {
     },
   },
   diagram: {
+    fromDocs: 'From the saved documentation of {time}',
     title: 'Diagram of {schema}',
     count: '{count} table | {count} tables',
     truncated: 'showing the first {n}',

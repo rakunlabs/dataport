@@ -123,9 +123,10 @@ export function openTableTab(connectionId: string, schema: string, table: string
   return tab;
 }
 
-// openDiagram shows the ER diagram of a schema, one tab per schema.
-export function openDiagram(connectionId: string, schema: string) {
-  const existing = ws.tabs.find((t) => t.kind === 'diagram' && t.connectionId === connectionId && t.schema === schema);
+// openDiagram shows the ER diagram of a schema, one tab per schema: from
+// the live catalog, or with fromDocs from the saved documentation.
+export function openDiagram(connectionId: string, schema: string, fromDocs = false) {
+  const existing = ws.tabs.find((t) => t.kind === 'diagram' && t.connectionId === connectionId && t.schema === schema && !!t.fromDocs === fromDocs);
   if (existing) {
     ws.activeId = existing.id;
     return existing;
@@ -134,6 +135,7 @@ export function openDiagram(connectionId: string, schema: string) {
   const tab = baseTab('diagram', connectionId);
   tab.title = schema;
   tab.schema = schema;
+  if (fromDocs) tab.fromDocs = true;
   ws.tabs.push(tab);
   ws.activeId = tab.id;
   persist();

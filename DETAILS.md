@@ -361,7 +361,10 @@ column tables, nullable unique columns, defaults of the text `'null'`,
 numbered columns (`phone1`, `phone2`), duplicate indexes and foreign keys
 declared twice. Where one statement fixes it (a missing index, an implied
 foreign key, a duplicate index or foreign key) *Write the fix* opens it in an editor. *Download HTML* saves the
-whole report, diagram included, as one file to share.
+whole report, diagram included, as one file to share. *Diagram* on a
+documentation page draws the ER diagram from the saved documentation, not
+the live catalog, so whoever may read the documentation sees it, also
+without a database account of their own.
 
 The first read saves a documentation snapshot in the application store;
 subsequent UI and MCP reads use it rather than scanning the target database
