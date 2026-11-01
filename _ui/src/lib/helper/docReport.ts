@@ -1,7 +1,7 @@
 // The standalone HTML report of a schema document, and the SQL that fixes
 // an anomaly where one statement can.
 
-import type { Anomaly, AnomalyKind, DocTable, SchemaDoc } from '@/lib/api/types';
+import type { Anomaly, AnomalyKind, DocTable, IndexInfo, SchemaDoc } from '@/lib/api/types';
 import { t, fmtNumber, i18n } from '@/lib/i18n/index.svelte';
 import { quoteIdent } from '@/lib/helper/copy';
 import { cardHeight, edges, extent, HEAD, layout, ROW, W } from '@/lib/helper/diagramLayout';
@@ -117,18 +117,44 @@ function tableSection(doc: SchemaDoc, tb: DocTable) {
     .join('');
   const parents = tb.foreign_keys.map((fk) => `<li>(${esc(fk.columns.join(', '))}) → ${link(doc, fk.ref_table)} (${esc(fk.ref_columns.join(', '))})</li>`).join('');
   const children = tb.referenced_by.map((r) => `<li>${link(doc, r.table)} (${esc(r.columns.join(', '))}) → (${esc(r.ref_columns.join(', '))})</li>`).join('');
-  const idx = tb.indexes
-    .map((ix) => `<tr><td>${ix.primary ? '⚷ ' : ''}${esc(ix.name)}</td><td class="m">${esc(ix.columns.join(', '))}</td><td>${ix.unique ? yes : ''}</td></tr>`)
+  // Method where it is not B-tree, and the predicate of a partial index.
+  const ixCols = (ix: IndexInfo) =>
+    esc(ix.columns.join(', ')) + (ix.method && ix.method !== 'btree' ? ` · ${esc(ix.method)}` : '') + (ix.where ? ` ${esc(t('docs.indexWhere', { where: ix.where }))}` : '');
+  const part = tb.partition;
+  const idx =
+    tb.indexes.map((ix) => `<tr><td>${ix.primary ? '⚷ ' : ''}${esc(ix.name)}</td><td class="m">${ixCols(ix)}</td><td>${ix.unique ? yes : ''}</td></tr>`).join('') +
+    (part?.indexes ?? [])
+      .map(
+        (ix) =>
+          `<tr><td>${esc(t('docs.onPartitions', { n: ix.partitions, total: part?.leaves ?? 0 }))} <span class="m muted">${esc(ix.name)}</span></td><td class="m">${ixCols(ix)}</td><td>${ix.unique ? yes : ''}</td></tr>`,
+      )
+      .join('');
+  const partition = part
+    ? `<p>${esc(t('docs.partitioned', { key: part.key, count: part.count }))}${part.first && part.first !== part.last ? ` <span class="m muted">(${esc(part.first)} … ${esc(part.last ?? '')})</span>` : ''}</p><p class="muted">${esc(t('docs.partitionHint'))}</p>`
+    : '';
+  const triggers = (tb.triggers ?? [])
+    .map(
+      (tr) =>
+        `<p><span class="m">${esc(tr.name)}</span> <span class="muted">${esc(tr.timing)} ${esc(tr.event)}${tr.enabled ? '' : ' · ' + esc(t('docs.disabled'))}</span></p>${tr.function ? `<pre>${esc(tr.function)}</pre>` : ''}`,
+    )
     .join('');
+  const values = tb.values?.rows.length
+    ? `<table><thead><tr>${tb.values.columns.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${tb.values.rows
+        .map((r) => `<tr>${r.map((v, i) => `<td${i === 0 ? ' class="m"' : ''}>${esc(v)}</td>`).join('')}</tr>`)
+        .join('')}</tbody></table>`
+    : '';
   const issues = doc.anomalies.filter((a) => a.table === tb.name).map((a) => `<li>${esc(t(`docs.anomaly.${a.kind}.title`))}${a.columns?.length ? ` (${esc(a.columns.join(', '))})` : ''}</li>`).join('');
   const none = `<p class="muted">${esc(t('docs.none'))}</p>`;
   return `<section id="${anchor(tb.name)}" class="table">
 <h3>${esc(tb.name)} <span class="chip">${esc(t(`docs.kinds.${tb.kind}`))}</span>${tb.rows !== undefined ? ` <span class="muted">~${esc(fmtNumber(tb.rows))} ${esc(t('docs.col.rows').toLowerCase())}</span>` : ''}</h3>
 ${tb.comment ? `<p>${esc(tb.comment)}</p>` : ''}
+${partition}
 ${issues ? `<ul class="warn">${issues}</ul>` : ''}
 <table><thead><tr><th></th><th>${esc(t('docs.col.column'))}</th><th>${esc(t('docs.col.type'))}</th><th>${esc(t('docs.col.nullable'))}</th><th>${esc(t('docs.col.default'))}</th><th>${esc(t('docs.col.parents'))}</th><th>${esc(t('docs.col.comment'))}</th></tr></thead><tbody>${cols}</tbody></table>
 <div class="two"><div><h4>${esc(t('docs.col.parents'))}</h4>${parents ? `<ul>${parents}</ul>` : none}</div><div><h4>${esc(t('docs.col.children'))}</h4>${children ? `<ul>${children}</ul>` : none}</div></div>
 ${tb.kind !== 'view' ? `<h4>${esc(t('docs.col.indexes'))}</h4>${idx ? `<table><thead><tr><th>${esc(t('docs.col.name'))}</th><th>${esc(t('docs.col.columns'))}</th><th>${esc(t('docs.col.unique'))}</th></tr></thead><tbody>${idx}</tbody></table>` : none}` : ''}
+${triggers ? `<h4>${esc(t('docs.triggers'))}</h4>${triggers}` : ''}
+${values ? `<h4>${esc(t('docs.values'))}</h4>${values}` : ''}
 ${tb.definition ? `<h4>${esc(t('docs.definition'))}</h4><pre>${esc(tb.definition)}</pre>` : ''}
 <p class="top"><a href="#top">↑ ${esc(t('docs.report.contents'))}</a></p>
 </section>`;
