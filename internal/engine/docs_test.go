@@ -45,7 +45,7 @@ INSERT INTO orders (id, customer_id, total) VALUES (1, 1, 5);`); err != nil {
 	m := NewManager(store.Limits{MaxOpen: 1}, time.Minute)
 	defer m.Close()
 
-	doc, err := m.SchemaDoc(context.Background(), &store.Connection{ID: "d", DBType: "sqlite", Database: "doc.db", UpdatedAt: 1}, "", "main")
+	doc, err := m.SchemaDoc(context.Background(), &store.Connection{ID: "d", DBType: "sqlite", Database: "doc.db", UpdatedAt: 1}, "", "main", []string{"status", "cust*"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,13 +67,12 @@ INSERT INTO orders (id, customer_id, total) VALUES (1, 1, 5);`); err != nil {
 		t.Fatal("view without definition")
 	}
 
-	// customers is referenced by orders and small, but holds e-mail
-	// addresses: it is not read. products is referenced by no declared key.
-	if v := byName["customers"].Values; v != nil {
-		t.Fatalf("values of a table with personal data: %+v", v)
+	// Only the chosen tables are read: customers by pattern, whatever its
+	// columns hold, as an admin chose it.
+	if v := byName["customers"].Values; v == nil || len(v.Rows) != 1 || v.Rows[0][1] != "Ada" {
+		t.Fatalf("lookup values of customers: %+v", v)
 	}
 
-	// status is keyed by a code: a lookup, though nothing references it.
 	if v := byName["status"].Values; v == nil || len(v.Rows) != 2 || v.Rows[0][0] != "DONE" {
 		t.Fatalf("lookup values of status: %+v", v)
 	}

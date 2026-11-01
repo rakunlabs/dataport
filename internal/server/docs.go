@@ -277,7 +277,7 @@ func (s *Server) refreshDoc(ctx context.Context, k store.DocKey, before int64) e
 	g, password, version, buildErr := s.docAccess(ctx, k)
 	var doc *engine.SchemaDoc
 	if buildErr == nil {
-		doc, buildErr = s.engine.SchemaDoc(ctx, g.Connection, password, k.Schema)
+		doc, buildErr = s.engine.SchemaDoc(ctx, g.Connection, password, k.Schema, s.docLookups(ctx, k.ConnectionID, k.Schema))
 	}
 	if buildErr == nil {
 		_, _, current, err := s.docAccess(ctx, k)

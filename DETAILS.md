@@ -339,12 +339,13 @@ database's statistics; and a page per table with what it references, what
 references it, its indexes and a view's definition. A partitioned table is
 documented once, with its partition key and count and rows summed over its
 partitions; its partitions are not listed. It reads the catalog, as the
-signed-in user, and of the table data only the rows of small lookup tables:
-tables another table references by a foreign key or that are keyed by one
-text column, of at most 50 rows and 6 columns (binary and JSON columns left
-out), so the codes a column holds elsewhere are explained. A table with a
-column named like a secret or personal data (password, token, hash, e-mail,
-phone, IBAN, card number and the like) is never read. Indexes show their
+signed-in user, and no table data except the rows of the tables an admin
+lists for the connection under *Settings → Documentation* (*Show the rows of
+these tables*: `schema.table` or a table name, `*` as wildcard), such as code
+tables whose values other columns hold. Only tables of at most 50 rows and 6
+columns are read, without binary and JSON columns. Changing the list
+rebuilds the connection's saved documentation, so rows of a table no longer
+listed disappear, also from the search push. Indexes show their
 method where it is not B-tree and the predicate of a partial index; a
 partial unique index is not offered as an upsert target. On PostgreSQL a
 trigger comes with the source of the function it runs, up to 3000

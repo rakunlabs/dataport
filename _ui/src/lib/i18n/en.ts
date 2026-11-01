@@ -1625,6 +1625,8 @@ const en = {
       modeOnly: 'Only these schemas',
       include: 'Schemas to document',
       includeNeeded: 'Name at least one schema, or choose every schema.',
+      lookups: 'Show the rows of these tables',
+      lookupsHint: 'The documentation reads no table data except the rows of the tables listed here, such as code tables whose values other columns hold (status_type: NEW = New). Write schema.table, or a table name for every schema; * matches anything. Only tables of at most 50 rows and 6 columns are read; binary and JSON columns are left out. The rows are shown to everyone who reads the documentation, over MCP and in the search push, which often has no access control: never list tables of accounts, secrets or personal data. Saving rebuilds the saved documentation of the connection.',
       exclude: 'Leave out',
       patternsHint: 'Separate names with commas. * and ? match any characters, e.g. tmp_* or audit; case does not matter. Or load the schemas below and tick them; ticking writes their names here.',
       account: 'Documentation account',

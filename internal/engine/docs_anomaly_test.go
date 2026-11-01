@@ -41,8 +41,8 @@ func TestLookupConventionsAndPartialIndexes(t *testing.T) {
 		t.Fatalf("implied: %+v", implied)
 	}
 
-	if !codeKeyed(method) || codeKeyed(DocTable{Columns: []DocColumn{col("id", "integer", true)}}) {
-		t.Fatal("code keyed tables")
+	if !LookupChosen([]string{"Payment_*"}, "payment_method") || LookupChosen([]string{"payment"}, "payment_method") || LookupChosen(nil, "x") {
+		t.Fatal("chosen tables")
 	}
 
 	// A partial index on the same columns is not a duplicate, and does not

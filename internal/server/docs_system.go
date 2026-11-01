@@ -473,6 +473,7 @@ type docConnectionView struct {
 	Include         []string `json:"include"`
 	Exclude         []string `json:"exclude"`
 	BlockExcluded   bool     `json:"block_excluded"`
+	LookupTables    []string `json:"lookup_tables"`
 	Username        string   `json:"username"`
 	HasPassword     bool     `json:"has_password"`
 	DiscoveredAt    int64    `json:"discovered_at"`
@@ -487,14 +488,16 @@ type docConnectionIn struct {
 	Include       []string `json:"include"`
 	Exclude       []string `json:"exclude"`
 	BlockExcluded bool     `json:"block_excluded"`
-	Username      string   `json:"username"`
+	// LookupTables are the tables whose rows the documentation shows.
+	LookupTables []string `json:"lookup_tables"`
+	Username     string   `json:"username"`
 	// Password nil keeps the saved one; empty removes it.
 	Password *string `json:"password"`
 }
 
 func (s *Server) docConnectionView(ctx context.Context, c *store.Connection, dc *store.DocConnection) (docConnectionView, error) {
 	v := docConnectionView{ConnectionID: c.ID, Name: c.Name, DBType: c.DBType, UserCredentials: c.UserCredentials, NotebookOnly: c.NotebookOnly,
-		Include: []string{}, Exclude: []string{}}
+		Include: []string{}, Exclude: []string{}, LookupTables: []string{}}
 
 	if dc == nil {
 		return v, nil
@@ -502,6 +505,7 @@ func (s *Server) docConnectionView(ctx context.Context, c *store.Connection, dc 
 
 	v.Enabled, v.Include, v.Exclude, v.Username, v.BlockExcluded = dc.Enabled, dc.Include, dc.Exclude, dc.Username, dc.BlockExcluded
 	v.HasPassword, v.DiscoveredAt, v.LastError = dc.PasswordEnc != "", dc.DiscoveredAt, dc.LastError
+	v.LookupTables = dc.LookupTables
 
 	docs, err := s.store.ConnectionDocs(ctx, c.ID, store.DocSystemUser)
 	if err != nil {
@@ -596,6 +600,41 @@ func (s *Server) adminConnectionForDocs(w http.ResponseWriter, r *http.Request) 
 	return c, dc, true
 }
 
+// refreshConnectionDocs rebuilds every saved snapshot of a connection in
+// the background, each with its owner's access, then pushes what changed.
+func (s *Server) refreshConnectionDocs(connectionID string) {
+	ctx := s.notebookContext
+	s.notebookWorkers.Add(1)
+
+	go func() {
+		defer s.notebookWorkers.Done()
+
+		keys, err := s.store.ConnectionDocKeys(ctx, connectionID)
+		if err != nil {
+			slog.Warn("list documentation to refresh", "connection", connectionID, "error", err)
+
+			return
+		}
+
+		for _, k := range keys {
+			if ctx.Err() != nil {
+				return
+			}
+
+			// One that cannot be rebuilt now could still hold rows of a
+			// table no longer chosen, so it goes; it is built again when
+			// next opened. One being refreshed reads the new choice.
+			if err := s.refreshDoc(ctx, k, 0); err != nil && !errors.Is(err, errDocBusy) {
+				slog.Warn("documentation dropped after the chosen tables changed", "connection", connectionID, "user", k.UserID, "schema", k.Schema)
+
+				_ = s.store.DeleteDoc(ctx, k)
+			}
+		}
+
+		s.exportAfterBuild(ctx)
+	}()
+}
+
 func checkDocPatterns(list []string) ([]string, string) {
 	out := []string{}
 
@@ -642,6 +681,10 @@ func (s *Server) adminSetDocConnection(w http.ResponseWriter, r *http.Request) {
 	var msg string
 	if next.Include, msg = checkDocPatterns(in.Include); msg == "" {
 		next.Exclude, msg = checkDocPatterns(in.Exclude)
+	}
+
+	if msg == "" {
+		next.LookupTables, msg = checkDocPatterns(in.LookupTables)
 	}
 
 	switch {
@@ -697,6 +740,12 @@ func (s *Server) adminSetDocConnection(w http.ResponseWriter, r *http.Request) {
 
 	// The documentation account's pool must not outlive its password.
 	s.engine.ForgetUser(c.ID, store.DocSystemUser)
+
+	// Rows of a table no longer chosen must leave every saved snapshot,
+	// and those of a newly chosen one appear in them.
+	if current == nil || !slices.Equal(current.LookupTables, next.LookupTables) {
+		s.refreshConnectionDocs(c.ID)
+	}
 
 	// Turned on, the documentation is built at once; in any case the push
 	// follows the change.

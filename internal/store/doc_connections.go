@@ -20,6 +20,11 @@ type DocConnection struct {
 	// builds or reads them. Off, users may still document them themselves.
 	// It applies whether or not Enabled is set.
 	BlockExcluded bool `json:"block_excluded"`
+	// LookupTables are the tables whose rows the documentation shows, as
+	// "schema.table" patterns ("*" matches any run of characters). The
+	// documentation reads no other table data. They apply whether or not
+	// Enabled is set.
+	LookupTables []string `json:"lookup_tables"`
 	// Username and PasswordEnc are the documentation account. Empty, the
 	// connection's own account is used; own-account connections need one.
 	Username     string `json:"username"`
@@ -64,16 +69,17 @@ func (s *Store) AdoptSharedDocs(ctx context.Context, connectionID string) error 
 	})
 }
 
-const docConnColumns = "connection_id, enabled, include_schemas, exclude_schemas, username, password_enc, discovered_at, last_error, updated_at, block_excluded"
+const docConnColumns = "connection_id, enabled, include_schemas, exclude_schemas, username, password_enc, discovered_at, last_error, updated_at, block_excluded, lookup_tables"
 
 func scanDocConnection(row interface{ Scan(...any) error }) (*DocConnection, error) {
 	var (
 		d                DocConnection
 		enabled, block   int
 		include, exclude string
+		lookups          string
 	)
 
-	if err := row.Scan(&d.ConnectionID, &enabled, &include, &exclude, &d.Username, &d.PasswordEnc, &d.DiscoveredAt, &d.LastError, &d.UpdatedAt, &block); err != nil {
+	if err := row.Scan(&d.ConnectionID, &enabled, &include, &exclude, &d.Username, &d.PasswordEnc, &d.DiscoveredAt, &d.LastError, &d.UpdatedAt, &block, &lookups); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -83,6 +89,7 @@ func scanDocConnection(row interface{ Scan(...any) error }) (*DocConnection, err
 
 	d.Enabled, d.BlockExcluded = enabled != 0, block != 0
 	d.Include, d.Exclude = decodePatterns(include), decodePatterns(exclude)
+	d.LookupTables = decodePatterns(lookups)
 
 	return &d, nil
 }
@@ -142,15 +149,15 @@ func (s *Store) SaveDocConnection(ctx context.Context, d *DocConnection) error {
 
 	return s.inTx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, s.q("UPDATE "+s.t("doc_connections")+
-			" SET enabled = ?, include_schemas = ?, exclude_schemas = ?, username = ?, password_enc = ?, updated_at = ?, block_excluded = ? WHERE connection_id = ?"),
-			b2i(d.Enabled), encodePatterns(d.Include), encodePatterns(d.Exclude), d.Username, d.PasswordEnc, d.UpdatedAt, b2i(d.BlockExcluded), d.ConnectionID)
+			" SET enabled = ?, include_schemas = ?, exclude_schemas = ?, username = ?, password_enc = ?, updated_at = ?, block_excluded = ?, lookup_tables = ? WHERE connection_id = ?"),
+			b2i(d.Enabled), encodePatterns(d.Include), encodePatterns(d.Exclude), d.Username, d.PasswordEnc, d.UpdatedAt, b2i(d.BlockExcluded), encodePatterns(d.LookupTables), d.ConnectionID)
 		if err != nil {
 			return err
 		}
 
 		if n, _ := res.RowsAffected(); n == 0 {
-			if _, err := tx.ExecContext(ctx, s.q("INSERT INTO "+s.t("doc_connections")+" ("+docConnColumns+") VALUES (?, ?, ?, ?, ?, ?, 0, '', ?, ?)"),
-				d.ConnectionID, b2i(d.Enabled), encodePatterns(d.Include), encodePatterns(d.Exclude), d.Username, d.PasswordEnc, d.UpdatedAt, b2i(d.BlockExcluded)); err != nil {
+			if _, err := tx.ExecContext(ctx, s.q("INSERT INTO "+s.t("doc_connections")+" ("+docConnColumns+") VALUES (?, ?, ?, ?, ?, ?, 0, '', ?, ?, ?)"),
+				d.ConnectionID, b2i(d.Enabled), encodePatterns(d.Include), encodePatterns(d.Exclude), d.Username, d.PasswordEnc, d.UpdatedAt, b2i(d.BlockExcluded), encodePatterns(d.LookupTables)); err != nil {
 				return err
 			}
 		}

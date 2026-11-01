@@ -623,7 +623,7 @@ CREATE TABLE dp_p.seen (id bigint PRIMARY KEY);
 CREATE FUNCTION dp_p.remember() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO dp_p.seen VALUES (NEW.id); RETURN NEW; END $$;
 CREATE TRIGGER ev_remember AFTER INSERT ON dp_p.ev FOR EACH ROW EXECUTE FUNCTION dp_p.remember();`, false)
 
-	doc, err := m.SchemaDoc(context.Background(), c, "pw", "dp_p")
+	doc, err := m.SchemaDoc(context.Background(), c, "pw", "dp_p", []string{"event_type"})
 	if err != nil {
 		t.Fatal(err)
 	}

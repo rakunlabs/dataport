@@ -305,7 +305,7 @@ func (s *Server) registerMCPTools(server *mcp.Server, readOnly, notebooks bool) 
 			"with ready JOIN clauses; indexes and unique keys; triggers; a view's definition; the estimated row count; and " +
 			"design problems found in it. The columns of directly related tables come along, so joins and ORM models use " +
 			"the real names. Uses a saved snapshot with generated_at and refresh status; may be older than the live schema. " +
-			"Of the table data it holds only the rows of small lookup tables, such as status codes and their names.",
+			"Of the table data it holds only the rows of small tables an administrator chose, such as status codes and their names.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in tableDocsIn) (*mcp.CallToolResult, tableDocsOut, error) {
 		if len(in.Tables) == 0 || len(in.Tables) > maxTableDocs {
 			return nil, tableDocsOut{}, fmt.Errorf("pass 1 to %d tables", maxTableDocs)

@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 
+	"github.com/rakunlabs/dataport/internal/engine"
 	"github.com/rakunlabs/dataport/internal/store"
 )
 
@@ -127,4 +129,32 @@ func (s *Server) sharedAccountDocumentation(ctx context.Context, u *store.User, 
 	}
 
 	return out, true, nil
+}
+
+// docLookups are the table patterns of a schema whose rows an admin chose
+// to show in the documentation of a connection. An entry is
+// "schema.table", or "table" for every schema; "*" matches any run of
+// characters.
+func (s *Server) docLookups(ctx context.Context, connectionID, schema string) []string {
+	dc, err := s.store.GetDocConnection(ctx, connectionID)
+	if err != nil {
+		return nil
+	}
+
+	var out []string
+
+	for _, p := range dc.LookupTables {
+		sc, table, ok := strings.Cut(p, ".")
+		if !ok {
+			out = append(out, p)
+
+			continue
+		}
+
+		if engine.LookupChosen([]string{sc}, schema) {
+			out = append(out, table)
+		}
+	}
+
+	return out
 }

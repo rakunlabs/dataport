@@ -130,6 +130,7 @@ export interface DocConnection {
   exclude: string[];
   // Schemas not chosen are closed to documentation for everyone.
   block_excluded: boolean;
+  lookup_tables?: string[];
   username: string;
   has_password: boolean;
   discovered_at: number;

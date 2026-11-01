@@ -1705,6 +1705,8 @@ const tr: Messages = {
       modeOnly: 'Yalnızca bu şemalar',
       include: 'Dokümante edilecek şemalar',
       includeNeeded: 'En az bir şema yazın ya da tüm şemaları seçin.',
+      lookups: 'Bu tabloların satırlarını göster',
+      lookupsHint: 'Dokümantasyon, burada listelenen tablolar dışında hiçbir tablo verisi okumaz. Buraya, değerleri başka kolonlarda tutulan kod tablolarını yazın (status_type: NEW = New). schema.table ya da tüm şemalar için tablo adı yazın; * her şeyle eşleşir. Sadece en fazla 50 satır ve 6 kolonluk tablolar okunur; binary ve JSON kolonlar atlanır. Satırlar dokümantasyonu okuyan herkese, MCP\'de ve çoğu zaman erişim kontrolü olmayan arama indeksine giden push\'ta görünür: hesap, gizli bilgi ya da kişisel veri içeren tabloları asla eklemeyin. Kaydetmek bağlantının kayıtlı dokümantasyonunu yeniden oluşturur.',
       exclude: 'Hariç tut',
       patternsHint: 'Adları virgülle ayırın. * ve ? her karakterle eşleşir, örn. tmp_* veya audit; büyük/küçük harf fark etmez. Ya da aşağıda şemaları yükleyip işaretleyin; işaretlemek adlarını buraya yazar.',
       account: 'Dokümantasyon hesabı',

@@ -120,9 +120,9 @@ func (r *Router) Diagram(ctx context.Context, c *store.Connection, password, sch
 	return out, err
 }
 
-func (r *Router) SchemaDoc(ctx context.Context, c *store.Connection, password, schema string) (out *engine.SchemaDoc, err error) {
-	res, err := r.do(ctx, c, password, &callRequest{Op: opSchemaDoc, Schema: schema}, func(ctx context.Context) error {
-		out, err = r.Manager.SchemaDoc(ctx, c, password, schema)
+func (r *Router) SchemaDoc(ctx context.Context, c *store.Connection, password, schema string, lookups []string) (out *engine.SchemaDoc, err error) {
+	res, err := r.do(ctx, c, password, &callRequest{Op: opSchemaDoc, Schema: schema, Lookups: lookups}, func(ctx context.Context) error {
+		out, err = r.Manager.SchemaDoc(ctx, c, password, schema, lookups)
 
 		return err
 	}, nil)
@@ -558,7 +558,7 @@ func (r *Router) exec(ctx context.Context, req *callRequest, fw *frameWriter) *c
 		case opDiagram:
 			res.Diagram, err = m.Diagram(ctx, c, password, req.Schema)
 		case opSchemaDoc:
-			res.SchemaDoc, err = m.SchemaDoc(ctx, c, password, req.Schema)
+			res.SchemaDoc, err = m.SchemaDoc(ctx, c, password, req.Schema, req.Lookups)
 		case opExecute:
 			res.Exec, err = m.Execute(ctx, c, password, req.Exec)
 		case opExplain:

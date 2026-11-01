@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"regexp"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +15,7 @@ import (
 // Schema documentation in the manner of SchemaSpy: every table with its
 // columns, keys, comments and estimated size, who references whom, and the
 // design smells SchemaSpy reports as anomalies. It reads the catalog, and
-// of the table data only the rows of small lookup tables.
+// of the table data only the rows of small tables an admin chose.
 
 // DocColumn is a column of a documented table, with its comment.
 type DocColumn struct {
@@ -49,8 +49,8 @@ type DocTable struct {
 	// Partition describes a partitioned table; its partitions are not
 	// documented on their own.
 	Partition *PartitionInfo `json:"partition,omitempty"`
-	// Values are the rows of a small lookup table, one that other tables
-	// reference, such as status codes and their names.
+	// Values are the rows of a small table an admin chose to show, such as
+	// status codes and their names.
 	Values *LookupValues `json:"values,omitempty"`
 }
 
@@ -60,7 +60,7 @@ type LookupValues struct {
 	Rows    [][]string `json:"rows"`
 }
 
-// Lookup tables are read when they are this small; the codes of a status
+// Chosen tables are read when they are this small; the codes of a status
 // or type table explain the columns that hold them elsewhere.
 const (
 	maxLookupRows    = 50
@@ -123,10 +123,11 @@ type RowEstimator interface {
 	RowEstimates(ctx context.Context, q Querier, schema string) (map[string]int64, error)
 }
 
-// SchemaDoc documents a schema. Parts a restricted account cannot read,
+// SchemaDoc documents a schema, with the rows of the tables lookups names
+// (see LookupChosen). Parts a restricted account cannot read,
 // such as comments or the constraint catalog, are left out rather than
 // failing the whole document.
-func (m *Manager) SchemaDoc(ctx context.Context, c *store.Connection, password, schema string) (*SchemaDoc, error) {
+func (m *Manager) SchemaDoc(ctx context.Context, c *store.Connection, password, schema string, lookups []string) (*SchemaDoc, error) {
 	out := &SchemaDoc{
 		Schema: schema, DBType: c.DBType, GeneratedAt: time.Now().UnixMilli(),
 		Tables: []DocTable{}, Routines: []Routine{}, Anomalies: []Anomaly{},
@@ -180,7 +181,7 @@ func (m *Manager) SchemaDoc(ctx context.Context, c *store.Connection, password, 
 			out.Tables = append(out.Tables, t)
 		}
 
-		readLookups(ctx, d, conn, schema, out.Tables)
+		readLookups(ctx, d, conn, schema, out.Tables, lookups)
 
 		if p, ok := d.(Programmer); ok {
 			if list, err := p.Routines(ctx, conn, schema); err == nil {
@@ -267,23 +268,18 @@ func sameSchema(fk ForeignKey, schema string) bool {
 	return fk.RefSchema == "" || fk.RefSchema == schema
 }
 
-// readLookups fills the values of the small tables other tables of the
-// schema reference. A table it cannot read, or one larger than it looked,
-// is left without values.
-func readLookups(ctx context.Context, d Driver, conn *sql.Conn, schema string, tables []DocTable) {
-	referenced := map[string]bool{}
-
-	for _, t := range tables {
-		for _, fk := range t.ForeignKeys {
-			if sameSchema(fk, schema) && fk.RefTable != t.Name {
-				referenced[fk.RefTable] = true
-			}
-		}
+// readLookups fills the values of the tables an admin chose, by name
+// pattern ("*" matches any run of characters). Nothing else of the table
+// data is read. A table it cannot read, or one larger than the limits, is
+// left without values.
+func readLookups(ctx context.Context, d Driver, conn *sql.Conn, schema string, tables []DocTable, patterns []string) {
+	if len(patterns) == 0 {
+		return
 	}
 
 	for i := range tables {
 		t := &tables[i]
-		if t.Kind != "table" || !(referenced[t.Name] || codeKeyed(*t)) || t.Partition != nil || (t.Rows != nil && *t.Rows > maxLookupRows) {
+		if t.Kind != "table" || t.Partition != nil || (t.Rows != nil && *t.Rows > maxLookupRows) || !LookupChosen(patterns, t.Name) {
 			continue
 		}
 
@@ -295,32 +291,21 @@ func readLookups(ctx context.Context, d Driver, conn *sql.Conn, schema string, t
 	}
 }
 
-// sensitiveColumnRe matches column names whose values must not leave the
-// database through the documentation; a table with one is not read.
-var sensitiveColumnRe = regexp.MustCompile(`(?i)pass|secret|token|hash|salt|private|credential|api_?key|e_?mail|phone|iban|card_?n|pan$|ssn|tax_?id|national_?id|birth`)
+// LookupChosen tells whether a table name matches one of the patterns,
+// in any case.
+func LookupChosen(patterns []string, name string) bool {
+	name = strings.ToLower(name)
 
-// codeKeyed tells a table keyed by one text column, the shape of a lookup
-// of codes, also where no foreign key points at it.
-func codeKeyed(t DocTable) bool {
-	var pk []DocColumn
-
-	for _, c := range t.Columns {
-		if c.PrimaryKey {
-			pk = append(pk, c)
+	for _, p := range patterns {
+		if ok, err := path.Match(strings.ToLower(p), name); err == nil && ok {
+			return true
 		}
 	}
 
-	return len(pk) == 1 && typeFamilies[baseType(pk[0].Type)] == "text"
+	return false
 }
 
 func readLookup(ctx context.Context, d Driver, conn *sql.Conn, schema string, t DocTable) *LookupValues {
-	// A small table of accounts or secrets is not a lookup to publish.
-	for _, c := range t.Columns {
-		if sensitiveColumnRe.MatchString(c.Name) {
-			return nil
-		}
-	}
-
 	var cols []string
 
 	for _, c := range t.Columns {

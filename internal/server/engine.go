@@ -25,7 +25,7 @@ type Engine interface {
 	Routines(ctx context.Context, c *store.Connection, password, schema string) ([]engine.Routine, error)
 	Definition(ctx context.Context, c *store.Connection, password, schema string, r engine.Routine) (string, error)
 	Diagram(ctx context.Context, c *store.Connection, password, schema string) (*engine.Diagram, error)
-	SchemaDoc(ctx context.Context, c *store.Connection, password, schema string) (*engine.SchemaDoc, error)
+	SchemaDoc(ctx context.Context, c *store.Connection, password, schema string, lookups []string) (*engine.SchemaDoc, error)
 
 	Execute(ctx context.Context, c *store.Connection, password string, req engine.ExecRequest) (*engine.ExecResult, error)
 	Explain(ctx context.Context, c *store.Connection, password string, req engine.ExplainRequest) (*engine.ExplainResult, error)

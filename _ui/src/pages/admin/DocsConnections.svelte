@@ -17,6 +17,7 @@
     include: string;
     exclude: string;
     block: boolean;
+    lookups: string;
     username: string;
     password: string;
     clearPassword: boolean;
@@ -67,6 +68,7 @@
       include: c.include.join(', '),
       exclude: c.exclude.join(', '),
       block: c.block_excluded,
+      lookups: (c.lookup_tables ?? []).join(', '),
       username: c.username,
       password: '',
       clearPassword: false,
@@ -138,7 +140,7 @@
     saving = true;
     error = '';
     try {
-      const body: Record<string, unknown> = { enabled: form.enabled, include, exclude, block_excluded: form.block, username: form.username.trim() };
+      const body: Record<string, unknown> = { enabled: form.enabled, include, exclude, block_excluded: form.block, lookup_tables: split(form.lookups), username: form.username.trim() };
       if (form.password) body.password = form.password;
       else if (form.clearPassword) body.password = '';
       const v = await api.put<DocConnection>(`/admin/docs/connections/${current.connection_id}`, body);
@@ -236,6 +238,11 @@
                   <input id="doc-exclude-{c.connection_id}" class="input w-full font-mono" placeholder="tmp_*, audit" bind:value={form.exclude} />
                 </div>
                 <p class="hint">{t('admin.docConn.patternsHint')}</p>
+                <div>
+                  <label class="label" for="doc-lookups-{c.connection_id}">{t('admin.docConn.lookups')}</label>
+                  <input id="doc-lookups-{c.connection_id}" class="input w-full font-mono" placeholder="sales.status_type, *_type" bind:value={form.lookups} />
+                  <p class="hint mt-1">{t('admin.docConn.lookupsHint')}</p>
+                </div>
 
                 <div class="space-y-1.5 rounded-md border border-line p-2">
                   <div class="flex flex-wrap items-center gap-2">

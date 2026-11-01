@@ -85,8 +85,10 @@ type callRequest struct {
 	Src       *store.Connection
 	SrcSecret string
 
-	Schema    string
-	Table     string
+	Schema string
+	Table  string
+	// Lookups are the table patterns whose rows a schema document shows.
+	Lookups   []string
 	Name      string
 	Host      string
 	Process   string

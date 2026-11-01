@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rakunlabs/dataport/internal/engine"
 	"github.com/rakunlabs/dataport/internal/store"
 )
 
@@ -102,5 +103,62 @@ func TestSharedAccountDocs(t *testing.T) {
 	}
 	if run := s.docRunStatus(ctx); run.Failed != 0 {
 		t.Fatalf("run: %+v", run)
+	}
+}
+
+func TestChosenLookupTables(t *testing.T) {
+	ctx := context.Background()
+	env := newMCPEnv(t, "")
+	s := env.srv
+	k := docKeyFor(t, env)
+
+	values := func() *engine.LookupValues {
+		t.Helper()
+
+		out, err := s.documentation(ctx, k, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, tb := range out.Document.Tables {
+			if tb.Name == "customers" {
+				return tb.Values
+			}
+		}
+
+		t.Fatal("no customers")
+
+		return nil
+	}
+
+	// Nothing chosen: no table data is read.
+	if v := values(); v != nil {
+		t.Fatalf("rows read without a choice: %+v", v)
+	}
+
+	choose := func(list []string) {
+		t.Helper()
+
+		dc, err := env.st.GetDocConnection(ctx, k.ConnectionID)
+		if err != nil {
+			dc = &store.DocConnection{ConnectionID: k.ConnectionID}
+		}
+		dc.LookupTables = list
+		if err := env.st.SaveDocConnection(ctx, dc); err != nil {
+			t.Fatal(err)
+		}
+		s.refreshConnectionDocs(k.ConnectionID)
+		s.notebookWorkers.Wait()
+	}
+
+	choose([]string{"main.cust*"})
+	if v := values(); v == nil || len(v.Rows) != 2 || v.Rows[0][1] != "Ada" {
+		t.Fatalf("chosen rows: %+v", v)
+	}
+
+	// Another schema's pattern does not apply here.
+	choose([]string{"other.customers"})
+	if v := values(); v != nil {
+		t.Fatalf("rows kept after the choice was taken back: %+v", v)
 	}
 }
