@@ -342,7 +342,9 @@ partitions; its partitions are not listed. It reads the catalog, as the
 signed-in user, and of the table data only the rows of small lookup tables:
 tables another table references by a foreign key or that are keyed by one
 text column, of at most 50 rows and 6 columns (binary and JSON columns left
-out), so the codes a column holds elsewhere are explained. Indexes show their
+out), so the codes a column holds elsewhere are explained. A table with a
+column named like a secret or personal data (password, token, hash, e-mail,
+phone, IBAN, card number and the like) is never read. Indexes show their
 method where it is not B-tree and the predicate of a partial index; a
 partial unique index is not offered as an upsert target. On PostgreSQL a
 trigger comes with the source of the function it runs, up to 3000

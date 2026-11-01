@@ -412,8 +412,11 @@ ORDER BY ix.indisprimary DESC, i.relname`, schema, table)
 	return list, rows.Err()
 }
 
+// ForeignKeys leaves out the copies PostgreSQL 11 and later keep of a
+// partitioned table's key, one per partition, marked by conparentid; older
+// servers have no such copies and no such column.
 func (postgresDriver) ForeignKeys(ctx context.Context, db Querier, schema, table string) ([]ForeignKey, error) {
-	rows, err := db.QueryContext(ctx, `SELECT con.conname, rn.nspname, rc.relname,
+	const query = `SELECT con.conname, rn.nspname, rc.relname,
 (SELECT string_agg(a.attname, chr(31) ORDER BY k.ord) FROM unnest(con.conkey) WITH ORDINALITY k(attnum, ord)
   JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum),
 (SELECT string_agg(a.attname, chr(31) ORDER BY k.ord) FROM unnest(con.confkey) WITH ORDINALITY k(attnum, ord)
@@ -425,8 +428,14 @@ JOIN pg_catalog.pg_class c ON c.oid = con.conrelid
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_catalog.pg_class rc ON rc.oid = con.confrelid
 JOIN pg_catalog.pg_namespace rn ON rn.oid = rc.relnamespace
-WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2 AND con.conparentid = 0
-ORDER BY con.conname`, schema, table)
+WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2%s
+ORDER BY con.conname`
+
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(query, " AND con.conparentid = 0"), schema, table)
+	if err != nil && ctx.Err() == nil {
+		rows, err = db.QueryContext(ctx, fmt.Sprintf(query, ""), schema, table)
+	}
+
 	if err != nil {
 		return nil, err
 	}

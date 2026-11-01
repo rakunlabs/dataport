@@ -67,10 +67,10 @@ INSERT INTO orders (id, customer_id, total) VALUES (1, 1, 5);`); err != nil {
 		t.Fatal("view without definition")
 	}
 
-	// customers is referenced by orders and small: its rows are documented.
-	// products is referenced by no declared key, so it is not read.
-	if v := byName["customers"].Values; v == nil || len(v.Rows) != 1 || v.Rows[0][1] != "Ada" {
-		t.Fatalf("lookup values of customers: %+v", v)
+	// customers is referenced by orders and small, but holds e-mail
+	// addresses: it is not read. products is referenced by no declared key.
+	if v := byName["customers"].Values; v != nil {
+		t.Fatalf("values of a table with personal data: %+v", v)
 	}
 
 	// status is keyed by a code: a lookup, though nothing references it.

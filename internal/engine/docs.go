@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -294,6 +295,10 @@ func readLookups(ctx context.Context, d Driver, conn *sql.Conn, schema string, t
 	}
 }
 
+// sensitiveColumnRe matches column names whose values must not leave the
+// database through the documentation; a table with one is not read.
+var sensitiveColumnRe = regexp.MustCompile(`(?i)pass|secret|token|hash|salt|private|credential|api_?key|e_?mail|phone|iban|card_?n|pan$|ssn|tax_?id|national_?id|birth`)
+
 // codeKeyed tells a table keyed by one text column, the shape of a lookup
 // of codes, also where no foreign key points at it.
 func codeKeyed(t DocTable) bool {
@@ -309,6 +314,13 @@ func codeKeyed(t DocTable) bool {
 }
 
 func readLookup(ctx context.Context, d Driver, conn *sql.Conn, schema string, t DocTable) *LookupValues {
+	// A small table of accounts or secrets is not a lookup to publish.
+	for _, c := range t.Columns {
+		if sensitiveColumnRe.MatchString(c.Name) {
+			return nil
+		}
+	}
+
 	var cols []string
 
 	for _, c := range t.Columns {
