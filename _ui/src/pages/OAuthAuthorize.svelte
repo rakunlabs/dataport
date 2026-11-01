@@ -62,7 +62,7 @@
     try {
       // What the client may do on each connection (read, write, schema) is
       // set under Settings → MCP access, not here.
-      const body: Record<string, unknown> = { approve, connection_id: connection, remember: approve && remember };
+      const body: Record<string, unknown> = { approve, remember: approve && remember };
       for (const [k, v] of query) body[k] = v;
       const res = await api.post<{ redirect: string }>('/oauth/authorize', body);
       done = approve ? t('oauth.approved') : t('oauth.declined');
@@ -106,18 +106,14 @@
         </div>
       </div>
 
-      <label class="label" for="oauth-conn">{t('oauth.connections')}</label>
-      {#if info.connection}
+      <!-- Which databases and what it may do on each are the user's MCP
+           access settings; only a client that asked for one connection
+           shows it here, as it cannot be changed. -->
+      {#if info.connection && chosen}
+        <p class="label">{t('oauth.connections')}</p>
         <div class="mb-3 flex h-8 items-center gap-2 rounded-md border border-line bg-sunken px-2.5 text-sm">
-          {#if chosen}<DbIcon type={chosen.db_type} />{chosen.name}{/if}
+          <DbIcon type={chosen.db_type} />{chosen.name}
         </div>
-      {:else}
-        <select id="oauth-conn" class="input mb-3" bind:value={connection}>
-          <option value="">{t('oauth.allConnections', { count: info.connections.length })}</option>
-          {#each info.connections as c (c.id)}
-            <option value={c.id}>{c.name} · {c.db_type}</option>
-          {/each}
-        </select>
       {/if}
 
       <p class="mb-4 text-xs text-muted">{t('oauth.accessHint')}</p>

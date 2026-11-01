@@ -1114,7 +1114,7 @@ const tr: Messages = {
     revokeConfirm: '"{name}" anahtarı iptal edilsin mi? Onu kullanan ajanlar hemen durur.',
   },
   oauth: {
-    accessHint: 'Her veritabanında ne yapabileceği (okuma, yazma, şema) Ayarlar → MCP erişimi altındaki ayarlarınıza göre belirlenir. Siz değiştirene kadar yalnızca okuyabilir.',
+    accessHint: 'Hangi veritabanlarını kullanabileceği ve her birinde ne yapabileceği (okuma, yazma, şema) Ayarlar → MCP erişimi altındaki ayarlarınıza göre belirlenir. Siz değiştirene kadar yalnızca okuyabilir.',
     remember: 'Bu istemciyi hatırla',
     rememberHint: '{client} bir dahaki girişte sorulmadan yeniden onaylansın. Erişimini iptal ederseniz bu da unutulur.',
     title: '{client} veritabanlarınızı kullanmak istiyor',

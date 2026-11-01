@@ -211,12 +211,13 @@ func redirectWith(p authorizeParams, v url.Values) string {
 func (s *Server) oauthApprove(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		authorizeParams
-		Approve      bool   `json:"approve"`
+		Approve bool `json:"approve"`
+		// ConnectionID and ReadOnly are sent by pages of earlier versions
+		// and ignored: which connections a client may use and what it may
+		// do on each are the user's MCP access settings, not part of the
+		// approval. A client that asked for one connection gets only it.
 		ConnectionID string `json:"connection_id"`
-		// ReadOnly is sent by pages of earlier versions and ignored: what
-		// the client may do on each connection (read, write, schema) is the
-		// user's MCP access setting, not part of the approval.
-		ReadOnly bool `json:"read_only"`
+		ReadOnly     bool   `json:"read_only"`
 		// Remember approves this client again without asking.
 		Remember bool `json:"remember"`
 	}
@@ -251,8 +252,7 @@ func (s *Server) oauthApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A client that asked for one connection gets only that one.
-	connID := req.ConnectionID
+	connID := ""
 	if ar.connection != nil {
 		connID = ar.connection.Connection.ID
 	}
@@ -317,6 +317,13 @@ func (s *Server) rememberedApproval(r *http.Request, user *store.User, ar *autho
 	}
 
 	if ar.connection != nil && ar.connection.Connection.ID != c.ConnectionID {
+		return ""
+	}
+
+	// One connection remembered from the page of an earlier version, for a
+	// client that did not ask for one, is asked again: the approval page no
+	// longer narrows connections, the MCP access settings do.
+	if ar.connection == nil && c.ConnectionID != "" {
 		return ""
 	}
 

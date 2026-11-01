@@ -1113,7 +1113,7 @@ const en = {
     revokeConfirm: 'Revoke token "{name}"? Agents using it stop working at once.',
   },
   oauth: {
-    accessHint: 'What it may do on each database (read, write, schema) follows your settings under Settings → MCP access. Until you change them, it may only read.',
+    accessHint: 'Which databases it may use, and what it may do on each (read, write, schema), follow your settings under Settings → MCP access. Until you change them, it may only read.',
     remember: 'Remember this client',
     rememberHint: 'Next time {client} signs in, allow it again without asking. Revoking its access forgets this.',
     title: '{client} wants to use your databases',

@@ -147,6 +147,20 @@ func TestMCPOAuth(t *testing.T) {
 		t.Fatalf("connections: %v", got)
 	}
 
+	// A connection sent by the approval page of an earlier version does not
+	// narrow the token: the MCP access settings choose the connections.
+	var shopID string
+	if grants, err := env.st.ListGrants(ctx, env.alice); err == nil {
+		for _, g := range grants {
+			if g.Connection.Name == "shop" {
+				shopID = g.Connection.ID
+			}
+		}
+	}
+	if got := listed(connect(base+"/mcp", approveAs(shopID))); strings.Join(got, ",") != "shop,shop-prod" {
+		t.Fatalf("connection from the approval page narrowed the token: %v", got)
+	}
+
 	// The endpoint of one connection: only that one, no name needed.
 	one := connect(base+"/mcp/shop", approveAs(""))
 	if got := listed(one); strings.Join(got, ",") != "shop" {

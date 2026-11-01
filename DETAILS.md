@@ -888,9 +888,10 @@ choice, agents may only **read**, on every connection the user can reach.
 - *Browser sign-in (OAuth)*: add the server without a token,
   `claude mcp add --transport http dataport https://dataport.example.com/mcp`.
   The first time, the client opens dataport in the browser; the user signs
-  in (password or SSO), picks the databases and approves. What the client
-  may do on each database follows *Agent access* above, so the sign-in does
-  not ask for it. *Remember this client* approves it again later without
+  in (password or SSO) and approves. Which databases the client may use,
+  and what it may do on each, follow *Agent access* above, so the sign-in
+  asks for neither; a client added with the address of one connection
+  (`/mcp/<name>`) shows that connection and uses only it. *Remember this client* approves it again later without
   asking, until its access is revoked. The client renews its access by itself. dataport is the
   OAuth 2.1 server: dynamic client registration, PKCE (S256), one-hour
   access tokens and rotating refresh tokens that live as long as the
