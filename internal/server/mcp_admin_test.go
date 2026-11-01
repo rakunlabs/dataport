@@ -78,7 +78,7 @@ func TestMCPAdminDocExport(t *testing.T) {
 
 		var names []string
 		for _, tool := range res.Tools {
-			if strings.Contains(tool.Name, "docs_export_") {
+			if strings.Contains(tool.Name, "docs_export_") || strings.Contains(tool.Name, "lookup_tables") {
 				names = append(names, strings.TrimPrefix(tool.Name, mcpToolPrefix))
 			}
 		}
@@ -117,12 +117,12 @@ func TestMCPAdminDocExport(t *testing.T) {
 	if got := adminTools(connect(admin, false, k.ConnectionID)); len(got) != 0 {
 		t.Fatalf("a token of one connection sees admin tools: %v", got)
 	}
-	if got := adminTools(connect(admin, true, "")); !slices.Equal(got, []string{"docs_export_settings"}) {
+	if got := adminTools(connect(admin, true, "")); !slices.Equal(got, []string{"docs_export_settings", "docs_lookup_tables"}) {
 		t.Fatalf("read-only admin tools: %v", got)
 	}
 
 	session := connect(admin, false, "")
-	if got := adminTools(session); !slices.Equal(got, []string{"docs_export_push", "docs_export_set_description", "docs_export_set_note", "docs_export_settings"}) {
+	if got := adminTools(session); !slices.Equal(got, []string{"docs_export_push", "docs_export_set_description", "docs_export_set_note", "docs_export_settings", "docs_lookup_tables", "docs_set_lookup_tables"}) {
 		t.Fatalf("admin tools: %v", got)
 	}
 
@@ -164,6 +164,26 @@ func TestMCPAdminDocExport(t *testing.T) {
 		t.Fatalf("saved: %+v", saved)
 	}
 
+	// Tables whose rows the documentation shows.
+	if _, e := call(session, "docs_set_lookup_tables", map[string]any{"connection": "Shop", "tables": []string{"main.customers", " "}}); e != "" {
+		t.Fatal(e)
+	}
+	env.srv.notebookWorkers.Wait()
+	if _, e := call(session, "docs_set_lookup_tables", map[string]any{"connection": "nope", "tables": []string{"x"}}); !strings.Contains(e, "no connection named nope") {
+		t.Fatalf("unknown connection: %q", e)
+	}
+	if _, e := call(session, "docs_set_lookup_tables", map[string]any{"connection": "shop", "tables": []string{"[bad"}}); !strings.Contains(e, "invalid table pattern") {
+		t.Fatalf("bad pattern: %q", e)
+	}
+	lk, e := call(session, "docs_lookup_tables", map[string]any{"connection": "shop"})
+	if e != "" {
+		t.Fatal(e)
+	}
+	lconns, _ := lk["connections"].([]any)
+	if len(lconns) != 1 || lconns[0].(map[string]any)["tables"].([]any)[0] != "main.customers" {
+		t.Fatalf("lookup tables: %+v", lk)
+	}
+
 	// Removing a note.
 	if _, e := call(session, "docs_export_set_note", map[string]any{"connection": "shop", "note": ""}); e != "" {
 		t.Fatal(e)
@@ -191,6 +211,9 @@ func TestMCPAdminDocExport(t *testing.T) {
 	orders := fake.items["dataport/"+k.ConnectionID+"/main/orders"].Content
 	if !strings.Contains(orders, "about this schema: Owned by the orders service (shop/orders).\n") || strings.Contains(orders, "Shop database.") {
 		t.Fatalf("pushed note:\n%s", orders)
+	}
+	if customers := fake.items["dataport/"+k.ConnectionID+"/main/customers"].Content; !strings.Contains(customers, "values (id | name):\n  1 | Ada\n") {
+		t.Fatalf("chosen rows not pushed:\n%s", customers)
 	}
 	if fake.description != "Schemas of the shop databases." {
 		t.Fatalf("collection description %q", fake.description)

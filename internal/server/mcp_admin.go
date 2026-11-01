@@ -58,6 +58,26 @@ type docExportNoteIn struct {
 	Note       string `json:"note" jsonschema:"the note; empty removes it"`
 }
 
+type docLookupsIn struct {
+	Connection string `json:"connection,omitempty" jsonschema:"connection name; empty lists every connection"`
+}
+
+type docLookupsOut struct {
+	Connections []docLookupsConnOut `json:"connections"`
+	Limits      map[string]int      `json:"limits"`
+}
+
+type docLookupsConnOut struct {
+	Connection string   `json:"connection"`
+	DBType     string   `json:"db_type"`
+	Tables     []string `json:"tables"`
+}
+
+type docSetLookupsIn struct {
+	Connection string   `json:"connection" jsonschema:"connection name"`
+	Tables     []string `json:"tables" jsonschema:"the whole list, replacing the saved one: schema.table, or a table name for every schema; * matches anything; empty reads no table data"`
+}
+
 type docExportChangedOut struct {
 	Saved   bool   `json:"saved"`
 	Message string `json:"message"`
@@ -81,6 +101,23 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 		}
 
 		out, err := s.docExportSettings(ctx)
+
+		return nil, out, err
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: mcpToolPrefix + "docs_lookup_tables",
+		Annotations: &mcp.ToolAnnotations{
+			Title: "Tables whose rows the documentation shows", ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closed,
+		},
+		Description: "Admin only. List, per connection, the tables whose rows the documentation shows (schema.table " +
+			"patterns). The documentation reads no other table data.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in docLookupsIn) (*mcp.CallToolResult, docLookupsOut, error) {
+		if _, err := mcpAdminCaller(req); err != nil {
+			return nil, docLookupsOut{}, err
+		}
+
+		out, err := s.docLookupSettings(ctx, in.Connection)
 
 		return nil, out, err
 	})
@@ -153,6 +190,55 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 		}
 
 		return nil, docExportChangedOut{Saved: true, Message: "saved; push to send it to the search index"}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        mcpToolPrefix + "docs_set_lookup_tables",
+		Annotations: &mcp.ToolAnnotations{Title: "Choose tables whose rows the documentation shows", IdempotentHint: true, OpenWorldHint: &closed},
+		Description: "Admin only. Replace the list of tables of a connection whose rows the documentation shows, such as " +
+			"code tables whose values other columns hold (status_type: NEW = New). No other table data is read. " +
+			"Only tables of at most 50 rows and 6 columns are read. The rows reach everyone who reads the documentation " +
+			"and the search index, which often has no access control: never list tables of accounts, secrets or personal " +
+			"data. Show the user the list and get their approval before saving. Saving rebuilds the connection's saved " +
+			"documentation in the background and pushes it.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in docSetLookupsIn) (*mcp.CallToolResult, docExportChangedOut, error) {
+		caller, err := mcpAdminCaller(req)
+		if err != nil {
+			return nil, docExportChangedOut{}, err
+		}
+
+		c, err := s.adminConnectionByName(ctx, in.Connection)
+		if err != nil {
+			return nil, docExportChangedOut{}, err
+		}
+
+		tables, msg := checkDocPatterns(in.Tables)
+		if msg != "" {
+			return nil, docExportChangedOut{}, errors.New(strings.ReplaceAll(msg, "schema pattern", "table pattern"))
+		}
+
+		dc, err := s.store.GetDocConnection(ctx, c.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			dc, err = &store.DocConnection{ConnectionID: c.ID, Include: []string{}, Exclude: []string{}}, nil
+		}
+
+		if err != nil {
+			return nil, docExportChangedOut{}, err
+		}
+
+		if slices.Equal(dc.LookupTables, tables) {
+			return nil, docExportChangedOut{Saved: true, Message: "unchanged"}, nil
+		}
+
+		dc.LookupTables = tables
+		if err := s.store.SaveDocConnection(ctx, dc); err != nil {
+			return nil, docExportChangedOut{}, err
+		}
+
+		slog.Info("documentation tables to read changed over MCP", "connection", c.Name, "user", caller.user.Username, "token", caller.token.ID)
+		s.refreshConnectionDocs(c.ID)
+
+		return nil, docExportChangedOut{Saved: true, Message: "saved; the connection's documentation is rebuilt and pushed in the background"}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -294,4 +380,53 @@ func (s *Server) changeDocExport(ctx context.Context, caller *mcpCaller, what st
 	slog.Info("documentation push settings changed over MCP", "change", what, "user", caller.user.Username, "token", caller.token.ID)
 
 	return nil
+}
+
+// adminConnectionByName finds a connection an admin defined, by name in
+// any case; personal connections belong to their owners.
+func (s *Server) adminConnectionByName(ctx context.Context, name string) (*store.Connection, error) {
+	list, err := s.store.ListConnections(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, c := range list {
+		if c.OwnerID == "" && strings.EqualFold(c.Name, strings.TrimSpace(name)) {
+			return c, nil
+		}
+	}
+
+	return nil, errors.New("no connection named " + name)
+}
+
+func (s *Server) docLookupSettings(ctx context.Context, name string) (docLookupsOut, error) {
+	out := docLookupsOut{Connections: []docLookupsConnOut{}, Limits: map[string]int{"rows": 50, "columns": 6}}
+
+	list, err := s.store.ListConnections(ctx)
+	if err != nil {
+		return out, err
+	}
+
+	found := false
+
+	for _, c := range list {
+		if c.OwnerID != "" || (name != "" && !strings.EqualFold(c.Name, strings.TrimSpace(name))) {
+			continue
+		}
+
+		found = true
+		tables := []string{}
+
+		if dc, err := s.store.GetDocConnection(ctx, c.ID); err == nil {
+			tables = dc.LookupTables
+		}
+
+		out.Connections = append(out.Connections, docLookupsConnOut{Connection: c.Name, DBType: c.DBType, Tables: tables})
+	}
+
+	if name != "" && !found {
+		return out, errors.New("no connection named " + name)
+	}
+
+	return out, nil
 }

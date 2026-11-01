@@ -955,6 +955,9 @@ can write it down:
 - `dataport_docs_export_set_note`: the note of one schema of a pushed
   connection, or of all its schemas; empty removes it. Connections are added
   to the push in the admin UI;
+- `dataport_docs_lookup_tables`, `dataport_docs_set_lookup_tables`: the
+  tables of a connection whose rows the documentation shows; setting
+  replaces the whole list and rebuilds the connection's documentation;
 - `dataport_docs_export_push`: push now, in the background.
 
 Changes are checked like the admin UI's and logged with the user and token.
