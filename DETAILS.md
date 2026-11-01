@@ -340,13 +340,18 @@ references it, its indexes and a view's definition. A partitioned table is
 documented once, with its partition key and count and rows summed over its
 partitions; its partitions are not listed. It reads the catalog, as the
 signed-in user, and of the table data only the rows of small lookup tables:
-tables another table references by a foreign key, of at most 50 rows and 6
-columns (binary and JSON columns left out), so the codes a column holds
-elsewhere are explained.
+tables another table references by a foreign key or that are keyed by one
+text column, of at most 50 rows and 6 columns (binary and JSON columns left
+out), so the codes a column holds elsewhere are explained. Indexes show their
+method where it is not B-tree and the predicate of a partial index; a
+partial unique index is not offered as an upsert target. On PostgreSQL a
+trigger comes with the source of the function it runs, up to 3000
+characters.
 
 It also lists SchemaSpy's anomalies: tables without a primary key, foreign
 keys without an index, implied relationships (`customer_id` next to
-`customers.id` with no foreign key), tables with no relationships, single
+`customers.id`, or `payment_method` next to `payment_method.payment_method`,
+with no foreign key), tables with no relationships, single
 column tables, nullable unique columns, defaults of the text `'null'`,
 numbered columns (`phone1`, `phone2`), duplicate indexes and foreign keys
 declared twice. Where one statement fixes it (a missing index, an implied
@@ -934,6 +939,26 @@ definition, row estimates and the columns of related tables),
 `dataport_schema_report` (the documentation's map and anomalies of a whole
 schema), `dataport_query` (read-only, rolled back) and `dataport_execute`
 (only for tokens that may write).
+
+**Search index push over MCP.** Administrators, with a token not tied to one
+connection, also get tools to keep up what the push to a search index tells
+agents about the databases, so an agent that reads the code using a schema
+can write it down:
+
+- `dataport_docs_export_settings`: the collection, its description, every
+  pushed connection with its schemas and notes, and the last push;
+- `dataport_docs_export_set_description`: the collection description (empty
+  restores the default);
+- `dataport_docs_export_set_note`: the note of one schema of a pushed
+  connection, or of all its schemas; empty removes it. Connections are added
+  to the push in the admin UI;
+- `dataport_docs_export_push`: push now, in the background.
+
+Changes are checked like the admin UI's and logged with the user and token.
+Read-only tokens get only the settings. Table and column descriptions belong
+in the database's own comments (`COMMENT ON`), which the documentation
+already carries; `dataport_execute` writes them where the token may change
+the schema.
 
 **Notebooks over MCP.** An agent can manage the user's notebooks with the
 same rules as the workspace:

@@ -78,7 +78,7 @@ func unindexedFKs(t DocTable) []Anomaly {
 
 	for _, fk := range t.ForeignKeys {
 		covered := slices.ContainsFunc(t.Indexes, func(ix IndexInfo) bool {
-			return len(ix.Columns) >= len(fk.Columns) && sameSet(ix.Columns[:len(fk.Columns)], fk.Columns)
+			return ix.Where == "" && len(ix.Columns) >= len(fk.Columns) && sameSet(ix.Columns[:len(fk.Columns)], fk.Columns)
 		})
 
 		// A key declared twice needs one index; duplicate_foreign_key
@@ -199,6 +199,13 @@ func impliedRelationships(t DocTable, pks map[string]pkInfo) []Anomaly {
 			}
 		}
 
+		// A column named like a table whose key has the same name holds
+		// its codes: transaction.payment_method and
+		// payment_method(payment_method).
+		if pk, ok := pks[name]; ok && strings.EqualFold(pk.column, c.Name) {
+			target = name
+		}
+
 		if target == "" {
 			continue
 		}
@@ -258,7 +265,8 @@ func duplicateIndexes(t DocTable) []Anomaly {
 			continue
 		}
 
-		key := strings.Join(ix.Columns, "\x1f")
+		// A partial index on the same columns covers other rows.
+		key := strings.Join(ix.Columns, "\x1f") + "\x00" + ix.Where
 		if first, ok := seen[key]; ok {
 			list = append(list, Anomaly{Kind: AnomalyDuplicateIndex, Table: t.Name, Columns: ix.Columns, Ref: first + " / " + ix.Name})
 

@@ -971,6 +971,9 @@ func (s *Server) adminSetDocExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.docExportSave.Lock()
+	defer s.docExportSave.Unlock()
+
 	current, err := s.loadDocExport(r.Context())
 	if err != nil {
 		writeStoreError(w, err)

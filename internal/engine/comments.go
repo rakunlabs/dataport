@@ -84,6 +84,30 @@ JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace n O
 WHERE n.nspname = $1 AND c.relname = $2 AND NOT t.tgisinternal ORDER BY t.tgname`, schema, table))
 }
 
+func (postgresDriver) TriggerFunctions(ctx context.Context, q Querier, schema, table string) (map[string]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT t.tgname, pg_catalog.pg_get_functiondef(t.tgfoid)
+FROM pg_catalog.pg_trigger t
+JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relname = $2 AND NOT t.tgisinternal`, schema, table)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[string]string{}
+
+	for rows.Next() {
+		var name, src string
+		if err := rows.Scan(&name, &src); err != nil {
+			return nil, err
+		}
+
+		out[name] = src
+	}
+
+	return out, rows.Err()
+}
+
 func (mysqlDriver) Comments(ctx context.Context, q Querier, schema, table string) (string, map[string]string, error) {
 	return scanComments(q.QueryContext(ctx, `SELECT NULL, TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
 UNION ALL

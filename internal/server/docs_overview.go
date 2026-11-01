@@ -78,6 +78,25 @@ func schemaGroups(doc *engine.SchemaDoc) []tableGroup {
 		}
 	}
 
+	// A relationship no key declares still joins the tables.
+	for _, a := range doc.Anomalies {
+		if a.Kind != engine.AnomalyImplied {
+			continue
+		}
+
+		if _, ok := parent[a.Table]; !ok {
+			continue
+		}
+
+		if _, ok := parent[a.Ref]; !ok || a.Ref == a.Table {
+			continue
+		}
+
+		union(a.Table, a.Ref)
+		degree[a.Table]++
+		degree[a.Ref]++
+	}
+
 	// Tables no key joins go with the tables sharing their prefix.
 	prefix := func(n string) string {
 		if i := strings.IndexByte(n, '_'); i > 0 {
@@ -95,6 +114,22 @@ func schemaGroups(doc *engine.SchemaDoc) []tableGroup {
 
 	for _, n := range names {
 		if degree[n] > 0 {
+			continue
+		}
+
+		// The table whose name this one extends is its closest kin:
+		// transaction_event_originators_id goes with transaction_event.
+		owner := ""
+
+		for _, m := range names {
+			if m != n && strings.HasPrefix(n, m+"_") && len(m) > len(owner) {
+				owner = m
+			}
+		}
+
+		if owner != "" {
+			union(owner, n)
+
 			continue
 		}
 
@@ -195,13 +230,24 @@ var mermaidUnsafe = regexp.MustCompile(`[^A-Za-z0-9_]`)
 
 // writeSchemaDiagram writes the foreign keys of a schema as a Mermaid ER
 // diagram: referenced table, one to many, referencing table, by column.
+// Relationships no key declares are dotted.
 func writeSchemaDiagram(b *strings.Builder, doc *engine.SchemaDoc) {
-	type edge struct{ from, to, label string }
+	type edge struct {
+		from, to, label string
+		implied         bool
+	}
 
 	var (
 		edges []edge
 		seen  = map[edge]bool{}
 	)
+
+	add := func(e edge) {
+		if !seen[e] {
+			seen[e] = true
+			edges = append(edges, e)
+		}
+	}
 
 	for _, t := range doc.Tables {
 		for _, fk := range t.ForeignKeys {
@@ -209,11 +255,13 @@ func writeSchemaDiagram(b *strings.Builder, doc *engine.SchemaDoc) {
 				continue
 			}
 
-			e := edge{from: fk.RefTable, to: t.Name, label: strings.Join(fk.Columns, ",")}
-			if !seen[e] {
-				seen[e] = true
-				edges = append(edges, e)
-			}
+			add(edge{from: fk.RefTable, to: t.Name, label: strings.Join(fk.Columns, ",")})
+		}
+	}
+
+	for _, a := range doc.Anomalies {
+		if a.Kind == engine.AnomalyImplied {
+			add(edge{from: a.Ref, to: a.Table, label: strings.Join(a.Columns, ",") + " (no FK)", implied: true})
 		}
 	}
 
@@ -230,7 +278,12 @@ func writeSchemaDiagram(b *strings.Builder, doc *engine.SchemaDoc) {
 			break
 		}
 
-		fmt.Fprintf(b, "  %s ||--o{ %s : %q\n", mermaidUnsafe.ReplaceAllString(e.from, "_"), mermaidUnsafe.ReplaceAllString(e.to, "_"), e.label)
+		line := "||--o{"
+		if e.implied {
+			line = "||..o{"
+		}
+
+		fmt.Fprintf(b, "  %s %s %s : %q\n", mermaidUnsafe.ReplaceAllString(e.from, "_"), line, mermaidUnsafe.ReplaceAllString(e.to, "_"), e.label)
 	}
 
 	b.WriteString("```\n")

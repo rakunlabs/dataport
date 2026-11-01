@@ -14,6 +14,7 @@ func TestWriteTableDocDetails(t *testing.T) {
 		Indexes: []engine.IndexInfo{
 			{Name: "te_pkey", Columns: []string{"id"}, Primary: true, Method: "btree"},
 			{Name: "te_refs", Columns: []string{"refs"}, Method: "gin"},
+			{Name: "te_open", Columns: []string{"originators_id"}, Unique: true, Where: "closed_at IS NULL"},
 		},
 		ForeignKeys: []engine.ForeignKey{
 			{Name: "a", Columns: []string{"event_type"}, RefTable: "event_type", RefColumns: []string{"event_type"}},
@@ -26,6 +27,7 @@ func TestWriteTableDocDetails(t *testing.T) {
 		Triggers: map[string][]engine.TriggerInfo{tbl.Name: {{
 			Name: "check_originators", Timing: "BEFORE", Event: "INSERT", Enabled: true,
 			Definition: "CREATE TRIGGER check_originators BEFORE INSERT ON transaction.transaction_event FOR EACH ROW EXECUTE FUNCTION func_check_unique_originators_id()",
+			Function:   "CREATE FUNCTION func_check_unique_originators_id() ... INSERT INTO transaction_event_originators_id ...",
 		}}},
 		Anomalies: []engine.Anomaly{{Kind: engine.AnomalyOrphan, Table: tbl.Name}},
 	}
@@ -40,10 +42,16 @@ func TestWriteTableDocDetails(t *testing.T) {
 		"primary key te_pkey (id)\n",
 		"trigger check_originators BEFORE INSERT -> func_check_unique_originators_id()",
 		"design notes: no_fk_relations",
+		"unique te_open (originators_id) where closed_at IS NULL\n",
+		"```sql\nCREATE FUNCTION func_check_unique_originators_id() ... INSERT INTO transaction_event_originators_id ...\n```\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("lacks %q:\n%s", want, got)
 		}
+	}
+
+	if strings.Contains(got, "upsert targets") {
+		t.Errorf("a partial unique index offered as an upsert target:\n%s", got)
 	}
 
 	if n := strings.Count(got, "references: "); n != 1 {

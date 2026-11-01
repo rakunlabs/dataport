@@ -28,6 +28,8 @@ CREATE INDEX lines_order_again ON order_lines(order_id);
 CREATE TABLE products (id INTEGER PRIMARY KEY, title TEXT);
 CREATE TABLE audit (msg TEXT);
 CREATE VIEW big_orders AS SELECT * FROM orders WHERE total > 100;
+CREATE TABLE status (code TEXT PRIMARY KEY, name TEXT NOT NULL);
+INSERT INTO status VALUES ('NEW', 'New'), ('DONE', 'Done');
 INSERT INTO customers (id, name) VALUES (1, 'Ada');
 INSERT INTO orders (id, customer_id, total) VALUES (1, 1, 5);`); err != nil {
 		t.Fatal(err)
@@ -48,7 +50,7 @@ INSERT INTO orders (id, customer_id, total) VALUES (1, 1, 5);`); err != nil {
 		t.Fatal(err)
 	}
 
-	if len(doc.Tables) != 6 || !doc.Keys {
+	if len(doc.Tables) != 7 || !doc.Keys {
 		t.Fatalf("tables: %d keys %v", len(doc.Tables), doc.Keys)
 	}
 
@@ -69,6 +71,11 @@ INSERT INTO orders (id, customer_id, total) VALUES (1, 1, 5);`); err != nil {
 	// products is referenced by no declared key, so it is not read.
 	if v := byName["customers"].Values; v == nil || len(v.Rows) != 1 || v.Rows[0][1] != "Ada" {
 		t.Fatalf("lookup values of customers: %+v", v)
+	}
+
+	// status is keyed by a code: a lookup, though nothing references it.
+	if v := byName["status"].Values; v == nil || len(v.Rows) != 2 || v.Rows[0][0] != "DONE" {
+		t.Fatalf("lookup values of status: %+v", v)
 	}
 
 	if byName["products"].Values != nil || byName["orders"].Values != nil {

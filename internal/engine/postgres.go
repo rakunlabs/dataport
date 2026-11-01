@@ -379,7 +379,8 @@ func (postgresDriver) Indexes(ctx context.Context, db Querier, schema, table str
 COALESCE((SELECT string_agg(COALESCE(a.attname, pg_catalog.pg_get_indexdef(ix.indexrelid, k.ord::int, true)), chr(31) ORDER BY k.ord)
   FROM unnest(ix.indkey::int2[]) WITH ORDINALITY k(attnum, ord)
   LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = k.attnum AND k.attnum > 0
-  WHERE k.ord <= ix.indnkeyatts), '')
+  WHERE k.ord <= ix.indnkeyatts), ''),
+COALESCE(pg_catalog.pg_get_expr(ix.indpred, ix.indrelid, true), '')
 FROM pg_catalog.pg_index ix
 JOIN pg_catalog.pg_class t ON t.oid = ix.indrelid
 JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
@@ -390,8 +391,25 @@ ORDER BY ix.indisprimary DESC, i.relname`, schema, table)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = rows.Close() }()
 
-	return scanIndexes(rows)
+	list := []IndexInfo{}
+
+	for rows.Next() {
+		var (
+			ix   IndexInfo
+			cols string
+		)
+
+		if err := rows.Scan(&ix.Name, &ix.Unique, &ix.Primary, &ix.Method, &cols, &ix.Where); err != nil {
+			return nil, err
+		}
+
+		ix.Columns = splitList(cols)
+		list = append(list, ix)
+	}
+
+	return list, rows.Err()
 }
 
 func (postgresDriver) ForeignKeys(ctx context.Context, db Querier, schema, table string) ([]ForeignKey, error) {

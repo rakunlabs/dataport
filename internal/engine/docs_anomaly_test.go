@@ -25,3 +25,42 @@ func TestDuplicateForeignKeys(t *testing.T) {
 		t.Fatalf("unindexed keys: %+v", un)
 	}
 }
+
+func TestLookupConventionsAndPartialIndexes(t *testing.T) {
+	col := func(name, typ string, pk bool) DocColumn {
+		return DocColumn{ColumnInfo: ColumnInfo{Name: name, Type: typ, PrimaryKey: pk, Nullable: !pk}}
+	}
+
+	method := DocTable{Name: "payment_method", Kind: "table", Columns: []DocColumn{col("payment_method", "character varying(8)", true), col("method_name", "character varying(64)", false)}}
+	trx := DocTable{Name: "transaction", Kind: "table", Columns: []DocColumn{col("transaction_id", "character varying", false), col("payment_method", "character varying", false)}}
+
+	// A column named after a table whose key has the same name holds its
+	// codes, without a foreign key.
+	implied := impliedRelationships(trx, primaryKeys([]DocTable{method, trx}))
+	if len(implied) != 1 || implied[0].Ref != "payment_method" || implied[0].Columns[0] != "payment_method" {
+		t.Fatalf("implied: %+v", implied)
+	}
+
+	if !codeKeyed(method) || codeKeyed(DocTable{Columns: []DocColumn{col("id", "integer", true)}}) {
+		t.Fatal("code keyed tables")
+	}
+
+	// A partial index on the same columns is not a duplicate, and does not
+	// serve a foreign key on every row.
+	events := DocTable{Name: "outbox_events", Kind: "table",
+		Indexes: []IndexInfo{
+			{Name: "all_published", Columns: []string{"published_at"}},
+			{Name: "unpublished", Columns: []string{"published_at"}, Where: "published_at IS NULL"},
+			{Name: "partial_ref", Columns: []string{"ref"}, Where: "ref IS NOT NULL"},
+		},
+		ForeignKeys: []ForeignKey{{Name: "fk", Columns: []string{"ref"}, RefTable: "x", RefColumns: []string{"id"}}},
+	}
+
+	if dup := duplicateIndexes(events); len(dup) != 0 {
+		t.Fatalf("partial index taken for a duplicate: %+v", dup)
+	}
+
+	if un := unindexedFKs(events); len(un) != 1 {
+		t.Fatalf("a partial index covered a foreign key: %+v", un)
+	}
+}

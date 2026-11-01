@@ -26,9 +26,13 @@ func TestSchemaOverviewMap(t *testing.T) {
 		tbl("status_type"),
 		tbl("transaction", fk("payer_type", "payer_type"), fk("status_type", "status_type"), fk("status_type", "status_type")),
 		tbl("transaction_event", fk("event_type", "event_type"), fk("linked_event_id", "transaction_event")),
+		tbl("transaction_event_originators_id"),
 		tbl("transaction_migrations"),
 		tbl("x1_migration"),
+	}, Anomalies: []engine.Anomaly{
+		{Kind: engine.AnomalyImplied, Table: "transaction", Columns: []string{"payment_method"}, Ref: "payment_method", RefCols: []string{"payment_method"}},
 	}}
+	doc.Tables = append(doc.Tables, tbl("payment_method"))
 
 	groups := map[string]string{}
 	for _, g := range schemaGroups(doc) {
@@ -36,7 +40,8 @@ func TestSchemaOverviewMap(t *testing.T) {
 	}
 
 	for name, want := range map[string]string{
-		"transaction":           "payer_type,status_type,transaction",
+		"transaction":           "payer_type,status_type,transaction,payment_method",
+		"event_type":            "event_type,transaction_event,transaction_event_originators_id",
 		"outbox_*":              "outbox_events,outbox_partition,outbox_routing,outbox_status",
 		"migration bookkeeping": "transaction_migrations,x1_migration",
 		"standalone":            "sandbox_contract",
@@ -50,7 +55,7 @@ func TestSchemaOverviewMap(t *testing.T) {
 	writeSchemaDiagram(&b, doc)
 	got := b.String()
 
-	for _, want := range []string{"```mermaid\nerDiagram\n", `status_type ||--o{ transaction : "status_type"`, `transaction_event ||--o{ transaction_event : "linked_event_id"`} {
+	for _, want := range []string{"```mermaid\nerDiagram\n", `status_type ||--o{ transaction : "status_type"`, `transaction_event ||--o{ transaction_event : "linked_event_id"`, `payment_method ||..o{ transaction : "payment_method (no FK)"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("diagram lacks %q:\n%s", want, got)
 		}

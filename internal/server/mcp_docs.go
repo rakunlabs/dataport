@@ -242,7 +242,11 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 			kind = "primary key"
 		case ix.Unique:
 			kind = "unique"
-			uniques = append(uniques, "("+strings.Join(ix.Columns, ", ")+")")
+			// A partial unique index is an upsert target only with its
+			// predicate repeated in ON CONFLICT.
+			if ix.Where == "" {
+				uniques = append(uniques, "("+strings.Join(ix.Columns, ", ")+")")
+			}
 		}
 
 		fmt.Fprintf(b, "%s %s (%s)", kind, ix.Name, strings.Join(ix.Columns, ", "))
@@ -251,6 +255,11 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 		// operators the index serves, such as GIN for jsonb @>.
 		if m := strings.ToLower(ix.Method); m != "" && m != "btree" {
 			b.WriteString(" using " + m)
+		}
+
+		// A partial index serves only queries whose filter implies it.
+		if ix.Where != "" {
+			b.WriteString(" where " + ix.Where)
 		}
 
 		b.WriteString("\n")
@@ -300,6 +309,10 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 		}
 
 		b.WriteString("\n")
+
+		if tr.Function != "" {
+			b.WriteString("```sql\n" + tr.Function + "\n```\n")
+		}
 	}
 
 	if t.Definition != "" {

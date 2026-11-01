@@ -57,9 +57,12 @@ type Server struct {
 	docRun             docRun
 	docRunAverage      int64
 	// docExport is held while documentation is pushed to a search service.
-	docExport       sync.Mutex
-	docExportMu     sync.Mutex
-	docExportRun    docExportStatus
+	docExport    sync.Mutex
+	docExportMu  sync.Mutex
+	docExportRun docExportStatus
+	// docExportSave keeps two changes of the push settings, from the admin
+	// UI or MCP, from writing over each other.
+	docExportSave   sync.Mutex
 	notebookMu      sync.Mutex
 	notebookRunning int
 	notebookContext context.Context

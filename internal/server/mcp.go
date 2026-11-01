@@ -155,6 +155,10 @@ func (s *Server) newMCPServer(caller *mcpCaller) *mcp.Server {
 
 	s.registerMCPTools(server, caller.token.ReadOnly, notebooks)
 
+	if mcpAdmin(caller) {
+		s.registerMCPAdminTools(server, caller.token.ReadOnly)
+	}
+
 	return server
 }
 

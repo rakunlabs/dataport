@@ -19,6 +19,9 @@ type IndexInfo struct {
 	Unique  bool     `json:"unique"`
 	Primary bool     `json:"primary"`
 	Method  string   `json:"method,omitempty"`
+	// Where is the predicate of a partial index, which covers only the rows
+	// it matches.
+	Where string `json:"where,omitempty"`
 }
 
 type ForeignKey struct {
@@ -51,6 +54,15 @@ type TriggerInfo struct {
 	Event      string `json:"event"`
 	Enabled    bool   `json:"enabled"`
 	Definition string `json:"definition"`
+	// Function is the source of the function the trigger runs, where the
+	// documentation reads it; it tells what a write does besides itself.
+	Function string `json:"function,omitempty"`
+}
+
+// TriggerSourcer is implemented by drivers whose triggers run a function
+// of their own; it returns the source of each, by trigger name.
+type TriggerSourcer interface {
+	TriggerFunctions(ctx context.Context, q Querier, schema, table string) (map[string]string, error)
 }
 
 // Commenter is implemented by drivers that read table and column comments.

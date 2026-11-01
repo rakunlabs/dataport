@@ -65,6 +65,9 @@ const (
 	maxLookupRows    = 50
 	maxLookupColumns = 6
 	maxLookupValue   = 80
+	// maxTriggerFunction bounds the source of a trigger's function kept in
+	// the documentation of its table.
+	maxTriggerFunction = 3000
 )
 
 // Anomaly kinds, after SchemaSpy's list.
@@ -235,6 +238,17 @@ func docTable(ctx context.Context, d Driver, s Structurer, cm Commenter, conn *s
 				t.Triggers = list
 			}
 		}
+
+		if ts, ok := d.(TriggerSourcer); ok && len(t.Triggers) > 0 {
+			if src, err := ts.TriggerFunctions(ctx, conn, schema, o.Name); err == nil {
+				for i, tr := range t.Triggers {
+					// A long function would crowd out the table it explains.
+					if f := strings.TrimSpace(src[tr.Name]); len(f) <= maxTriggerFunction {
+						t.Triggers[i].Function = f
+					}
+				}
+			}
+		}
 	}
 
 	if o.Kind == "view" || o.Kind == "materialized_view" {
@@ -268,7 +282,7 @@ func readLookups(ctx context.Context, d Driver, conn *sql.Conn, schema string, t
 
 	for i := range tables {
 		t := &tables[i]
-		if t.Kind != "table" || !referenced[t.Name] || t.Partition != nil || (t.Rows != nil && *t.Rows > maxLookupRows) {
+		if t.Kind != "table" || !(referenced[t.Name] || codeKeyed(*t)) || t.Partition != nil || (t.Rows != nil && *t.Rows > maxLookupRows) {
 			continue
 		}
 
@@ -278,6 +292,20 @@ func readLookups(ctx context.Context, d Driver, conn *sql.Conn, schema string, t
 
 		t.Values = readLookup(ctx, d, conn, schema, *t)
 	}
+}
+
+// codeKeyed tells a table keyed by one text column, the shape of a lookup
+// of codes, also where no foreign key points at it.
+func codeKeyed(t DocTable) bool {
+	var pk []DocColumn
+
+	for _, c := range t.Columns {
+		if c.PrimaryKey {
+			pk = append(pk, c)
+		}
+	}
+
+	return len(pk) == 1 && typeFamilies[baseType(pk[0].Type)] == "text"
 }
 
 func readLookup(ctx context.Context, d Driver, conn *sql.Conn, schema string, t DocTable) *LookupValues {

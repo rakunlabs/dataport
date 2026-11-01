@@ -617,7 +617,11 @@ CREATE TABLE dp_p.ev_part_3 PARTITION OF dp_p.ev FOR VALUES FROM (2000) TO (3000
 ALTER TABLE dp_p.ev ADD FOREIGN KEY (linked_event_id) REFERENCES dp_p.ev(id);
 CREATE INDEX ev_refs ON dp_p.ev USING gin (refs);
 INSERT INTO dp_p.ev (id, event_type) SELECT g, 'CAP' FROM generate_series(1, 2500) g;
-ANALYZE dp_p.ev_part_1; ANALYZE dp_p.ev_part_2; ANALYZE dp_p.ev_part_3; ANALYZE dp_p.event_type;`, false)
+ANALYZE dp_p.ev_part_1; ANALYZE dp_p.ev_part_2; ANALYZE dp_p.ev_part_3; ANALYZE dp_p.event_type;
+CREATE INDEX ev_unlinked ON dp_p.ev (id) WHERE linked_event_id IS NULL;
+CREATE TABLE dp_p.seen (id bigint PRIMARY KEY);
+CREATE FUNCTION dp_p.remember() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO dp_p.seen VALUES (NEW.id); RETURN NEW; END $$;
+CREATE TRIGGER ev_remember AFTER INSERT ON dp_p.ev FOR EACH ROW EXECUTE FUNCTION dp_p.remember();`, false)
 
 	doc, err := m.SchemaDoc(context.Background(), c, "pw", "dp_p")
 	if err != nil {
@@ -629,7 +633,7 @@ ANALYZE dp_p.ev_part_1; ANALYZE dp_p.ev_part_2; ANALYZE dp_p.ev_part_3; ANALYZE 
 		byName[tb.Name] = tb
 	}
 
-	if len(doc.Tables) != 2 {
+	if len(doc.Tables) != 3 {
 		t.Fatalf("partitions documented on their own: %v", byName)
 	}
 
@@ -653,6 +657,19 @@ ANALYZE dp_p.ev_part_1; ANALYZE dp_p.ev_part_2; ANALYZE dp_p.ev_part_3; ANALYZE 
 
 	if !gin {
 		t.Fatalf("index method: %+v", ev.Indexes)
+	}
+
+	partial := false
+	for _, ix := range ev.Indexes {
+		partial = partial || (ix.Name == "ev_unlinked" && ix.Where == "linked_event_id IS NULL")
+	}
+
+	if !partial {
+		t.Fatalf("partial index: %+v", ev.Indexes)
+	}
+
+	if len(ev.Triggers) != 1 || !strings.Contains(ev.Triggers[0].Function, "INSERT INTO dp_p.seen") {
+		t.Fatalf("trigger function: %+v", ev.Triggers)
 	}
 
 	// The jsonb column is left out; rows come in key order.
