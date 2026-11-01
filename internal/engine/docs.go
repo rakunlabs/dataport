@@ -310,7 +310,7 @@ func LookupChosen(patterns []string, name string) bool {
 }
 
 func readLookup(ctx context.Context, d Driver, conn *sql.Conn, schema string, t DocTable) *LookupValues {
-	var cols []string
+	cols := make([]string, 0, len(t.Columns))
 
 	for _, c := range t.Columns {
 		switch baseType(c.Type) {

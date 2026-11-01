@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 
@@ -351,9 +352,7 @@ func (s *Server) changeDocExport(ctx context.Context, caller *mcpCaller, what st
 		t.Schemas = slices.Clone(t.Schemas)
 
 		notes := make(map[string]string, len(t.Notes))
-		for k, v := range t.Notes {
-			notes[k] = v
-		}
+		maps.Copy(notes, t.Notes)
 
 		t.Notes = notes
 		in.Targets = append(in.Targets, t)

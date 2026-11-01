@@ -24,7 +24,7 @@ type Later = {
   login: 'forClient';
   conn: 'useReadOnly' | 'allowWrites' | 'selfReadOnlyOn' | 'selfReadOnlyOff' | 'selfReadOnlyHint' | 'writeToggleHint' | 'selfReadOnlyTx';
   processes: 'mine' | 'mineHint';
-  docs: 'hubReadOnly' | 'snapshotReadOnly' | 'snapshotSystem';
+  docs: 'hubReadOnly' | 'snapshotReadOnly' | 'snapshotSystem' | 'partitioned' | 'partitionHint' | 'onPartitions' | 'indexWhere' | 'triggers' | 'disabled' | 'values';
   result: 'elapsed' | 'cancelling' | 'runningFor';
   query: 'runParallel';
   valuePanel: 'tab' | 'pick';

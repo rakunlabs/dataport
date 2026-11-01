@@ -1,4 +1,4 @@
-import type { ColumnInfo, ForeignKey, IndexInfo, Routine } from '@/lib/api/types/schema';
+import type { ColumnInfo, ForeignKey, IndexInfo, Routine, TriggerInfo } from '@/lib/api/types/schema';
 
 export interface DocColumn extends ColumnInfo {
   comment?: string;
@@ -21,7 +21,22 @@ export interface DocTable {
   indexes: IndexInfo[];
   foreign_keys: ForeignKey[];
   referenced_by: DocReference[];
+  triggers?: TriggerInfo[];
   definition?: string;
+  partition?: PartitionInfo;
+  // Rows of a table an admin chose to show, as text.
+  values?: { columns: string[]; rows: string[][] };
+}
+
+// How a partitioned table is split; its partitions are not documented.
+export interface PartitionInfo {
+  key: string;
+  count: number;
+  first?: string;
+  last?: string;
+  leaves?: number;
+  // Indexes made on partitions one by one, and on how many.
+  indexes?: (IndexInfo & { partitions: number })[];
 }
 
 export type AnomalyKind =

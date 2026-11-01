@@ -25,6 +25,8 @@ export interface IndexInfo {
   unique: boolean;
   primary: boolean;
   method?: string;
+  // The predicate of a partial index.
+  where?: string;
 }
 
 export interface ForeignKey {
@@ -43,6 +45,8 @@ export interface TriggerInfo {
   event: string;
   enabled: boolean;
   definition: string;
+  // The source of the function it runs, where the documentation read it.
+  function?: string;
 }
 
 export interface TableStructure {

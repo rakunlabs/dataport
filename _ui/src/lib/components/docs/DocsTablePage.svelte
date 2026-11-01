@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { TriangleAlert, KeyRound, Link, ArrowLeft, ArrowRight, Table2, ListTree, Network } from 'lucide-svelte';
-  import type { Anomaly, DocTable } from '@/lib/api/types';
+  import type { Anomaly, DocTable, IndexInfo } from '@/lib/api/types';
   import { openDiagram, openTableTab, type Tab } from '@/lib/stores/workspace.svelte';
   import { kindLabel, rows, td, th } from '@/lib/components/docs/docFormat';
 
@@ -42,6 +42,13 @@
       <button class="btn" onclick={() => openDiagram(tab.connectionId, tab.schema, true)}><Network size={14} /> {t('docs.showDiagram')}</button>
     </div>
     {#if current.comment}<p class="mt-2 text-sm whitespace-pre-line text-fg-2">{current.comment}</p>{/if}
+    {#if current.partition}
+      <p class="mt-2 text-sm text-fg-2">
+        {t('docs.partitioned', { key: current.partition.key, count: current.partition.count })}
+        {#if current.partition.first && current.partition.first !== current.partition.last}<span class="font-mono text-xs text-muted"> ({current.partition.first} … {current.partition.last})</span>{/if}
+      </p>
+      <p class="text-xs text-muted">{t('docs.partitionHint')}</p>
+    {/if}
   </div>
 
   {#if anomalies.length}
@@ -119,20 +126,51 @@
   {#if current.kind !== 'view'}
     <section>
       <h3 class="mb-2 text-sm font-semibold">{t('docs.col.indexes')}</h3>
-      {#if current.indexes.length}
+      {#if current.indexes.length || current.partition?.indexes?.length}
         <table class="w-full border-collapse text-sm">
           <thead class="text-xs text-fg-2"><tr class={th}><th>{t('docs.col.name')}</th><th>{t('docs.col.columns')}</th><th>{t('docs.col.unique')}</th></tr></thead>
           <tbody>
             {#each current.indexes as ix (ix.name)}
               <tr class={td}>
                 <td class="flex items-center gap-1.5">{#if ix.primary}<KeyRound size={12} class="text-warn" />{/if}{ix.name}</td>
-                <td class="font-mono text-xs">{ix.columns.join(', ')}</td>
+                <td class="font-mono text-xs">{@render indexColumns(ix)}</td>
+                <td class="text-xs">{ix.unique ? t('common.yes') : ''}</td>
+              </tr>
+            {/each}
+            {#each current.partition?.indexes ?? [] as ix (ix.name)}
+              <tr class={td}>
+                <td class="text-xs">{t('docs.onPartitions', { n: ix.partitions, total: current.partition?.leaves ?? 0 })} <span class="font-mono text-muted">{ix.name}</span></td>
+                <td class="font-mono text-xs">{@render indexColumns(ix)}</td>
                 <td class="text-xs">{ix.unique ? t('common.yes') : ''}</td>
               </tr>
             {/each}
           </tbody>
         </table>
       {:else}<p class="text-sm text-faint">{t('docs.none')}</p>{/if}
+    </section>
+  {/if}
+
+  {#if current.triggers?.length}
+    <section>
+      <h3 class="mb-2 text-sm font-semibold">{t('docs.triggers')}</h3>
+      {#each current.triggers as tr (tr.name)}
+        <p class="text-sm"><span class="font-mono">{tr.name}</span> <span class="text-xs text-muted">{tr.timing} {tr.event}{tr.enabled ? '' : ` · ${t('docs.disabled')}`}</span></p>
+        {#if tr.function}<pre class="mt-1 mb-3 max-h-80 overflow-auto rounded-md border border-line bg-sunken p-3 font-mono text-xs">{tr.function}</pre>{/if}
+      {/each}
+    </section>
+  {/if}
+
+  {#if current.values?.rows.length}
+    <section>
+      <h3 class="mb-2 text-sm font-semibold">{t('docs.values')}</h3>
+      <table class="w-full border-collapse text-sm">
+        <thead class="text-xs text-fg-2"><tr class={th}>{#each current.values.columns as c (c)}<th>{c}</th>{/each}</tr></thead>
+        <tbody>
+          {#each current.values.rows as r, i (i)}
+            <tr class={td}>{#each r as v, j (j)}<td class={j === 0 ? 'font-mono text-xs' : 'text-xs'}>{v}</td>{/each}</tr>
+          {/each}
+        </tbody>
+      </table>
     </section>
   {/if}
 
@@ -143,3 +181,7 @@
     </section>
   {/if}
 </div>
+
+{#snippet indexColumns(ix: IndexInfo)}
+  {ix.columns.join(', ')}{#if ix.method && ix.method !== 'btree'} <span class="text-muted">· {ix.method}</span>{/if}{#if ix.where} <span class="text-muted">{t('docs.indexWhere', { where: ix.where })}</span>{/if}
+{/snippet}
