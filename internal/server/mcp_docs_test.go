@@ -20,7 +20,8 @@ func TestWriteTableDocDetails(t *testing.T) {
 			{Name: "a", Columns: []string{"event_type"}, RefTable: "event_type", RefColumns: []string{"event_type"}},
 			{Name: "b", Columns: []string{"event_type"}, RefTable: "event_type", RefColumns: []string{"event_type"}},
 		},
-		Partition: &engine.PartitionInfo{Key: "RANGE (id)", Count: 3, First: "te_part_2021_10", Last: "te_part_2026_10"},
+		Partition: &engine.PartitionInfo{Key: "RANGE (id)", Count: 3, First: "te_part_2021_10", Last: "te_part_2026_10", Leaves: 3,
+			Indexes: []engine.PartitionIndex{{IndexInfo: engine.IndexInfo{Name: "te_part_2021_10_trx_type_idx", Columns: []string{"transaction_id", "event_type"}, Method: "btree"}, Partitions: 3}}},
 	}
 
 	out := tableDocsOut{
@@ -39,6 +40,8 @@ func TestWriteTableDocDetails(t *testing.T) {
 	for _, want := range []string{
 		"partitioned by RANGE (id), 3 partitions (te_part_2021_10 … te_part_2026_10)",
 		"index te_refs (refs) using gin\n",
+		"index on 3 of 3 partitions (transaction_id, event_type), e.g. te_part_2021_10_trx_type_idx\n",
+		"A filter on the partition key reads only the partitions it matches",
 		"primary key te_pkey (id)\n",
 		"trigger check_originators BEFORE INSERT -> func_check_unique_originators_id()",
 		"design notes: no_fk_relations",

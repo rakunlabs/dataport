@@ -187,7 +187,7 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 			fmt.Fprintf(b, " (%s … %s)", p.First, p.Last)
 		}
 
-		b.WriteString("; query the parent table, partitions are not listed\n")
+		b.WriteString("; query the parent table, partitions are not listed. A filter on the partition key reads only the partitions it matches; other filters read every partition\n")
 	}
 
 	refs := map[string]string{}
@@ -267,6 +267,29 @@ func writeTableDoc(b *strings.Builder, dbType string, t engine.DocTable, out *ta
 
 	if len(uniques) > 0 {
 		b.WriteString("unique keys (upsert targets): " + strings.Join(uniques, ", ") + "\n")
+	}
+
+	// Indexes made on partitions one by one: queries on the table use them
+	// in the partitions that have them.
+	if p := t.Partition; p != nil {
+		for _, ix := range p.Indexes {
+			kind := "index"
+			if ix.Unique {
+				kind = "unique index"
+			}
+
+			fmt.Fprintf(b, "%s on %d of %d partitions (%s)", kind, ix.Partitions, p.Leaves, strings.Join(ix.Columns, ", "))
+
+			if m := strings.ToLower(ix.Method); m != "" && m != "btree" {
+				b.WriteString(" using " + m)
+			}
+
+			if ix.Where != "" {
+				b.WriteString(" where " + ix.Where)
+			}
+
+			b.WriteString(", e.g. " + ix.Name + "\n")
+		}
 	}
 
 	shownJoins := map[string]bool{}

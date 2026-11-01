@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rakunlabs/dataport/internal/store"
 )
@@ -67,7 +68,7 @@ const (
 	maxLookupColumns = 6
 	maxLookupValue   = 80
 	// maxTriggerFunction bounds the source of a trigger's function kept in
-	// the documentation of its table.
+	// the documentation of its table; a longer one is cut, with a note.
 	maxTriggerFunction = 3000
 )
 
@@ -175,6 +176,12 @@ func (m *Manager) SchemaDoc(ctx context.Context, c *store.Connection, password, 
 			}
 
 			if p, ok := parts[o.Name]; ok {
+				if pi, ok := d.(PartitionIndexer); ok {
+					if list, leaves, err := pi.PartitionIndexes(ctx, conn, schema, o.Name); err == nil {
+						p.Indexes, p.Leaves = list, leaves
+					}
+				}
+
 				t.Partition = &p
 			}
 
@@ -244,10 +251,7 @@ func docTable(ctx context.Context, d Driver, s Structurer, cm Commenter, conn *s
 		if ts, ok := d.(TriggerSourcer); ok && len(t.Triggers) > 0 {
 			if src, err := ts.TriggerFunctions(ctx, conn, schema, o.Name); err == nil {
 				for i, tr := range t.Triggers {
-					// A long function would crowd out the table it explains.
-					if f := strings.TrimSpace(src[tr.Name]); len(f) <= maxTriggerFunction {
-						t.Triggers[i].Function = f
-					}
+					t.Triggers[i].Function = compactSource(src[tr.Name], maxTriggerFunction)
 				}
 			}
 		}
@@ -406,6 +410,46 @@ func lookupText(v any) string {
 	return s
 }
 
+// compactSource drops trailing spaces and runs of blank lines from routine
+// source, which editors often leave by the hundred, and cuts what remains
+// at max bytes on a line, saying how much was left out: the start of a
+// long function still tells what it does.
+func compactSource(src string, max int) string {
+	lines := strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(lines))
+	blank := false
+
+	for _, l := range lines {
+		l = strings.TrimRight(l, " \t")
+		if l == "" {
+			if blank || len(out) == 0 {
+				continue
+			}
+
+			blank = true
+		} else {
+			blank = false
+		}
+
+		out = append(out, l)
+	}
+
+	s := strings.TrimSpace(strings.Join(out, "\n"))
+	if len(s) <= max {
+		return s
+	}
+
+	cut := strings.LastIndexByte(s[:max], '\n')
+	if cut <= 0 {
+		cut = max
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+	}
+
+	return s[:cut] + fmt.Sprintf("\n-- … %d more characters; read the whole function with its definition", len(s)-cut)
+}
+
 func linkReferences(tables []DocTable, schema string) {
 	at := map[string]int{}
 	for i, t := range tables {
@@ -500,6 +544,74 @@ type PartitionInfo struct {
 	Count int    `json:"count"`
 	First string `json:"first,omitempty"`
 	Last  string `json:"last,omitempty"`
+	// Leaves counts the partitions that hold rows, below every level.
+	Leaves int `json:"leaves,omitempty"`
+	// Indexes are those created on partitions one by one rather than on
+	// the table, so the table's own list leaves them out; a query on the
+	// table still uses them.
+	Indexes []PartitionIndex `json:"indexes,omitempty"`
+}
+
+// PartitionIndex is an index found on some partitions of a table: one of
+// them by name, and on how many partitions it is.
+type PartitionIndex struct {
+	IndexInfo
+
+	Partitions int `json:"partitions"`
+}
+
+// PartitionIndexer is implemented by drivers that read the indexes of a
+// partitioned table's partitions that the table itself does not declare.
+type PartitionIndexer interface {
+	PartitionIndexes(ctx context.Context, q Querier, schema, table string) ([]PartitionIndex, int, error)
+}
+
+func (postgresDriver) PartitionIndexes(ctx context.Context, q Querier, schema, table string) ([]PartitionIndex, int, error) {
+	rows, err := q.QueryContext(ctx, `WITH parent AS (
+  SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'p'),
+leaves AS (
+  SELECT pt.relid FROM parent, pg_catalog.pg_partition_tree(parent.oid) pt WHERE pt.isleaf),
+own AS (
+  SELECT i.relname AS name, ix.indisunique AS uniq, am.amname AS method,
+    COALESCE((SELECT string_agg(COALESCE(a.attname, pg_catalog.pg_get_indexdef(ix.indexrelid, k.ord::int, true)), chr(31) ORDER BY k.ord)
+      FROM unnest(ix.indkey::int2[]) WITH ORDINALITY k(attnum, ord)
+      LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = k.attnum AND k.attnum > 0
+      WHERE k.ord <= ix.indnkeyatts), '') AS cols,
+    COALESCE(pg_catalog.pg_get_expr(ix.indpred, ix.indrelid, true), '') AS pred
+  FROM leaves l
+  JOIN pg_catalog.pg_index ix ON ix.indrelid = l.relid
+  JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
+  JOIN pg_catalog.pg_am am ON am.oid = i.relam
+  WHERE NOT ix.indisprimary
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inh WHERE inh.inhrelid = ix.indexrelid))
+SELECT min(name), uniq, method, cols, pred, count(*), (SELECT count(*) FROM leaves)
+FROM own GROUP BY uniq, method, cols, pred ORDER BY count(*) DESC, cols`, schema, table)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var (
+		list   []PartitionIndex
+		leaves int
+	)
+
+	for rows.Next() {
+		var (
+			ix   PartitionIndex
+			cols string
+		)
+
+		if err := rows.Scan(&ix.Name, &ix.Unique, &ix.Method, &cols, &ix.Where, &ix.Partitions, &leaves); err != nil {
+			return nil, 0, err
+		}
+
+		ix.Columns = splitList(cols)
+		list = append(list, ix)
+	}
+
+	return list, leaves, rows.Err()
 }
 
 func (postgresDriver) Partitions(ctx context.Context, q Querier, schema string) (map[string]PartitionInfo, error) {

@@ -338,7 +338,8 @@ keys and comments; the relationships; estimated row counts from the
 database's statistics; and a page per table with what it references, what
 references it, its indexes and a view's definition. A partitioned table is
 documented once, with its partition key and count and rows summed over its
-partitions; its partitions are not listed. It reads the catalog, as the
+partitions, and the indexes made on its partitions one by one (on how many
+of them); its partitions are not listed. It reads the catalog, as the
 signed-in user, and no table data except the rows of the tables an admin
 lists for the connection under *Settings → Documentation* (*Show the rows of
 these tables*: `schema.table` or a table name, `*` as wildcard), such as code
@@ -348,8 +349,9 @@ rebuilds the connection's saved documentation, so rows of a table no longer
 listed disappear, also from the search push. Indexes show their
 method where it is not B-tree and the predicate of a partial index; a
 partial unique index is not offered as an upsert target. On PostgreSQL a
-trigger comes with the source of the function it runs, up to 3000
-characters.
+trigger comes with the source of the function it runs, without trailing
+spaces and blank runs, cut after 3000 characters with a note of what was
+left out.
 
 It also lists SchemaSpy's anomalies: tables without a primary key, foreign
 keys without an index, implied relationships (`customer_id` next to

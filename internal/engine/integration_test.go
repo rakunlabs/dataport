@@ -621,7 +621,11 @@ ANALYZE dp_p.ev_part_1; ANALYZE dp_p.ev_part_2; ANALYZE dp_p.ev_part_3; ANALYZE 
 CREATE INDEX ev_unlinked ON dp_p.ev (id) WHERE linked_event_id IS NULL;
 CREATE TABLE dp_p.seen (id bigint PRIMARY KEY);
 CREATE FUNCTION dp_p.remember() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO dp_p.seen VALUES (NEW.id); RETURN NEW; END $$;
-CREATE TRIGGER ev_remember AFTER INSERT ON dp_p.ev FOR EACH ROW EXECUTE FUNCTION dp_p.remember();`, false)
+CREATE TRIGGER ev_remember AFTER INSERT ON dp_p.ev FOR EACH ROW EXECUTE FUNCTION dp_p.remember();
+CREATE INDEX ev_part_1_type ON dp_p.ev_part_1 (event_type);
+CREATE INDEX ev_part_2_type ON dp_p.ev_part_2 (event_type);
+CREATE INDEX ev_part_3_type ON dp_p.ev_part_3 (event_type);
+CREATE INDEX ev_part_3_linked ON dp_p.ev_part_3 (linked_event_id);`, false)
 
 	doc, err := m.SchemaDoc(context.Background(), c, "pw", "dp_p", []string{"event_type"})
 	if err != nil {
@@ -666,6 +670,18 @@ CREATE TRIGGER ev_remember AFTER INSERT ON dp_p.ev FOR EACH ROW EXECUTE FUNCTION
 
 	if !partial {
 		t.Fatalf("partial index: %+v", ev.Indexes)
+	}
+
+	// Indexes made on partitions one by one, and the key they cover.
+	if p := ev.Partition; p.Leaves != 3 || len(p.Indexes) != 2 || p.Indexes[0].Partitions != 3 || p.Indexes[0].Columns[0] != "event_type" ||
+		p.Indexes[1].Partitions != 1 || p.Indexes[1].Columns[0] != "linked_event_id" {
+		t.Fatalf("partition indexes: %+v", ev.Partition)
+	}
+
+	for _, a := range doc.Anomalies {
+		if a.Kind == AnomalyUnindexedFK && a.Table == "ev" && a.Columns[0] == "event_type" {
+			t.Fatal("a key indexed in every partition reported as unindexed")
+		}
 	}
 
 	if len(ev.Triggers) != 1 || !strings.Contains(ev.Triggers[0].Function, "INSERT INTO dp_p.seen") {

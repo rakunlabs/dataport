@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -62,5 +63,23 @@ func TestLookupConventionsAndPartialIndexes(t *testing.T) {
 
 	if un := unindexedFKs(events); len(un) != 1 {
 		t.Fatalf("a partial index covered a foreign key: %+v", un)
+	}
+}
+
+func TestCompactSource(t *testing.T) {
+	src := "CREATE FUNCTION f()   \r\nAS $$      \n\n\n\nBEGIN        \n  RETURN NEW;    \nEND $$   \n\n"
+	if got := compactSource(src, 1000); got != "CREATE FUNCTION f()\nAS $$\n\nBEGIN\n  RETURN NEW;\nEND $$" {
+		t.Fatalf("compact: %q", got)
+	}
+
+	long := strings.Repeat("line of code\n", 400)
+	got := compactSource(long, 100)
+	if !strings.HasPrefix(got, "line of code\nline of code\n") || !strings.Contains(got, "more characters; read the whole function") || len(got) > 200 {
+		t.Fatalf("cut: %q", got)
+	}
+
+	// A single long line is cut on a character boundary.
+	if got := compactSource(strings.Repeat("ç", 100), 51); !strings.HasPrefix(got, strings.Repeat("ç", 25)+"\n--") {
+		t.Fatalf("rune cut: %q", got)
 	}
 }

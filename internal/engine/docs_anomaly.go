@@ -81,6 +81,13 @@ func unindexedFKs(t DocTable) []Anomaly {
 			return ix.Where == "" && len(ix.Columns) >= len(fk.Columns) && sameSet(ix.Columns[:len(fk.Columns)], fk.Columns)
 		})
 
+		// Or every partition has one of its own.
+		if p := t.Partition; !covered && p != nil && p.Leaves > 0 {
+			covered = slices.ContainsFunc(p.Indexes, func(ix PartitionIndex) bool {
+				return ix.Partitions == p.Leaves && ix.Where == "" && len(ix.Columns) >= len(fk.Columns) && sameSet(ix.Columns[:len(fk.Columns)], fk.Columns)
+			})
+		}
+
 		// A key declared twice needs one index; duplicate_foreign_key
 		// reports the second declaration.
 		key := strings.Join(fk.Columns, "\x1f") + "\x00" + fk.RefTable
