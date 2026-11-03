@@ -110,6 +110,9 @@ func (s *Server) dispatchDocsAt(ctx context.Context, at time.Time) error {
 		return nil
 	}
 	defer s.docDispatch.Unlock()
+	if s.docsOff() {
+		return nil
+	}
 	v, err := s.loadDocSchedule(ctx)
 	if err != nil || v.active() == "" {
 		return err

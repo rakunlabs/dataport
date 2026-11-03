@@ -55,7 +55,11 @@ type QueryLogFilter struct {
 	Search       string
 	Source       string
 	Before       int64
-	Limit        int
+	// From and To keep entries made in [From, To), in Unix milliseconds;
+	// zero leaves that side open.
+	From  int64
+	To    int64
+	Limit int
 }
 
 func (s *Store) ListQueryLog(ctx context.Context, f QueryLogFilter) ([]*QueryLog, error) {
@@ -87,6 +91,16 @@ func (s *Store) ListQueryLog(ctx context.Context, f QueryLogFilter) ([]*QueryLog
 	if f.Before > 0 {
 		where = append(where, "created_at < ?")
 		args = append(args, f.Before)
+	}
+
+	if f.From > 0 {
+		where = append(where, "created_at >= ?")
+		args = append(args, f.From)
+	}
+
+	if f.To > 0 {
+		where = append(where, "created_at < ?")
+		args = append(args, f.To)
 	}
 
 	if f.Limit <= 0 || f.Limit > 500 {

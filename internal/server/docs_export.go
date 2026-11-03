@@ -243,6 +243,10 @@ func (s *Server) docExportStatusNow(ctx context.Context) docExportStatus {
 // started after it, so a scheduled occurrence exports once, also with
 // replicas. It does nothing while an export runs on this instance.
 func (s *Server) exportDocs(ctx context.Context, since int64) {
+	if s.docsOff() {
+		return
+	}
+
 	if !s.docExport.TryLock() {
 		return
 	}

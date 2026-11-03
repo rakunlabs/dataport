@@ -52,6 +52,9 @@ import { errorMessage, toast } from '@/lib/stores/toast.svelte';
 import { reviewSQL } from '@/lib/stores/review.svelte';
 import * as sqlx from '@/lib/helper/treeSql';
 import type { ConnectionView, DbObject, Routine } from '@/lib/api/types';
+import { session } from '@/lib/stores/session.svelte';
+
+const docsOff = () => !!session.user?.docs_off;
 
 // The groups shown under a schema, in DBX's order.
 export type GroupKey = 'table' | 'view' | 'materialized_view' | 'foreign_table' | 'procedure' | 'function' | 'package' | 'sequence';
@@ -179,7 +182,7 @@ export function schemaMenu(c: ConnectionView, schema: string): MenuItem[] {
   return [
     { label: t('tree.newQuery'), icon: FilePlus2, action: () => openQueryTab(c.id, sqlx.useSchemaSQL(c.db_type, schema)) },
     { label: t('tree.viewDiagram'), icon: Network, action: () => openDiagram(c.id, schema) },
-    { label: t('tree.viewDocs'), icon: BookOpen, action: () => openDocs(c.id, schema) },
+    { label: t('tree.viewDocs'), icon: BookOpen, hidden: docsOff(), action: () => openDocs(c.id, schema) },
     { label: t('tree.copyName'), icon: Copy, action: () => copyText(schema) },
     { label: t('sidebar.refresh'), icon: RefreshCw, action: () => refreshSchema(c.id, schema) },
     { sep: true },
@@ -208,7 +211,7 @@ export function objectMenu(c: ConnectionView, schema: string, o: DbObject): Menu
     { label: t('tree.ddl'), icon: FileCode, action: () => openTableTab(c.id, schema, o.name, 'ddl') },
     { label: t('tree.copyName'), icon: Copy, action: () => copyText(o.name) },
     { label: t('tree.viewDiagram'), icon: Network, action: () => openDiagram(c.id, schema) },
-    { label: t('tree.viewDocs'), icon: BookOpen, action: () => openDocs(c.id, schema, o.name) },
+    { label: t('tree.viewDocs'), icon: BookOpen, hidden: docsOff(), action: () => openDocs(c.id, schema, o.name) },
     { sep: true },
     { label: t('tree.exportTable'), icon: Download, action: () => openToolDialog('export', c.id, schema, [o.name]) },
     { label: t('tree.importInto'), icon: Upload, hidden: ro || !isTable, action: () => openToolDialog('import', c.id, schema, [o.name]) },

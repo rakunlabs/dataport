@@ -133,3 +133,47 @@ func TestServerSettings(t *testing.T) {
 		t.Fatalf("restart: %+v %+v", again.mcpCfg(), again.queryCfg())
 	}
 }
+
+// A user linked to single sign-on has no dataport password: the profile
+// says so, and neither the user nor an admin can set one.
+func TestSSOUserPassword(t *testing.T) {
+	ctx := context.Background()
+	env := newMCPEnv(t, "")
+	s := env.srv
+
+	if err := env.st.LinkIdentity(ctx, &store.Identity{Provider: "keycloak", Subject: "s1", UserID: env.alice.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	if me := s.toMe(ctx, env.alice); len(me.SSO) != 1 || me.SSO[0] != "keycloak" {
+		t.Fatalf("profile: %+v", me.SSO)
+	}
+	if me := s.toMe(ctx, env.bob); len(me.SSO) != 0 {
+		t.Fatalf("local user: %+v", me.SSO)
+	}
+
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"current":"x-password","new":"another-password"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, env.alice))
+	w := httptest.NewRecorder()
+	s.changePassword(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("sso user changed the password: %d %s", w.Code, w.Body)
+	}
+
+	hash, _ := auth.HashPassword("x-password")
+	root := &store.User{Username: "root", PasswordHash: hash, Role: store.RoleAdmin}
+	if err := env.st.CreateUser(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"username": "alice", "role": "user", "password": "a-new-password", "group_ids": []string{}})
+	r = httptest.NewRequest(http.MethodPut, "/", strings.NewReader(string(body)))
+	r.Header.Set("Content-Type", "application/json")
+	r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, root))
+	r.SetPathValue("id", env.alice.ID)
+	w = httptest.NewRecorder()
+	s.updateUser(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("admin set a password for an sso user: %d %s", w.Code, w.Body)
+	}
+}

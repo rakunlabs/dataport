@@ -97,7 +97,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 			"documents, and how the last push went. Search agents decide from the description whether to look in the " +
 			"collection, and the notes tell them what a schema is for, such as the repositories or services that use it.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, docExportSettingsOut, error) {
-		if _, err := mcpAdminCaller(req); err != nil {
+		if _, err := s.mcpAdminCaller(req); err != nil {
 			return nil, docExportSettingsOut{}, err
 		}
 
@@ -114,7 +114,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 		Description: "Admin only. List, per connection, the tables whose rows the documentation shows (schema.table " +
 			"patterns). The documentation reads no other table data.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in docLookupsIn) (*mcp.CallToolResult, docLookupsOut, error) {
-		if _, err := mcpAdminCaller(req); err != nil {
+		if _, err := s.mcpAdminCaller(req); err != nil {
 			return nil, docLookupsOut{}, err
 		}
 
@@ -134,7 +134,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 			"Say which databases and schemas it holds and which services or repositories use them, so search agents " +
 			"know when to look there. Empty restores the default. Sent to the search index on the next push.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in docExportDescriptionIn) (*mcp.CallToolResult, docExportChangedOut, error) {
-		caller, err := mcpAdminCaller(req)
+		caller, err := s.mcpAdminCaller(req)
 		if err != nil {
 			return nil, docExportChangedOut{}, err
 		}
@@ -160,7 +160,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 			"the repositories or services that own, write or read the schema, and what it holds. Keep it short. " +
 			"An empty note removes it. The connection must already be pushed; add connections in the admin UI.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in docExportNoteIn) (*mcp.CallToolResult, docExportChangedOut, error) {
-		caller, err := mcpAdminCaller(req)
+		caller, err := s.mcpAdminCaller(req)
 		if err != nil {
 			return nil, docExportChangedOut{}, err
 		}
@@ -203,7 +203,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 			"data. Show the user the list and get their approval before saving. Saving rebuilds the connection's saved " +
 			"documentation in the background and pushes it.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in docSetLookupsIn) (*mcp.CallToolResult, docExportChangedOut, error) {
-		caller, err := mcpAdminCaller(req)
+		caller, err := s.mcpAdminCaller(req)
 		if err != nil {
 			return nil, docExportChangedOut{}, err
 		}
@@ -248,7 +248,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 		Description: "Admin only. Push the documentation to the search index now, in the background, sending every " +
 			"item again. Check its outcome with docs_export_settings.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, docExportChangedOut, error) {
-		caller, err := mcpAdminCaller(req)
+		caller, err := s.mcpAdminCaller(req)
 		if err != nil {
 			return nil, docExportChangedOut{}, err
 		}
@@ -272,7 +272,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 	})
 }
 
-func mcpAdminCaller(req *mcp.CallToolRequest) (*mcpCaller, error) {
+func (s *Server) mcpAdminCaller(req *mcp.CallToolRequest) (*mcpCaller, error) {
 	caller, err := callerOf(req)
 	if err != nil {
 		return nil, err
@@ -280,6 +280,12 @@ func mcpAdminCaller(req *mcp.CallToolRequest) (*mcpCaller, error) {
 
 	if !mcpAdmin(caller) {
 		return nil, errMCPAdminOnly
+	}
+
+	// The admin tools are about documentation, which may have been turned
+	// off since the session started.
+	if s.docsOff() {
+		return nil, errDocsDisabled
 	}
 
 	return caller, nil

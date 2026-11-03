@@ -401,6 +401,10 @@ func (s *Server) buildSchemaDocs(ctx context.Context, connectionID string, schem
 // buildConnectionDocsInBackground starts buildConnectionDocs. It returns
 // false while documentation is being refreshed here.
 func (s *Server) buildConnectionDocsInBackground(dc *store.DocConnection, by *store.User) bool {
+	if s.docsOff() {
+		return false
+	}
+
 	if !s.docDispatch.TryLock() {
 		return false
 	}
@@ -425,6 +429,10 @@ func (s *Server) buildConnectionDocsInBackground(dc *store.DocConnection, by *st
 // are listed again with the settings saved last, so an older save never
 // wins over a newer one.
 func (s *Server) docsChanged(connectionID string, by *store.User) {
+	if s.docsOff() {
+		return
+	}
+
 	ctx := s.notebookContext
 	s.notebookWorkers.Add(1)
 

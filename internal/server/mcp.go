@@ -153,9 +153,9 @@ func (s *Server) newMCPServer(caller *mcpCaller) *mcp.Server {
 		Instructions: s.mcpInstructions(caller, notebooks),
 	})
 
-	s.registerMCPTools(server, caller.token.ReadOnly, notebooks)
+	s.registerMCPTools(server, caller.token.ReadOnly, notebooks, !s.docsOff())
 
-	if mcpAdmin(caller) {
+	if mcpAdmin(caller) && !s.docsOff() {
 		s.registerMCPAdminTools(server, caller.token.ReadOnly)
 	}
 

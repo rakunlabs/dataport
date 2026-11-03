@@ -171,7 +171,7 @@ type queryOut struct {
 // ////////////////////////////////////////////
 // tools
 
-func (s *Server) registerMCPTools(server *mcp.Server, readOnly, notebooks bool) {
+func (s *Server) registerMCPTools(server *mcp.Server, readOnly, notebooks, docs bool) {
 	closed := false
 	destructive := true
 
@@ -297,87 +297,90 @@ func (s *Server) registerMCPTools(server *mcp.Server, readOnly, notebooks bool) 
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text + "\n" + out.Compact}}}, out, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        mcpToolPrefix + "table_docs",
-		Annotations: ro("Document tables"),
-		Description: "Full documentation of the tables you are about to write code or SQL for: every column with type, " +
-			"nullability, default, primary key and comment; the foreign keys it holds and the tables that reference it, " +
-			"with ready JOIN clauses; indexes and unique keys; triggers; a view's definition; the estimated row count; and " +
-			"design problems found in it. The columns of directly related tables come along, so joins and ORM models use " +
-			"the real names. Uses a saved snapshot with generated_at and refresh status; may be older than the live schema. " +
-			"Of the table data it holds only the rows of small tables an administrator chose, such as status codes and their names.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in tableDocsIn) (*mcp.CallToolResult, tableDocsOut, error) {
-		if len(in.Tables) == 0 || len(in.Tables) > maxTableDocs {
-			return nil, tableDocsOut{}, fmt.Errorf("pass 1 to %d tables", maxTableDocs)
-		}
-
-		g, _, caller, schema, err := s.mcpDocGrant(ctx, req, in.Connection, in.Schema)
-		if err != nil {
-			return nil, tableDocsOut{}, err
-		}
-
-		saved, err := s.documentation(ctx, store.DocKey{ConnectionID: g.Connection.ID, UserID: caller.user.ID, Schema: schema}, false)
-		if err != nil {
-			return nil, tableDocsOut{}, mcpEngineError(err)
-		}
-
-		out := tableDocs(saved.Document, in.Tables, in.Related == nil || *in.Related)
-		out.Connection, out.Schema = g.Connection.Name, schema
-		out.GeneratedAt, out.Status = saved.Document.GeneratedAt, saved.Status
-
-		// Triggers change what a write does, so code touching the table
-		// should know them. They come from the same saved snapshot.
-		for _, t := range out.Tables {
-			if t.Kind != "table" {
-				continue
+	// Documentation an admin turned off gives no documentation tools.
+	if docs {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        mcpToolPrefix + "table_docs",
+			Annotations: ro("Document tables"),
+			Description: "Full documentation of the tables you are about to write code or SQL for: every column with type, " +
+				"nullability, default, primary key and comment; the foreign keys it holds and the tables that reference it, " +
+				"with ready JOIN clauses; indexes and unique keys; triggers; a view's definition; the estimated row count; and " +
+				"design problems found in it. The columns of directly related tables come along, so joins and ORM models use " +
+				"the real names. Uses a saved snapshot with generated_at and refresh status; may be older than the live schema. " +
+				"Of the table data it holds only the rows of small tables an administrator chose, such as status codes and their names.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, in tableDocsIn) (*mcp.CallToolResult, tableDocsOut, error) {
+			if len(in.Tables) == 0 || len(in.Tables) > maxTableDocs {
+				return nil, tableDocsOut{}, fmt.Errorf("pass 1 to %d tables", maxTableDocs)
 			}
 
-			if len(t.Triggers) > 0 {
-				if out.Triggers == nil {
-					out.Triggers = map[string][]engine.TriggerInfo{}
+			g, _, caller, schema, err := s.mcpDocGrant(ctx, req, in.Connection, in.Schema)
+			if err != nil {
+				return nil, tableDocsOut{}, err
+			}
+
+			saved, err := s.documentation(ctx, store.DocKey{ConnectionID: g.Connection.ID, UserID: caller.user.ID, Schema: schema}, false)
+			if err != nil {
+				return nil, tableDocsOut{}, mcpEngineError(err)
+			}
+
+			out := tableDocs(saved.Document, in.Tables, in.Related == nil || *in.Related)
+			out.Connection, out.Schema = g.Connection.Name, schema
+			out.GeneratedAt, out.Status = saved.Document.GeneratedAt, saved.Status
+
+			// Triggers change what a write does, so code touching the table
+			// should know them. They come from the same saved snapshot.
+			for _, t := range out.Tables {
+				if t.Kind != "table" {
+					continue
 				}
 
-				out.Triggers[t.Name] = t.Triggers
+				if len(t.Triggers) > 0 {
+					if out.Triggers == nil {
+						out.Triggers = map[string][]engine.TriggerInfo{}
+					}
+
+					out.Triggers[t.Name] = t.Triggers
+				}
 			}
-		}
 
-		out.Doc = tableDocsText(g.Connection.DBType, &out)
+			out.Doc = tableDocsText(g.Connection.DBType, &out)
 
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: out.Doc}}}, out, nil
-	})
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: out.Doc}}}, out, nil
+		})
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        mcpToolPrefix + "schema_report",
-		Annotations: ro("Schema report"),
-		Description: "Map a whole schema like SchemaSpy: every table with its estimated row count, which tables it references and " +
-			"which reference it, and design anomalies (tables without primary key, foreign keys without an index, implied " +
-			"relationships no key declares, orphan tables, duplicate indexes and more). Use it to find your way around or " +
-			"review a design; for the details of the tables you work on call " + mcpToolPrefix + "table_docs. Uses a saved snapshot with generated_at; never reads table data.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in schemaReportIn) (*mcp.CallToolResult, schemaReportOut, error) {
-		g, _, caller, schema, err := s.mcpDocGrant(ctx, req, in.Connection, in.Schema)
-		if err != nil {
-			return nil, schemaReportOut{}, err
-		}
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        mcpToolPrefix + "schema_report",
+			Annotations: ro("Schema report"),
+			Description: "Map a whole schema like SchemaSpy: every table with its estimated row count, which tables it references and " +
+				"which reference it, and design anomalies (tables without primary key, foreign keys without an index, implied " +
+				"relationships no key declares, orphan tables, duplicate indexes and more). Use it to find your way around or " +
+				"review a design; for the details of the tables you work on call " + mcpToolPrefix + "table_docs. Uses a saved snapshot with generated_at; never reads table data.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, in schemaReportIn) (*mcp.CallToolResult, schemaReportOut, error) {
+			g, _, caller, schema, err := s.mcpDocGrant(ctx, req, in.Connection, in.Schema)
+			if err != nil {
+				return nil, schemaReportOut{}, err
+			}
 
-		saved, err := s.documentation(ctx, store.DocKey{ConnectionID: g.Connection.ID, UserID: caller.user.ID, Schema: schema}, false)
-		if err != nil {
-			return nil, schemaReportOut{}, mcpEngineError(err)
-		}
+			saved, err := s.documentation(ctx, store.DocKey{ConnectionID: g.Connection.ID, UserID: caller.user.ID, Schema: schema}, false)
+			if err != nil {
+				return nil, schemaReportOut{}, mcpEngineError(err)
+			}
 
-		doc := saved.Document
-		out := schemaReportOut{
-			GeneratedAt: doc.GeneratedAt, Status: saved.Status,
-			Connection: g.Connection.Name, Schema: schema, TableCount: doc.TableCount, Truncated: doc.Truncated,
-			Anomalies: doc.Anomalies, Report: schemaReportText(doc),
-		}
+			doc := saved.Document
+			out := schemaReportOut{
+				GeneratedAt: doc.GeneratedAt, Status: saved.Status,
+				Connection: g.Connection.Name, Schema: schema, TableCount: doc.TableCount, Truncated: doc.Truncated,
+				Anomalies: doc.Anomalies, Report: schemaReportText(doc),
+			}
 
-		head := fmt.Sprintf("connection: %s\nschema: %s\ntables: %d\n", out.Connection, schema, doc.TableCount) + docFreshness(doc.GeneratedAt, saved.Status)
-		if doc.Truncated {
-			head += fmt.Sprintf("truncated: the first %d tables are analysed\n", len(doc.Tables))
-		}
+			head := fmt.Sprintf("connection: %s\nschema: %s\ntables: %d\n", out.Connection, schema, doc.TableCount) + docFreshness(doc.GeneratedAt, saved.Status)
+			if doc.Truncated {
+				head += fmt.Sprintf("truncated: the first %d tables are analysed\n", len(doc.Tables))
+			}
 
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: head + "\n" + out.Report}}}, out, nil
-	})
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: head + "\n" + out.Report}}}, out, nil
+		})
+	}
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: mcpToolPrefix + "query",

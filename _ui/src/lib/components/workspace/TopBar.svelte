@@ -1,6 +1,7 @@
 <script lang="ts">
   import { link } from 'svelte-spa-router';
-  import { FilePlus2, History, Bookmark, Moon, Sun, Monitor, Settings, LogOut, KeyRound, ChevronDown, Bot, NotebookPen, BookOpen } from 'lucide-svelte';
+  import { FilePlus2, History, Bookmark, Moon, Sun, Monitor, Settings, LogOut, KeyRound, ChevronDown, Bot, NotebookPen, BookOpen, Sparkles } from 'lucide-svelte';
+  import { assistant, assistantAvailable, toggleAssistant } from '@/lib/stores/assistant.svelte';
   import Logo from '@/lib/components/ui/Logo.svelte';
   import { logout, session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
@@ -28,7 +29,10 @@
   }
 
   function newQuery() {
-    const conn = activeTab()?.connectionId ?? workspaceConnections()[0]?.id;
+    // Settings, notebooks and the docs page have no connection of their own.
+    const visible = workspaceConnections();
+    const own = activeTab()?.connectionId;
+    const conn = own && visible.some((c) => c.id === own) ? own : visible[0]?.id;
     if (conn) openQueryTab(conn);
   }
 
@@ -57,9 +61,11 @@
 
   <div class="flex-1"></div>
 
-  <button class="btn" onclick={openDocsHub} aria-pressed={activeTab()?.kind === 'docsHub'}>
-    <BookOpen size={14} /> {t('app.docs')}
-  </button>
+  {#if !session.user?.docs_off}
+    <button class="btn" onclick={openDocsHub} aria-pressed={activeTab()?.kind === 'docsHub'}>
+      <BookOpen size={14} /> {t('app.docs')}
+    </button>
+  {/if}
 
   {#if session.user?.can_use_notebooks}
     <button class="btn" onclick={openNotebooks} aria-pressed={activeTab()?.kind === 'notebooks'}>
@@ -67,6 +73,20 @@
     </button>
   {/if}
 
+  {#if assistantAvailable()}
+    <button
+      class="icon-btn relative {assistant.open ? 'text-accent' : ''}"
+      aria-pressed={assistant.open && !assistant.minimized}
+      class:bg-active={assistant.open && !assistant.minimized}
+      onclick={toggleAssistant}
+      title={t('assistant.title')}
+      aria-label={t('assistant.title')}
+    >
+      <Sparkles size={15} />
+      <!-- An answer is being written while the panel is out of sight. -->
+      {#if assistant.busy && (!assistant.open || assistant.minimized)}<span class="absolute top-1 right-1 size-1.5 animate-pulse rounded-full bg-accent" aria-hidden="true"></span>{/if}
+    </button>
+  {/if}
   <button
     class="icon-btn"
     aria-pressed={ws.rightPanel === 'history'}
@@ -124,6 +144,7 @@
           <div class="truncate text-sm font-medium">{name}</div>
           <div class="truncate text-xs text-muted">
             {session.user?.username} · {session.user?.role === 'admin' ? t('admin.user.roleAdmin') : t('admin.user.roleUser')}
+            · {session.user?.sso?.length ? t('account.ssoShort', { provider: session.user.sso.join(', ') }) : t('account.localShort')}
           </div>
         </div>
         <div class="menu-sep"></div>
@@ -138,16 +159,18 @@
         </div>
 
         <div class="menu-sep"></div>
-        <button
-          class="menu-item"
-          role="menuitem"
-          onclick={() => {
-            passwordOpen = true;
-            menuOpen = false;
-          }}
-        >
-          <KeyRound size={14} /> {t('app.changePassword')}
-        </button>
+        {#if !session.user?.sso?.length}
+          <button
+            class="menu-item"
+            role="menuitem"
+            onclick={() => {
+              passwordOpen = true;
+              menuOpen = false;
+            }}
+          >
+            <KeyRound size={14} /> {t('app.changePassword')}
+          </button>
+        {/if}
         <button
           class="menu-item"
           role="menuitem"

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { keepEdits } from '@/lib/stores/edits.svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity, WrapText, AlignLeft, ListVideo } from 'lucide-svelte';
+  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity, WrapText, AlignLeft, ListVideo, SlidersHorizontal } from 'lucide-svelte';
   import ExplainDialog from '@/lib/components/dialogs/ExplainDialog.svelte';
   import type { SQLNamespace } from '@codemirror/lang-sql';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
@@ -19,10 +19,23 @@
   import TreeMenu, { type MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
   import { fmtNumber } from '@/lib/i18n/index.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
+  import { registerEditor } from '@/lib/stores/editors.svelte';
 
   let { tab }: { tab: Tab } = $props();
 
   let editor: SqlEditor | undefined = $state();
+
+  // The assistant reads the selection and inserts at the cursor.
+  $effect(() => {
+    const e = editor;
+    if (!e) return;
+    return registerEditor(tab.id, {
+      selection: () => e.selection(),
+      focus: () => e.focusInfo(),
+      insert: (text) => e.insert(text),
+      replaceRange: (from, to, text) => e.replaceRange(from, to, text),
+    });
+  });
   let split = $state(45);
   // Results show once something ran; closing them gives the editor the room.
   const showResults = $derived(!!tab.result || !!tab.error || tab.running);
@@ -236,6 +249,10 @@
     return n >= 60 ? t('editor.minutes', { n: n / 60 }) : t('editor.seconds', { n });
   }
 
+  // Row and time limits live behind a button, to keep the toolbar short.
+  let limitsOpen = $state(false);
+  const limitsChanged = $derived(tab.maxRows !== 0 || tab.timeoutSec !== -1);
+
   function changeTimeout(e: Event) {
     tab.timeoutSec = Number((e.target as HTMLSelectElement).value);
     persist();
@@ -272,6 +289,8 @@
     await endTx(tab, false);
   }
 </script>
+
+<svelte:window onclick={() => (limitsOpen = false)} onkeydown={(e) => e.key === 'Escape' && (limitsOpen = false)} />
 
 <div class="flex h-full min-h-0 flex-col" bind:this={container}>
   <div class="toolbar">
@@ -316,9 +335,9 @@
 
     <div class="toolbar-sep"></div>
 
-    <label class="relative flex items-center">
+    <label class="relative flex min-w-24 shrink items-center">
       <span class="pointer-events-none absolute left-2 flex">{#if conn}<DbIcon type={conn.db_type} size={12} />{/if}</span>
-      <select class="input h-[26px] w-auto max-w-64 pl-7 text-sm" value={tab.connectionId} onchange={changeConnection} disabled={tab.running || tab.txOpen} title={tab.txOpen ? t('tx.connectionLocked') : undefined} aria-label={t('query.connection')}>
+      <select class="input h-[26px] w-auto min-w-0 max-w-64 truncate pl-7 text-sm" value={tab.connectionId} onchange={changeConnection} disabled={tab.running || tab.txOpen} title={tab.txOpen ? t('tx.connectionLocked') : undefined} aria-label={t('query.connection')}>
         {#each workspaceConnections() as c (c.id)}
           <option value={c.id}>{c.name}</option>
         {/each}
@@ -373,22 +392,54 @@
     <div class="flex-1"></div>
     {#if tab.running}<RunTimer {tab} />{/if}
     {#if conn}
-      <label class="flex items-center gap-1.5 text-xs text-muted" title={t('conn.limitsHint')}>
-        {t('editor.rows')}
-        <select class="input h-[24px] w-auto py-0 pr-6 text-xs tabular-nums" value={tab.maxRows} onchange={changeRows}>
-          <option value={0}>{t('editor.rowsDefault', { n: fmtNumber(conn.max_rows) })}</option>
-          {#each rowChoices.filter((n) => n !== conn.max_rows) as n (n)}<option value={n}>{fmtNumber(n)}</option>{/each}
-          <option value={-1}>{conn.max_rows_limit ? t('editor.rowsMax', { n: fmtNumber(conn.max_rows_limit) }) : t('editor.rowsAll')}</option>
-        </select>
-      </label>
-      <label class="flex items-center gap-1.5 text-xs text-muted" title={t('editor.timeoutHint')}>
-        {t('editor.timeout')}
-        <select class="input h-[24px] w-auto py-0 pr-6 text-xs tabular-nums" value={tab.timeoutSec} onchange={changeTimeout}>
-          <option value={-1}>{conn.timeout_ms ? t('editor.rowsDefault', { n: seconds(conn.timeout_ms / 1000) }) : t('editor.noLimitDefault')}</option>
-          {#if !conn.max_timeout_ms}<option value={0}>{t('editor.noLimit')}</option>{/if}
-          {#each timeoutChoices.filter((n) => n * 1000 !== conn.timeout_ms) as n (n)}<option value={n}>{seconds(n)}</option>{/each}
-        </select>
-      </label>
+      <div class="relative">
+        <button
+          class="icon-btn relative"
+          class:bg-active={limitsOpen}
+          aria-haspopup="dialog"
+          aria-expanded={limitsOpen}
+          onclick={(e) => {
+            e.stopPropagation();
+            limitsOpen = !limitsOpen;
+          }}
+          title={t('editor.limits')}
+          aria-label={t('editor.limits')}
+        >
+          <SlidersHorizontal size={14} />
+          {#if limitsChanged}<span class="absolute top-1 right-1 size-1.5 rounded-full bg-accent" aria-hidden="true"></span>{/if}
+        </button>
+        {#if limitsOpen}
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="popover absolute top-8 right-0 z-40 w-64 space-y-2.5 p-3" role="dialog" aria-label={t('editor.limits')} tabindex="-1" onclick={(e) => e.stopPropagation()}>
+            <label class="block text-xs text-muted" title={t('conn.limitsHint')}>
+              <span class="mb-1 block">{t('editor.rows')}</span>
+              <select class="input h-7 w-full text-xs tabular-nums" value={tab.maxRows} onchange={changeRows}>
+                <option value={0}>{t('editor.rowsDefault', { n: fmtNumber(conn.max_rows) })}</option>
+                {#each rowChoices.filter((n) => n !== conn.max_rows) as n (n)}<option value={n}>{fmtNumber(n)}</option>{/each}
+                <option value={-1}>{conn.max_rows_limit ? t('editor.rowsMax', { n: fmtNumber(conn.max_rows_limit) }) : t('editor.rowsAll')}</option>
+              </select>
+            </label>
+            <label class="block text-xs text-muted" title={t('editor.timeoutHint')}>
+              <span class="mb-1 block">{t('editor.timeout')}</span>
+              <select class="input h-7 w-full text-xs tabular-nums" value={tab.timeoutSec} onchange={changeTimeout}>
+                <option value={-1}>{conn.timeout_ms ? t('editor.rowsDefault', { n: seconds(conn.timeout_ms / 1000) }) : t('editor.noLimitDefault')}</option>
+                {#if !conn.max_timeout_ms}<option value={0}>{t('editor.noLimit')}</option>{/if}
+                {#each timeoutChoices.filter((n) => n * 1000 !== conn.timeout_ms) as n (n)}<option value={n}>{seconds(n)}</option>{/each}
+              </select>
+            </label>
+            {#if limitsChanged}
+              <button
+                class="text-xs text-accent hover:underline"
+                onclick={() => {
+                  tab.maxRows = 0;
+                  tab.timeoutSec = -1;
+                  persist();
+                }}
+              >{t('editor.limitsReset')}</button>
+            {/if}
+          </div>
+        {/if}
+      </div>
     {/if}
   </div>
 

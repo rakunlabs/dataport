@@ -43,6 +43,8 @@ export interface Tab {
   view: 'data' | 'structure' | 'ddl';
   // How a result shows its rows: the grid, or one row as columns and values.
   layout?: 'grid' | 'record';
+  // The rows and columns selected in the result, for the assistant.
+  gridSelection?: { rows: number[]; cols: number[] };
   // Rows asked for per statement: 0 is the connection's default, -1 all
   // the server allows.
   maxRows: number;

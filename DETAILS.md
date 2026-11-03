@@ -77,7 +77,8 @@ turns one off.
 | `DATAPORT_STORE_DSN` | | PostgreSQL connection string, e.g. `postgres://dataport:secret@db:5432/dataport`; for SQLite the database file (default `<data dir>/dataport.db`) |
 | `DATAPORT_STORE_MIGRATE_DSN` | | PostgreSQL only: separate connection that creates and migrates the tables; empty uses the store DSN |
 | `DATAPORT_STORE_TABLE_PREFIX` | `dataport_` | Prefix of the app tables, to share a database or schema. Before this version it was `dp_`: set it to `dp_` to keep an existing store |
-| `DATAPORT_AUTH_SECRET_KEY` | | Encrypts stored connection passwords. Any text; an AES key is derived from it with argon2id. Empty is used as an empty key (a warning is logged), so set one before saving passwords; changing it later makes saved ones unreadable. Back it up |
+| `DATAPORT_AUTH_SECRET_KEY` | | Encrypts stored connection passwords. Any text; an AES key is derived from it with argon2id. Empty is used as an empty key (a warning is logged), so set one before saving passwords; changing it by hand makes saved ones unreadable: rotate it under Settings → Secret key, which encrypts every saved secret again, then set the new key here before the next restart. Back it up |
+| `DATAPORT_AUTH_PREVIOUS_SECRET_KEY` | | The key before a rotation. Secrets it sealed are still read, so replicas keep working while the new key is rolled out; the next rotation seals them with the current key |
 | `DATAPORT_AUTH_ADMIN_USERNAME` | `admin` | First admin, created when there are no users |
 | `DATAPORT_AUTH_ADMIN_PASSWORD` | generated | |
 | `DATAPORT_AUTH_SECURE_COOKIE` | `false` | Force the Secure cookie flag |

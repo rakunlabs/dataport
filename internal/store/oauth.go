@@ -55,6 +55,46 @@ func (s *Store) GetOAuthClient(ctx context.Context, id string) (*OAuthClient, er
 	return &c, nil
 }
 
+// ListOAuthClientsNamed returns the clients registered under a name, oldest
+// first, so a new registration of the same app can join the first one.
+func (s *Store) ListOAuthClientsNamed(ctx context.Context, name string) ([]*OAuthClient, error) {
+	rows, err := s.query(ctx, "SELECT id, name, redirect_uris, created_at FROM "+s.t("oauth_clients")+" WHERE name = ? ORDER BY created_at", name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	list := []*OAuthClient{}
+
+	for rows.Next() {
+		var (
+			c    OAuthClient
+			uris string
+		)
+
+		if err := rows.Scan(&c.ID, &c.Name, &uris, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+
+		if err := json.Unmarshal([]byte(uris), &c.RedirectURIs); err != nil {
+			continue
+		}
+
+		list = append(list, &c)
+	}
+
+	return list, rows.Err()
+}
+
+// OAuthClientUser is a person a client acts as.
+type OAuthClientUser struct {
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Tokens      int    `json:"tokens"`
+	LastUsedAt  int64  `json:"last_used_at"`
+}
+
 // OAuthClientInfo is a registered client with how it is used, for admins.
 type OAuthClientInfo struct {
 	ID           string   `json:"id"`
@@ -63,12 +103,14 @@ type OAuthClientInfo struct {
 	CreatedAt    int64    `json:"created_at"`
 	// Tokens counts the access tokens it holds, Users the people they act
 	// as, and LastUsedAt is when one of them was used last.
-	Tokens     int   `json:"tokens"`
-	Users      int   `json:"users"`
-	LastUsedAt int64 `json:"last_used_at"`
+	Tokens     int               `json:"tokens"`
+	Users      int               `json:"users"`
+	LastUsedAt int64             `json:"last_used_at"`
+	UserList   []OAuthClientUser `json:"user_list"`
 }
 
-// ListOAuthClients lists every registered client, newest first.
+// ListOAuthClients lists every registered client, newest first, with the
+// people each one acts as.
 func (s *Store) ListOAuthClients(ctx context.Context) ([]OAuthClientInfo, error) {
 	rows, err := s.query(ctx, "SELECT c.id, c.name, c.redirect_uris, c.created_at, COUNT(t.id), COUNT(DISTINCT t.user_id), COALESCE(MAX(t.last_used_at), 0) FROM "+
 		s.t("oauth_clients")+" c LEFT JOIN "+s.t("access_tokens")+" t ON t.client_id = c.id GROUP BY c.id, c.name, c.redirect_uris, c.created_at ORDER BY c.created_at DESC")
@@ -78,6 +120,7 @@ func (s *Store) ListOAuthClients(ctx context.Context) ([]OAuthClientInfo, error)
 	defer func() { _ = rows.Close() }()
 
 	list := []OAuthClientInfo{}
+	index := map[string]int{}
 
 	for rows.Next() {
 		var (
@@ -93,10 +136,40 @@ func (s *Store) ListOAuthClients(ctx context.Context) ([]OAuthClientInfo, error)
 			c.RedirectURIs = []string{}
 		}
 
+		c.UserList = []OAuthClientUser{}
+		index[c.ID] = len(list)
 		list = append(list, c)
 	}
 
-	return list, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	_ = rows.Close()
+
+	users, err := s.query(ctx, "SELECT t.client_id, u.id, u.username, u.display_name, COUNT(t.id), COALESCE(MAX(t.last_used_at), 0) FROM "+
+		s.t("access_tokens")+" t JOIN "+s.t("users")+" u ON u.id = t.user_id WHERE t.client_id <> '' GROUP BY t.client_id, u.id, u.username, u.display_name ORDER BY u.username")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = users.Close() }()
+
+	for users.Next() {
+		var (
+			clientID string
+			u        OAuthClientUser
+		)
+
+		if err := users.Scan(&clientID, &u.ID, &u.Username, &u.DisplayName, &u.Tokens, &u.LastUsedAt); err != nil {
+			return nil, err
+		}
+
+		if i, ok := index[clientID]; ok {
+			list[i].UserList = append(list[i].UserList, u)
+		}
+	}
+
+	return list, users.Err()
 }
 
 // DeleteOAuthClient removes a client with its tokens, codes and remembered

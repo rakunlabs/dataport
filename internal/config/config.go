@@ -65,7 +65,15 @@ type Config struct {
 	MCP         MCP         `cfg:"-" log:"-"`
 	Notebook    Notebook    `cfg:"-" log:"-"`
 	Connections Connections `cfg:"-" log:"-"`
+	Docs        Docs        `cfg:"-" log:"-"`
 	Telemetry   tell.Config `cfg:"telemetry,noprefix"`
+}
+
+// Docs turns the schema documentation feature off for everyone.
+type Docs struct {
+	// Disabled hides the documentation page, refuses its API and MCP tools
+	// and stops scheduled builds and pushes. Saved snapshots are kept.
+	Disabled bool `cfg:"disabled"`
 }
 
 // Connections are the rules for personal connections, which users create
@@ -151,6 +159,9 @@ type Auth struct {
 	// SecretKey encrypts the stored connection passwords. Empty is used as
 	// an empty key.
 	SecretKey string `cfg:"secret_key" log:"-"`
+	// PreviousSecretKey still reads secrets sealed with the key before a
+	// rotation; they are sealed with SecretKey again when rotated in the UI.
+	PreviousSecretKey string `cfg:"previous_secret_key" log:"-"`
 
 	// AdminUsername and AdminPassword create the first admin when the user
 	// table is empty. An empty password generates one and logs it once.

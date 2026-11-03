@@ -57,6 +57,7 @@ var settingFields = []settingField{
 	{Key: "notebook.max_output_bytes", Section: "notebook", Kind: kindInt, Unit: "MiB", Min: 1 << 20, Max: 1 << 30, ptr: func(c *config.Config) any { return &c.Notebook.MaxOutputBytes }},
 	{Key: "connections.user_create", Section: "connections", Kind: kindBool, ptr: func(c *config.Config) any { return &c.Connections.UserCreate }},
 	{Key: "connections.user_files", Section: "connections", Kind: kindBool, ptr: func(c *config.Config) any { return &c.Connections.UserFiles }},
+	{Key: "docs.disabled", Section: "docs", Kind: kindBool, ptr: func(c *config.Config) any { return &c.Docs.Disabled }},
 	{Key: "mcp.enabled", Section: "mcp", Kind: kindBool, Restart: true, ptr: func(c *config.Config) any { return &c.MCP.Enabled }},
 	{Key: "mcp.stateless", Section: "mcp", Kind: kindBool, Restart: true, ptr: func(c *config.Config) any { return &c.MCP.Stateless }},
 	{Key: "mcp.max_rows", Section: "mcp", Kind: kindInt, Min: 1, Max: 100_000, ptr: func(c *config.Config) any { return &c.MCP.MaxRows }},
@@ -189,7 +190,7 @@ func (s *Server) useSettings(next *config.Config, start bool) {
 		}
 	}
 
-	s.cfg.Query, s.cfg.MCP, s.cfg.Notebook, s.cfg.Connections = next.Query, next.MCP, next.Notebook, next.Connections
+	s.cfg.Query, s.cfg.MCP, s.cfg.Notebook, s.cfg.Connections, s.cfg.Docs = next.Query, next.MCP, next.Notebook, next.Connections, next.Docs
 	q := s.cfg.Query
 	s.settingsMu.Unlock()
 
@@ -245,6 +246,14 @@ func (s *Server) connectionsCfg() config.Connections {
 	defer s.settingsMu.RUnlock()
 
 	return s.cfg.Connections
+}
+
+// docsOff tells whether an admin turned documentation off.
+func (s *Server) docsOff() bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+
+	return s.cfg != nil && s.cfg.Docs.Disabled
 }
 
 func (s *Server) notebookCfg() config.Notebook {

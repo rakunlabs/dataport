@@ -410,6 +410,47 @@
     v.focus();
   }
 
+  // selection is the selected text, empty without one.
+  export function selection(): string {
+    if (!view) return '';
+    const sel = view.state.selection.main;
+    return view.state.sliceDoc(sel.from, sel.to);
+  }
+
+  // focusInfo is what the assistant is told about where the user is: the
+  // statement a run would take (the selection, or the one under the
+  // cursor) with its place, and the cursor's line.
+  export function focusInfo(): { statement: string; from: number; to: number; line: number; selected: boolean } | undefined {
+    if (!view) return undefined;
+    const span = target(view);
+    const sel = view.state.selection.main;
+    const line = view.state.doc.lineAt(sel.head).number;
+    if (!span) return { statement: '', from: sel.head, to: sel.head, line, selected: false };
+    return { statement: view.state.sliceDoc(span.from, span.to), from: span.from, to: span.to, line, selected: !sel.empty };
+  }
+
+  // replaceRange puts text over a part of the document, as one undoable change.
+  export function replaceRange(from: number, to: number, text: string) {
+    const v = view;
+    if (!v || readonly) return false;
+    const len = v.state.doc.length;
+    from = Math.min(from, len);
+    to = Math.min(to, len);
+    v.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from, head: from + text.length }, scrollIntoView: true, userEvent: 'input.assistant' });
+    v.focus();
+    return true;
+  }
+
+  // insert puts text at the cursor, over the selection, as one undoable change.
+  export function insert(text: string) {
+    const v = view;
+    if (!v || readonly) return false;
+    const sel = v.state.selection.main;
+    v.dispatch({ changes: { from: sel.from, to: sel.to, insert: text }, selection: { anchor: sel.from + text.length }, scrollIntoView: true, userEvent: 'input.assistant' });
+    v.focus();
+    return true;
+  }
+
   // selectCurrent selects the statement under the cursor (Alt+S).
   export function selectCurrent() {
     if (view) {

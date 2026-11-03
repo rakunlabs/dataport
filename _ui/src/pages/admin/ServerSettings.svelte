@@ -12,7 +12,7 @@
   // built-in default; saved values win until reset.
   interface Setting {
     key: string;
-    section: 'query' | 'pool' | 'notebook' | 'connections' | 'mcp';
+    section: 'query' | 'pool' | 'notebook' | 'connections' | 'docs' | 'mcp';
     kind: 'int' | 'duration' | 'bool';
     unit?: 's' | 'm' | 'h' | 'd' | 'MiB';
     min: number;
@@ -24,7 +24,7 @@
     running?: number | boolean;
   }
 
-  const sections = ['query', 'pool', 'notebook', 'connections', 'mcp'] as const;
+  const sections = ['query', 'pool', 'notebook', 'connections', 'docs', 'mcp'] as const;
   const factor: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400, MiB: 1 << 20 };
 
   let list = $state<Setting[]>([]);
@@ -83,10 +83,10 @@
     saving = true;
     error = '';
     try {
-      const personal = Object.keys(changes).some((k) => k.startsWith('connections.'));
+      const personal = Object.keys(changes).some((k) => k.startsWith('connections.') || k.startsWith('docs.'));
       apply(await api.put<Setting[]>('/admin/settings', changes));
       toast(t('admin.server.saved'), 'success');
-      // Personal connections appear or go with the setting.
+      // Personal connections and the documentation page appear or go with the setting.
       if (personal) void Promise.all([loadSession(), loadConnections()]);
     } catch (e) {
       error = errorMessage(e);

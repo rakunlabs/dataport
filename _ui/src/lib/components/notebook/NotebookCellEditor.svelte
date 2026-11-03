@@ -6,6 +6,7 @@
   import { editorOptions } from '@/lib/helper/editorOptions';
   import { prefs } from '@/lib/stores/prefs.svelte';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
+  import { registerEditor } from '@/lib/stores/editors.svelte';
   import NotebookTransfer from '@/lib/components/notebook/NotebookTransfer.svelte';
 
   let {
@@ -39,6 +40,26 @@
   } = $props();
 
   const conn = $derived(connection(cell.connection_id));
+
+  // The cell the user works in is the notebook tab's editor for the
+  // assistant: it reads its statement and puts SQL there.
+  let editor: SqlEditor | undefined = $state();
+  let release: (() => void) | undefined;
+  function claim() {
+    const e = editor;
+    if (!e) return;
+    release?.();
+    release = registerEditor(tab.id, {
+      get cell() {
+        return { path: cell.path, connection: connection(cell.connection_id)?.name ?? '', sql: cell.sql };
+      },
+      selection: () => e.selection(),
+      focus: () => e.focusInfo(),
+      insert: (text) => e.insert(text),
+      replaceRange: (from, to, text) => e.replaceRange(from, to, text),
+    });
+  }
+  $effect(() => () => release?.());
 </script>
 
 <section class="border-b border-line">
@@ -58,7 +79,8 @@
   </div>
   {#if !cell.collapsed}
     <input class="input m-2 w-[calc(100%-16px)] text-xs" bind:value={cell.description} readonly={!editable || busy || tab.running} oninput={changed} placeholder={t('notebook.description')} aria-label={t('notebook.description')} />
-    <div class="h-44 border-y border-line-soft"><SqlEditor value={cell.sql} dbType={conn?.db_type || 'postgres'} onchange={(v) => { cell.sql = v; changed(); }} onrun={() => run(cell.path)} runsWhole onsave={save} readonly={!editable || busy || tab.running} options={editorOptions(prefs)} /></div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="h-44 border-y border-line-soft" onfocusin={claim}><SqlEditor bind:this={editor} value={cell.sql} dbType={conn?.db_type || 'postgres'} onchange={(v) => { cell.sql = v; changed(); }} onrun={() => run(cell.path)} runsWhole onsave={save} readonly={!editable || busy || tab.running} options={editorOptions(prefs)} /></div>
     <fieldset disabled={!editable || busy || tab.running} class="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 text-xs">
       {#each ['enabled', 'output', 'template', 'write'] as key}
         <label class="flex items-center gap-1.5"><input type="checkbox" disabled={key === 'write' && !!cell.transfer} checked={cell[key as 'enabled']} onchange={(e) => { cell[key as 'enabled'] = e.currentTarget.checked; changed(); }} />{t(`notebook.${key}`)}</label>

@@ -70,7 +70,7 @@ type Server struct {
 	notebookWorkers sync.WaitGroup
 	// base is the configuration as loaded; cfg holds it with the settings
 	// admins saved over it. settingsMu guards cfg.Query, cfg.MCP,
-	// cfg.Notebook and cfg.Connections, which change while running.
+	// cfg.Notebook, cfg.Connections and cfg.Docs, which change while running.
 	base       config.Config
 	settingsMu sync.RWMutex
 	// external is the public address in use, guarded by settingsMu.
@@ -144,9 +144,11 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.GET("/connections/{id}/routines", s.routines)
 	user.GET("/connections/{id}/definition", s.definition)
 	user.GET("/connections/{id}/diagram", s.diagram)
-	user.GET("/connections/{id}/docs", s.serveDoc)
-	user.POST("/connections/{id}/docs/refresh", s.serveDoc)
-	user.GET("/docs", s.listDocs)
+	// Admins may turn documentation off for everyone.
+	docs := s.requireDocs
+	user.GET("/connections/{id}/docs", docs(s.serveDoc))
+	user.POST("/connections/{id}/docs/refresh", docs(s.serveDoc))
+	user.GET("/docs", docs(s.listDocs))
 	user.PUT("/connections/{id}/credentials", s.setCredential)
 	user.DELETE("/connections/{id}/credentials", s.deleteCredential)
 	user.POST("/connections/{id}/query", s.runQuery)
@@ -173,6 +175,13 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	user.GET("/tokens", s.listTokens)
 	user.POST("/tokens", s.createToken)
 	user.DELETE("/tokens/{id}", s.deleteToken)
+	user.GET("/ai", s.aiInfo)
+	user.POST("/ai/chat", s.aiChat)
+	user.GET("/ai/conversations", s.listAIConversations)
+	user.DELETE("/ai/conversations", s.deleteAIConversations)
+	user.GET("/ai/conversations/{conv}", s.getAIConversation)
+	user.PUT("/ai/conversations/{conv}", s.renameAIConversation)
+	user.DELETE("/ai/conversations/{conv}", s.deleteAIConversation)
 	user.GET("/history", s.myHistory)
 	user.GET("/saved", s.listSaved)
 	user.POST("/saved", s.createSaved)
@@ -222,6 +231,11 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	admin.PUT("/settings", s.adminSetSettings)
 	admin.GET("/sessions/lifetime", s.adminGetSessionLifetime)
 	admin.PUT("/sessions/lifetime", s.adminSetSessionLifetime)
+	admin.GET("/ai", s.adminGetAI)
+	admin.PUT("/ai", s.adminSetAI)
+	admin.POST("/ai/test", s.adminTestAI)
+	admin.GET("/secret-key", s.adminGetSecretKey)
+	admin.POST("/secret-key/rotate", s.adminRotateSecretKey)
 	admin.GET("/external-url", s.adminGetExternalURL)
 	admin.PUT("/external-url", s.adminSetExternalURL)
 	admin.GET("/login-page", s.adminGetLoginPage)
@@ -232,14 +246,14 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	admin.PUT("/doc-access", s.adminSetFeatureAccess(docAccessSetting))
 	admin.GET("/docs/schedule", s.adminGetDocSchedule)
 	admin.PUT("/docs/schedule", s.adminSetDocSchedule)
-	admin.POST("/docs/run", s.adminRunDocs)
+	admin.POST("/docs/run", docs(s.adminRunDocs))
 	admin.GET("/docs/export", s.adminGetDocExport)
 	admin.PUT("/docs/export", s.adminSetDocExport)
-	admin.POST("/docs/export/run", s.adminRunDocExport)
+	admin.POST("/docs/export/run", docs(s.adminRunDocExport))
 	admin.GET("/docs/connections", s.adminListDocConnections)
 	admin.PUT("/docs/connections/{id}", s.adminSetDocConnection)
 	admin.GET("/docs/connections/{id}/schemas", s.adminDocConnectionSchemas)
-	admin.POST("/docs/connections/{id}/run", s.adminRunDocConnection)
+	admin.POST("/docs/connections/{id}/run", docs(s.adminRunDocConnection))
 	admin.GET("/oauth/clients", s.adminListOAuthClients)
 	admin.DELETE("/oauth/clients/{id}", s.adminDeleteOAuthClient)
 	admin.GET("/sso", s.adminListSSO)

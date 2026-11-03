@@ -272,7 +272,7 @@ func (b *routineBody) settle(next string) {
 
 func isWordStart(s string, i int) bool {
 	c := s[i]
-	if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_') {
+	if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_') { //nolint:staticcheck // Reads as the set of word starts.
 		return false
 	}
 

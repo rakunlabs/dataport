@@ -7,6 +7,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -54,10 +55,33 @@ func TestOAuthBehindPrefixProxy(t *testing.T) {
 	}
 
 	body := `{"client_name":"Claude Code (dataport)","redirect_uris":["http://localhost:53280/callback"],"token_endpoint_auth_method":"none","application_type":"native"}`
+	ids := map[string]bool{}
 	for _, path := range []string{"/oauth/register", "/register"} {
-		if w := do(http.MethodPost, path, body); w.Code != http.StatusCreated {
+		w := do(http.MethodPost, path, body)
+		if w.Code != http.StatusCreated {
 			t.Fatalf("register at %s: %d %s", path, w.Code, w.Body)
 		}
+		var out map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		ids[out["client_id"].(string)] = true
+	}
+
+	// The same app on another loopback port joins its first registration,
+	// so admins see one client with all its users.
+	again := do(http.MethodPost, "/oauth/register", `{"client_name":"Claude Code (dataport)","redirect_uris":["http://localhost:61000/callback"]}`)
+	var joined map[string]any
+	_ = json.Unmarshal(again.Body.Bytes(), &joined)
+	if len(ids) != 1 || !ids[joined["client_id"].(string)] {
+		t.Fatalf("the same app registered twice: %v %v", ids, joined)
+	}
+
+	// Another app, or another redirect, is a client of its own.
+	if w := do(http.MethodPost, "/register", `{"client_name":"OpenCode","redirect_uris":["http://127.0.0.1:19876/mcp/oauth/callback"]}`); w.Code != http.StatusCreated {
+		t.Fatalf("register opencode: %d %s", w.Code, w.Body)
+	}
+	if !redirectMatches("http://127.0.0.1:1/cb", "http://127.0.0.1:2/cb") || redirectMatches("https://a.example/cb", "https://a.example:444/cb") ||
+		redirectMatches("http://127.0.0.1:1/cb", "http://127.0.0.1:1/other") {
+		t.Fatal("redirect matching")
 	}
 
 	// The approval page is reached through the proxy's prefix.
@@ -76,19 +100,31 @@ func TestOAuthBehindPrefixProxy(t *testing.T) {
 	// Admins see the registered clients and can remove one.
 	ctx := context.Background()
 	list, err := env.st.ListOAuthClients(ctx)
-	if err != nil || len(list) != 2 || list[0].Name != "Claude Code (dataport)" || list[0].Tokens != 0 {
+	if err != nil || len(list) != 2 {
 		t.Fatalf("clients: %v %+v", err, list)
 	}
-	if err := env.st.CreateAccessToken(ctx, &store.AccessToken{UserID: env.alice.ID, Name: "c", TokenHash: "h", ClientID: list[0].ID}); err != nil {
+	// list[1] is Claude Code, list[0] the other.
+	if list[0].Name == "Claude Code (dataport)" {
+		list[0], list[1] = list[1], list[0]
+	}
+	if list[1].Name != "Claude Code (dataport)" || list[1].Tokens != 0 {
+		t.Fatalf("clients: %+v", list)
+	}
+	if err := env.st.CreateAccessToken(ctx, &store.AccessToken{UserID: env.alice.ID, Name: "c", TokenHash: "h", ClientID: list[1].ID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := env.st.DeleteOAuthClient(ctx, list[0].ID); err != nil {
+	if all, _ := env.st.ListOAuthClients(ctx); !slices.ContainsFunc(all, func(c store.OAuthClientInfo) bool {
+		return c.ID == list[1].ID && len(c.UserList) == 1 && c.UserList[0].Username == "alice"
+	}) {
+		t.Fatalf("client users: %+v", all)
+	}
+	if err := env.st.DeleteOAuthClient(ctx, list[1].ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.st.GetAccessTokenByHash(ctx, "h"); err == nil {
 		t.Fatal("a removed client's token still works")
 	}
-	if n, err := env.st.DeleteUnusedOAuthClients(ctx, list[1].CreatedAt+1); err != nil || n != 1 {
+	if n, err := env.st.DeleteUnusedOAuthClients(ctx, list[0].CreatedAt+1); err != nil || n != 1 {
 		t.Fatalf("unused: %d %v", n, err)
 	}
 }

@@ -290,6 +290,23 @@ func (s *Server) oauthRegister(w http.ResponseWriter, r *http.Request) {
 		name = name[:100]
 	}
 
+	// The same app registers again for every person and every sign-in; it
+	// joins the client registered first under its name and redirects, so
+	// admins see one Claude Code or OpenCode with all its users. Approval,
+	// tokens and remembered consent stay per user.
+	if same, err := s.store.ListOAuthClientsNamed(r.Context(), name); err == nil {
+		for _, c := range same {
+			if sameRedirects(c.RedirectURIs, req.RedirectURIs) {
+				// The client gets back the redirects it sent, on its own port.
+				joined := *c
+				joined.RedirectURIs = req.RedirectURIs
+				writeJSON(w, http.StatusCreated, registrationOf(&joined))
+
+				return
+			}
+		}
+	}
+
 	c := &store.OAuthClient{Name: name, RedirectURIs: req.RedirectURIs}
 	if err := s.store.CreateOAuthClient(r.Context(), c); err != nil {
 		slog.Error("register oauth client", "error", err)
@@ -298,7 +315,11 @@ func (s *Server) oauthRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
+	writeJSON(w, http.StatusCreated, registrationOf(c))
+}
+
+func registrationOf(c *store.OAuthClient) map[string]any {
+	return map[string]any{
 		"client_id":                  c.ID,
 		"client_name":                c.Name,
 		"client_id_issued_at":        c.CreatedAt / 1000,
@@ -306,7 +327,42 @@ func (s *Server) oauthRegister(w http.ResponseWriter, r *http.Request) {
 		"grant_types":                []string{"authorization_code", "refresh_token"},
 		"response_types":             []string{"code"},
 		"token_endpoint_auth_method": "none",
-	})
+	}
+}
+
+// redirectMatches compares a registered redirect URI with one a request
+// uses. On the loopback interface the port may differ (RFC 8252 7.3): CLI
+// clients listen on a free port each time.
+func redirectMatches(registered, used string) bool {
+	if registered == used {
+		return true
+	}
+
+	a, err1 := url.Parse(registered)
+	b, err2 := url.Parse(used)
+
+	if err1 != nil || err2 != nil || !strings.EqualFold(a.Scheme, "http") || !strings.EqualFold(b.Scheme, "http") {
+		return false
+	}
+
+	loopback := func(h string) bool { return h == "localhost" || h == "127.0.0.1" || h == "::1" }
+
+	return loopback(a.Hostname()) && a.Hostname() == b.Hostname() && a.Path == b.Path && a.RawQuery == b.RawQuery
+}
+
+// sameRedirects tells whether two lists of redirect URIs match one another.
+func sameRedirects(a, b []string) bool {
+	covers := func(x, y []string) bool {
+		for _, u := range y {
+			if !slices.ContainsFunc(x, func(r string) bool { return redirectMatches(r, u) }) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return covers(a, b) && covers(b, a)
 }
 
 // decodeLoose reads JSON that may hold fields dataport does not use.

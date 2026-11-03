@@ -152,7 +152,7 @@ func unboundedIn(stmt string, dialect Dialect) bool {
 		if tsql && depth == 0 && cases[0] == 0 && tsqlStatements[t] && !continuesTSQL(t, at(i-1), at(i+1)) {
 			starts[i] = true
 
-			if open >= 0 && !(t == "SET" && awaitSet) {
+			if open >= 0 && !(t == "SET" && awaitSet) { //nolint:staticcheck // A SET that UPDATE waits for does not start a statement.
 				return true
 			}
 

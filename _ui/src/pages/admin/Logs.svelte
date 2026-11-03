@@ -12,6 +12,22 @@
 
   let logs = $state<QueryLog[]>([]);
   let filter = $state({ user_id: '', connection_id: '', source: '', search: '' });
+  // A time window: the last hour, day, week or month, or a custom range
+  // between two local times.
+  const ranges = ['', '1h', '24h', '7d', '30d', 'custom'] as const;
+  const rangeMs: Record<string, number> = { '1h': 3600e3, '24h': 86400e3, '7d': 7 * 86400e3, '30d': 30 * 86400e3 };
+  let range = $state<(typeof ranges)[number]>('');
+  let from = $state('');
+  let to = $state('');
+
+  function timeWindow() {
+    if (range === 'custom') {
+      const f = from ? new Date(from).getTime() : 0;
+      const tt = to ? new Date(to).getTime() : 0;
+      return { from: f || undefined, to: tt || undefined };
+    }
+    return range ? { from: Date.now() - rangeMs[range] } : {};
+  }
   let loading = $state(false);
   let more = $state(false);
   let expanded = $state<string | null>(null);
@@ -22,7 +38,7 @@
     loading = true;
     try {
       const before = append ? logs[logs.length - 1]?.created_at : undefined;
-      const page = await api.get<QueryLog[]>('/admin/logs' + qs({ ...filter, before, limit: pageSize }));
+      const page = await api.get<QueryLog[]>('/admin/logs' + qs({ ...filter, ...timeWindow(), before, limit: pageSize }));
       logs = append ? [...logs, ...page] : page;
       more = page.length === pageSize;
     } catch (e) {
@@ -60,7 +76,14 @@
       <option value="web">{t('admin.log.sourceWeb')}</option>
       <option value="mcp">MCP</option>
     </select>
-    <input class="input flex-1" placeholder={t('admin.log.search')} bind:value={filter.search} oninput={changed} />
+    <select class="input w-40" bind:value={range} onchange={changed} aria-label={t('admin.log.range')}>
+      {#each ranges as r (r)}<option value={r}>{t(`admin.log.ranges.${r || 'all'}`)}</option>{/each}
+    </select>
+    {#if range === 'custom'}
+      <input class="input w-48" type="datetime-local" bind:value={from} onchange={changed} max={to || undefined} aria-label={t('admin.log.from')} title={t('admin.log.from')} />
+      <input class="input w-48" type="datetime-local" bind:value={to} onchange={changed} min={from || undefined} aria-label={t('admin.log.to')} title={t('admin.log.to')} />
+    {/if}
+    <input class="input min-w-40 flex-1" placeholder={t('admin.log.search')} bind:value={filter.search} oninput={changed} />
   </div>
 
     <table class="table table-fixed">

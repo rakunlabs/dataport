@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CircleCheck, CircleX, TriangleAlert, Info, Copy, ChevronRight, Rows3, X, PanelRight, RefreshCw, Square, LoaderCircle, Ban, Plus, Trash2, Eye, Undo2, Save, Pencil, KeyRound, Palette, Calculator, TableProperties, Table2, Eraser } from 'lucide-svelte';
+  import { CircleCheck, CircleX, TriangleAlert, Info, Copy, ChevronRight, Rows3, X, PanelRight, RefreshCw, Square, LoaderCircle, Ban, Plus, Trash2, Eye, Undo2, Save, Pencil, KeyRound, Palette, Calculator, TableProperties, Table2, Eraser, Sparkles } from 'lucide-svelte';
   import type { Snippet } from 'svelte';
   import { formatRows, sqlFormats, type CopyFormat } from '@/lib/helper/copy';
   import { copyText } from '@/lib/helper/clipboard';
@@ -28,6 +28,7 @@
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import { api, qs } from '@/lib/api/client';
   import { withCredentials } from '@/lib/stores/credentials.svelte';
+  import { ask, assistantAvailable } from '@/lib/stores/assistant.svelte';
   import { fmtNumber, t } from '@/lib/i18n/index.svelte';
 
   let {
@@ -128,6 +129,10 @@
 
   // The cells the calculator reads: the grid's selected rows and columns.
   let range = $state<{ rows: number[]; cols: number[] }>({ rows: [], cols: [] });
+  // The assistant reads what is selected in the grid.
+  $effect(() => {
+    tab.gridSelection = range;
+  });
   const calcRows = $derived.by(() => {
     void edit?.count;
     void current;
@@ -572,7 +577,12 @@
     {:else if tab.error}
       <div class="p-3">
         <div class="rounded-md border border-danger/30 bg-danger-soft">
-          <div class="flex items-center gap-2 border-b border-danger/20 px-3 py-2 text-sm font-medium text-danger"><TriangleAlert size={14} /> {t('result.error')}</div>
+          <div class="flex items-center gap-2 border-b border-danger/20 px-3 py-2 text-sm font-medium text-danger">
+            <TriangleAlert size={14} /> {t('result.error')}
+            {#if assistantAvailable()}
+              <button class="btn ml-auto h-6 text-xs font-normal" onclick={() => ask(t('assistant.fixPrompt'))}><Sparkles size={12} class="text-accent" /> {t('assistant.fix')}</button>
+            {/if}
+          </div>
           <pre class="px-3 py-2.5 font-mono text-xs whitespace-pre-wrap text-fg">{tab.error}</pre>
         </div>
       </div>
@@ -589,7 +599,12 @@
     {:else if current.error}
       <div class="p-3">
         <div class="rounded-md border border-danger/30 bg-danger-soft">
-          <div class="flex items-center gap-2 border-b border-danger/20 px-3 py-2 text-sm font-medium text-danger"><TriangleAlert size={14} /> {t('result.failed')}</div>
+          <div class="flex items-center gap-2 border-b border-danger/20 px-3 py-2 text-sm font-medium text-danger">
+            <TriangleAlert size={14} /> {t('result.failed')}
+            {#if assistantAvailable()}
+              <button class="btn ml-auto h-6 text-xs font-normal" onclick={() => ask(t('assistant.fixPrompt'))}><Sparkles size={12} class="text-accent" /> {t('assistant.fix')}</button>
+            {/if}
+          </div>
           <pre class="px-3 py-2.5 font-mono text-xs whitespace-pre-wrap text-fg">{current.error}</pre>
           <pre class="border-t border-danger/20 px-3 py-2 font-mono text-xs whitespace-pre-wrap text-muted">{current.statement}</pre>
           {#if current.inTx}
@@ -743,6 +758,9 @@
 
       {#if current?.kind === 'rows' && current.rows?.length}
         <ExportMenu columns={current.columns ?? []} rows={current.rows} name={tab.table || tab.title} {dbType} />
+      {/if}
+      {#if current?.kind === 'rows' && assistantAvailable()}
+        <button class="icon-btn size-[22px]" onclick={() => ask(t('assistant.askResultPrompt'))} title={t('assistant.askResult')} aria-label={t('assistant.askResult')}><Sparkles size={13} /></button>
       {/if}
       {#if current?.kind === 'rows'}
         <button class="icon-btn size-[22px]" aria-pressed={record} onclick={() => toggleRecord()} title={t('record.toggle')} aria-label={t('record.toggle')}><TableProperties size={13} /></button>

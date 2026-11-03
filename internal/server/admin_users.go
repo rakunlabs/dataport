@@ -134,6 +134,20 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Password != "" {
+		// A user linked to single sign-on has no dataport password; unlink
+		// the provider first to make the account local.
+		if providers, err := s.store.UserProviders(ctx, id); err != nil || len(providers) > 0 {
+			if err != nil {
+				writeStoreError(w, err)
+
+				return
+			}
+
+			writeError(w, http.StatusBadRequest, "this user signs in with single sign-on; unlink it before setting a password")
+
+			return
+		}
+
 		if u.PasswordHash, err = auth.HashPassword(req.Password); err != nil {
 			writeStoreError(w, err)
 

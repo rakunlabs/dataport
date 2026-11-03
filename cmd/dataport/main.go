@@ -61,6 +61,12 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("init cipher; %w", err)
 	}
 
+	if cfg.Auth.PreviousSecretKey != "" {
+		if err := cipher.Accept(cfg.Auth.PreviousSecretKey); err != nil {
+			return fmt.Errorf("init previous cipher; %w", err)
+		}
+	}
+
 	st, err := store.New(ctx, cfg.Store, cfg.DataDir)
 	if err != nil {
 		return fmt.Errorf("init store; %w", err)

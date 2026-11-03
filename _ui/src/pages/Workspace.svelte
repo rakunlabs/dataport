@@ -1,12 +1,14 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { FilePlus2, Lock, ChevronsRight } from 'lucide-svelte';
+  import { FilePlus2, Lock, ChevronsRight, Sparkles, ChevronUp, X, LoaderCircle } from 'lucide-svelte';
   import TopBar from '@/lib/components/workspace/TopBar.svelte';
   import Sidebar from '@/lib/components/workspace/Sidebar.svelte';
   import TabBar from '@/lib/components/workspace/TabBar.svelte';
   import QueryTab from '@/lib/components/workspace/QueryTab.svelte';
   import TableTab from '@/lib/components/table/TableTab.svelte';
   import RightPanel from '@/lib/components/workspace/RightPanel.svelte';
+  import AssistantPanel from '@/lib/components/workspace/AssistantPanel.svelte';
+  import { assistant, assistantAvailable, closeAssistant, restoreAssistant, setAssistantWidth } from '@/lib/stores/assistant.svelte';
   import Settings from '@/pages/Settings.svelte';
   import DiagramTab from '@/lib/components/docs/DiagramTab.svelte';
   import DocsTab from '@/lib/components/docs/DocsTab.svelte';
@@ -38,6 +40,22 @@
 
   const tab = $derived(activeTab());
 
+  // The assistant's panel is resized from its left edge.
+  function resizeAssistant(e: PointerEvent) {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const w0 = assistant.width;
+    let w = w0;
+    const move = (ev: PointerEvent) => (assistant.width = w = Math.min(760, Math.max(300, w0 - (ev.clientX - x0))));
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setAssistantWidth(w);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
   function resize(e: PointerEvent) {
     e.preventDefault();
     const x0 = e.clientX;
@@ -56,7 +74,7 @@
 <div class="flex h-full flex-col">
   <TopBar />
 
-  <div class="flex min-h-0 flex-1">
+  <div class="relative flex min-h-0 flex-1">
     {#if collapsed}
       <div class="flex w-9 shrink-0 flex-col border-r border-line bg-panel">
         <div class="pane-head items-center justify-center">
@@ -72,7 +90,7 @@
       <div class="relative z-10 -ml-[3px] w-[5px] shrink-0 cursor-col-resize transition-colors hover:bg-accent/50" onpointerdown={resize} role="separator" aria-orientation="vertical"></div>
     {/if}
 
-    <main class="flex min-w-0 flex-1 flex-col bg-bg">
+    <main class="flex min-w-0 flex-1 flex-col overflow-hidden bg-bg">
       {#if ws.tabs.length}
         <TabBar />
       {/if}
@@ -150,6 +168,29 @@
     {#if ws.rightPanel}
       <div class="w-80 shrink-0 border-l border-line">
         <RightPanel />
+      </div>
+    {/if}
+
+    <!-- The assistant floats over the right edge of the workspace, so the
+         editor keeps its width while it is open. -->
+    {#if assistant.open && assistant.minimized && assistantAvailable()}
+      <!-- The minimized assistant: one click brings it back as it was. -->
+      <div class="absolute right-3 bottom-3 z-30 flex items-center rounded-md border border-line bg-panel text-sm shadow-dialog">
+        <button class="flex h-8 max-w-72 items-center gap-2 rounded-l-md pr-2 pl-3 hover:bg-hover" onclick={restoreAssistant} title={t('assistant.restore')}>
+          {#if assistant.busy}<LoaderCircle size={13} class="shrink-0 animate-spin text-accent" />{:else}<Sparkles size={13} class="shrink-0 text-accent" />{/if}
+          <span class="truncate">{assistant.busy ? t('assistant.writing') : (assistant.conversations.find((c) => c.id === assistant.current)?.title || t('assistant.title'))}</span>
+          <ChevronUp size={14} class="shrink-0 text-faint" />
+        </button>
+        <button class="icon-btn mr-1 size-6" onclick={closeAssistant} title={t('common.close')} aria-label={t('common.close')}><X size={13} /></button>
+      </div>
+    {/if}
+
+    {#if assistant.open && !assistant.minimized && assistantAvailable()}
+      <div class="absolute inset-y-0 right-0 z-30 flex max-w-[calc(100%-2rem)] shadow-dialog" style="width:{assistant.width}px">
+        <div class="w-[5px] shrink-0 cursor-col-resize border-l border-line bg-panel transition-colors hover:bg-accent/50" onpointerdown={resizeAssistant} role="separator" aria-orientation="vertical"></div>
+        <div class="min-w-0 flex-1 bg-panel">
+          <AssistantPanel />
+        </div>
       </div>
     {/if}
   </div>

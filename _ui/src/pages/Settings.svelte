@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, i18n, locales, setLocale } from '@/lib/i18n/index.svelte';
-  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, Moon, Sun, Monitor, Check, Info, SlidersHorizontal, PlugZap, Network } from 'lucide-svelte';
+  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, LockKeyhole, Sparkles, Moon, Sun, Monitor, Check, Info, SlidersHorizontal, PlugZap, Network } from 'lucide-svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
   import { ws } from '@/lib/stores/workspace.svelte';
@@ -16,11 +16,13 @@
   import OAuthClients from '@/pages/admin/OAuthClients.svelte';
   import DocsSchedule from '@/pages/admin/Docs.svelte';
   import Sessions from '@/pages/admin/Sessions.svelte';
+  import SecretKey from '@/pages/admin/SecretKey.svelte';
+  import AiSettings from '@/pages/admin/AiSettings.svelte';
   import ServerSettings from '@/pages/admin/ServerSettings.svelte';
   import Cluster from '@/pages/admin/Cluster.svelte';
   import MyConnections from '@/pages/settings/MyConnections.svelte';
 
-  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'myConnections' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'oauthClients' | 'sessions' | 'server' | 'cluster' | 'docs' | 'logs';
+  type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'myConnections' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'oauthClients' | 'sessions' | 'secretKey' | 'ai' | 'server' | 'cluster' | 'docs' | 'logs';
 
   const isAdmin = $derived(session.user?.role === 'admin');
 
@@ -42,6 +44,8 @@
     { key: 'sso', label: 'admin.sso', icon: KeyRound },
     { key: 'oauthClients', label: 'admin.oauthClients.title', icon: Bot },
     { key: 'sessions', label: 'admin.sessions.title', icon: Timer },
+    { key: 'secretKey', label: 'admin.secretKey.title', icon: LockKeyhole },
+    { key: 'ai', label: 'admin.ai.title', icon: Sparkles },
     { key: 'server', label: 'admin.server.title', icon: SlidersHorizontal },
     { key: 'cluster', label: 'admin.cluster.title', icon: Network },
     { key: 'docs', label: 'admin.docs.title', icon: BookOpen },
@@ -124,6 +128,10 @@
       <OAuthClients />
     {:else if section === 'sessions'}
       <Sessions />
+    {:else if section === 'secretKey'}
+      <SecretKey />
+    {:else if section === 'ai'}
+      <AiSettings />
     {:else if section === 'server'}
       <ServerSettings />
     {:else if section === 'cluster'}
@@ -178,8 +186,20 @@
               <dd>{session.user?.display_name || '—'}</dd>
               <dt class="text-muted">{t('admin.user.role')}</dt>
               <dd>{isAdmin ? t('admin.user.roleAdmin') : t('admin.user.roleUser')}</dd>
+              <dt class="text-muted">{t('account.signIn')}</dt>
+              <dd>
+                {#if session.user?.sso?.length}
+                  {#each session.user.sso as p (p)}<span class="pill-own mr-1"><KeyRound size={10} />{p}</span>{/each}
+                {:else}
+                  {t('account.local')}
+                {/if}
+              </dd>
             </dl>
-            <button class="btn-outline" onclick={() => (passwordOpen = true)}><KeyRound size={14} /> {t('app.changePassword')}</button>
+            {#if session.user?.sso?.length}
+              <p class="hint max-w-md">{t('account.ssoHint')}</p>
+            {:else}
+              <button class="btn-outline" onclick={() => (passwordOpen = true)}><KeyRound size={14} /> {t('app.changePassword')}</button>
+            {/if}
           {:else if section === 'about'}
             <About />
           {:else if section === 'mcp'}

@@ -48,6 +48,28 @@ func (s *Store) TouchIdentity(ctx context.Context, provider, subject, email stri
 	return err
 }
 
+// UserProviders lists the SSO providers linked to a user.
+func (s *Store) UserProviders(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.query(ctx, "SELECT DISTINCT provider FROM "+s.t("user_identities")+" WHERE user_id = ? ORDER BY provider", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	list := []string{}
+
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+
+		list = append(list, p)
+	}
+
+	return list, rows.Err()
+}
+
 func (s *Store) UnlinkIdentities(ctx context.Context, userID string) error {
 	_, err := s.exec(ctx, "DELETE FROM "+s.t("user_identities")+" WHERE user_id = ?", userID)
 

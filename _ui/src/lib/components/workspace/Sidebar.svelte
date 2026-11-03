@@ -157,8 +157,17 @@
       {@const open = ws.expanded[c.id]}
       {@const schemas = ws.schemas[c.id]}
       {@const here = current?.connectionId === c.id}
-      <div class="{row} pl-1" role="treeitem" aria-expanded={!!open} aria-selected={false} tabindex="-1" oncontextmenu={(e) => connectionMenu(e, c)}>
-        <button class="flex min-w-0 flex-1 items-center gap-1.5 self-stretch" onclick={() => toggleConn(c.id)}>
+      {@const state = schemas?.loaded ? 'open' : schemas?.loading ? 'opening' : schemas?.error ? 'failed' : ''}
+      <div class="{row} relative pl-1" role="treeitem" aria-expanded={!!open} aria-selected={false} tabindex="-1" oncontextmenu={(e) => connectionMenu(e, c)}>
+        <!-- A bar on the left tells an open connection from a closed one. -->
+        {#if state}
+          <span
+            class="absolute inset-y-[3px] left-0 w-[3px] rounded-r-sm {state === 'open' ? 'bg-ok' : state === 'failed' ? 'bg-danger' : 'animate-pulse bg-ok/50'}"
+            title={t(`sidebar.state.${state}`)}
+            aria-hidden="true"
+          ></span>
+        {/if}
+        <button class="flex min-w-0 flex-1 items-center gap-1.5 self-stretch" onclick={() => toggleConn(c.id)} title={state ? t(`sidebar.state.${state}`) : t('sidebar.state.closed')}>
           <ChevronRight size={13} class="shrink-0 text-faint transition-transform duration-100 {open ? 'rotate-90' : ''}" />
           <DbIcon type={c.db_type} size={13} />
           <span class="truncate {here ? 'font-semibold text-fg' : 'font-medium text-fg'}">{c.name}</span>

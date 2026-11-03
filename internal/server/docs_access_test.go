@@ -3,7 +3,12 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/rakunlabs/dataport/internal/store"
 )
@@ -90,5 +95,64 @@ func TestDocBuildAccess(t *testing.T) {
 	}
 	if s.docsBuildAllowed(ctx, alice) {
 		t.Fatal("removed group still builds")
+	}
+}
+
+// Turned off by an admin, documentation is refused everywhere: the API,
+// MCP tools and the profile tell the UI to hide it; the snapshots stay.
+func TestDocsTurnedOff(t *testing.T) {
+	ctx := context.Background()
+	env := newMCPEnv(t, "")
+	s := env.srv
+	k := docKeyFor(t, env)
+
+	if _, err := s.documentation(ctx, k, false); err != nil {
+		t.Fatal(err)
+	}
+
+	next := s.base
+	next.Docs.Disabled = true
+	s.useSettings(&next, false)
+
+	if !s.toMe(ctx, env.alice).DocsOff {
+		t.Fatal("the profile does not say documentation is off")
+	}
+	if _, err := s.documentation(ctx, k, false); !errors.Is(err, errDocsDisabled) {
+		t.Fatalf("documentation while off: %v", err)
+	}
+	if _, err := env.st.GetDoc(ctx, sharedKey(k)); err != nil {
+		t.Fatal("the snapshot was removed")
+	}
+
+	w := httptest.NewRecorder()
+	s.requireDocs(func(http.ResponseWriter, *http.Request) { t.Fatal("handler reached") })(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("route while off: %d", w.Code)
+	}
+
+	hasDocTools := func() bool {
+		st, ct := mcp.NewInMemoryTransports()
+		if _, err := s.newMCPServer(&mcpCaller{user: env.alice, token: &store.AccessToken{}}).Connect(ctx, st, nil); err != nil {
+			t.Fatal(err)
+		}
+		cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "1"}, nil).Connect(ctx, ct, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = cs.Close() }()
+		tools, err := cs.ListTools(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.ContainsFunc(tools.Tools, func(x *mcp.Tool) bool { return x.Name == mcpToolPrefix+"table_docs" })
+	}
+	if hasDocTools() {
+		t.Fatal("MCP offers documentation tools while off")
+	}
+
+	next.Docs.Disabled = false
+	s.useSettings(&next, false)
+	if _, err := s.documentation(ctx, k, false); err != nil || !hasDocTools() {
+		t.Fatalf("documentation back on: %v", err)
 	}
 }

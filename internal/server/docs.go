@@ -111,6 +111,10 @@ var errDocsReadOnly = errors.New("no documentation has been built for this schem
 // built yet, reads catalogs. Users who may not build documentation never
 // start a scan.
 func (s *Server) documentation(ctx context.Context, k store.DocKey, force bool) (*docResponse, error) {
+	if s.docsOff() {
+		return nil, errDocsDisabled
+	}
+
 	u, err := s.store.GetUser(ctx, k.UserID)
 	if err != nil {
 		return nil, err
@@ -384,7 +388,7 @@ func writeDocError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errDocBusy), errors.Is(err, errDocChanged):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, errDocsBuildOff), errors.Is(err, errDocsBlocked):
+	case errors.Is(err, errDocsBuildOff), errors.Is(err, errDocsBlocked), errors.Is(err, errDocsDisabled):
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, errDocsReadOnly):
 		writeError(w, http.StatusNotFound, err.Error())

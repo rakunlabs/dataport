@@ -73,11 +73,7 @@
   const snippet = $derived.by(() => {
     const header = oauth ? '' : ` --header "Authorization: Bearer ${token}"`;
     if (client === 'claude') return `claude mcp add --transport http ${serverName} ${endpoint}${header}`;
-    if (client === 'opencode') {
-      const server: Record<string, unknown> = { type: 'remote', url: endpoint };
-      if (!oauth) server.headers = { Authorization: `Bearer ${token}` };
-      return JSON.stringify({ $schema: 'https://opencode.ai/config.json', mcp: { [serverName]: server } }, null, 2);
-    }
+    if (client === 'opencode') return `opencode mcp add ${serverName} --global --url ${endpoint}${oauth ? '' : ` --header 'Authorization=Bearer ${token}'`}`;
     if (client === 'json') {
       const server: Record<string, unknown> = { type: 'http', url: endpoint };
       if (!oauth) server.headers = { Authorization: `Bearer ${token}` };
@@ -136,7 +132,7 @@
           </div>
           <div class="segmented">
             <button type="button" aria-pressed={client === 'claude'} onclick={() => (client = 'claude')}>Claude Code</button>
-            <button type="button" aria-pressed={client === 'opencode'} onclick={() => (client = 'opencode')}>opencode.json</button>
+            <button type="button" aria-pressed={client === 'opencode'} onclick={() => (client = 'opencode')}>OpenCode</button>
             <button type="button" aria-pressed={client === 'json'} onclick={() => (client = 'json')}>{t('mcp.jsonConfig')}</button>
             {#if !oauth}<button type="button" aria-pressed={client === 'curl'} onclick={() => (client = 'curl')}>curl</button>{/if}
           </div>

@@ -101,6 +101,22 @@ func (s *Server) requireNotebooks(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// errDocsDisabled is returned while an admin turned documentation off.
+var errDocsDisabled = errors.New("documentation is turned off on this server")
+
+// requireDocs guards a documentation route.
+func (s *Server) requireDocs(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.docsOff() {
+			writeError(w, http.StatusForbidden, errDocsDisabled.Error())
+
+			return
+		}
+
+		next(w, r)
+	}
+}
+
 // setFeatureGroup adds a group to a feature's groups or takes it away.
 func (s *Server) setFeatureGroup(ctx context.Context, setting, groupID string, on bool) error {
 	a := s.featureAccess(ctx, setting)

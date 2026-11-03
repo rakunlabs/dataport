@@ -1,24 +1,27 @@
 import en from '@/lib/i18n/en';
 
 // Sections a translation may leave out; t() falls back to English for them.
-type Optional = 'pager' | 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn' | 'calc' | 'record' | 'rowColors';
+type Optional = 'account' | 'assistant' | 'pager' | 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn' | 'calc' | 'record' | 'rowColors';
 
 // Messages added after a translation was written may be missing from it;
 // t() falls back to English for them too. A string names leaf messages,
 // true a whole section.
 type Later = {
   admin: {
-    server: true;
+    server: { sections: 'docs'; fields: 'docs_disabled'; hints: 'docs_disabled' };
+    log: 'range' | 'from' | 'to' | 'ranges';
+    oauthClients: true;
     docsExport: true;
     docConn: true;
     docAccess: true;
-    oauthClients: true;
     externalUrl: true;
-    user: 'search' | 'searchGroups' | 'allGroups' | 'count' | 'noMatch';
+    secretKey: true;
+    ai: true;
+    user: 'search' | 'searchGroups' | 'allGroups' | 'count' | 'noMatch' | 'allKinds' | 'ssoNoPassword';
     group: 'search' | 'noMatch' | 'more' | 'allMembers' | 'selected' | 'onlyMembers' | 'addMatching' | 'removeMatching' | 'features' | 'featureNotebooks' | 'featureNotebooksHint' | 'featureDocs' | 'featureDocsHint' | 'featureOpen';
     cluster: true;
     conn: 'visibility' | 'visibilityHint' | 'showWorkspace' | 'showWorkspaceHint' | 'showNotebooks' | 'showNotebooksHint' | 'showMcp' | 'showMcpHint' | 'notebookOnly' | 'notebookOnlyHint' | 'notebookOnlyShared' | 'notebookOnlyChip' | 'personalTitle' | 'personalHint' | 'owner';
-    docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' };
+    docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' | 'turnedOff' };
   grid: 'sortBy';
   diagram: 'fromDocs';
   login: 'forClient';
@@ -28,6 +31,8 @@ type Later = {
   result: 'elapsed' | 'cancelling' | 'runningFor';
   query: 'runParallel';
   valuePanel: 'tab' | 'pick';
+  sidebar: 'state';
+  editor: 'limits' | 'limitsReset';
 };
 
 type Sections<K> = { [P in keyof K]: K[P] extends true ? P : never }[keyof K];

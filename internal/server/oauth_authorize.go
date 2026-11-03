@@ -52,7 +52,7 @@ func (s *Server) checkAuthorize(r *http.Request, user *store.User, p authorizePa
 		return nil, errors.New("unknown client; register it again")
 	}
 
-	if !slices.Contains(client.RedirectURIs, p.RedirectURI) {
+	if !slices.ContainsFunc(client.RedirectURIs, func(u string) bool { return redirectMatches(u, p.RedirectURI) }) {
 		return nil, errors.New("the redirect URI was not registered by this client")
 	}
 

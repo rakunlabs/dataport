@@ -7,7 +7,7 @@
   import NotebookAccess from '@/pages/admin/NotebookAccess.svelte';
   import { api } from '@/lib/api/client';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
-  import { openDocs } from '@/lib/stores/workspace.svelte';
+  import { openDocs, ws } from '@/lib/stores/workspace.svelte';
   import { session } from '@/lib/stores/session.svelte';
   import type { DocInfo, DocRun } from '@/lib/api/types';
 
@@ -104,13 +104,19 @@
 
 <Page title={t('admin.docs.title')} description={t('admin.docs.description')}>
   {#snippet actions()}
-    <button class="btn-outline" onclick={runNow} disabled={!saved || starting || run?.running}>
+    <button class="btn-outline" onclick={runNow} disabled={!saved || starting || run?.running || session.user?.docs_off}>
       {#if run?.running}<LoaderCircle size={14} class="animate-spin" />{:else}<Play size={14} />{/if}
       {t(run?.running ? 'admin.docs.running' : 'admin.docs.runNow')}
     </button>
   {/snippet}
 
   <div class="max-w-3xl space-y-6 px-6 py-5">
+    {#if session.user?.docs_off}
+      <p class="flex items-start gap-1.5 rounded-md border border-warn/40 bg-warn-soft p-2 text-xs text-fg-2">
+        <CircleSlash size={13} class="mt-0.5 shrink-0 text-warn" />
+        <span>{t('admin.docs.turnedOff')} <button class="text-accent hover:underline" onclick={() => (ws.settingsSection = 'server')}>{t('admin.server.title')}</button></span>
+      </p>
+    {/if}
     {#if run && (run.running || run.finished_at)}
       <section class="space-y-2 rounded-md border border-line p-3" role="status" aria-live="polite">
         {#if run.running}

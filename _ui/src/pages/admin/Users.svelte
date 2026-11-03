@@ -22,15 +22,18 @@
   // Search by name or email, optionally within one group, a page at a time.
   let query = $state('');
   let groupFilter = $state('');
+  // Local accounts sign in with a password, SSO ones at their provider.
+  let kindFilter = $state<'' | 'local' | 'sso'>('');
   let page = $state(0);
   const filtered = $derived.by(() => {
     const q = query.trim().toLowerCase();
-    return admin.users.filter((u) => matchesUser(u, q) && (!groupFilter || u.group_ids.includes(groupFilter)));
+    return admin.users.filter((u) => matchesUser(u, q) && (!groupFilter || u.group_ids.includes(groupFilter)) && (!kindFilter || (kindFilter === 'sso') === !!u.providers?.length));
   });
   const shown = $derived(filtered.slice(page * pageSize, (page + 1) * pageSize));
   $effect(() => {
     void query;
     void groupFilter;
+    void kindFilter;
     page = 0;
   });
   $effect(() => {
@@ -117,6 +120,11 @@
         {#each admin.groups as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
       </select>
     {/if}
+    <select class="input h-7 w-32 text-xs" bind:value={kindFilter} aria-label={t('account.signIn')}>
+      <option value="">{t('admin.user.allKinds')}</option>
+      <option value="local">{t('account.local')}</option>
+      <option value="sso">SSO</option>
+    </select>
     <span class="text-xs text-faint tabular-nums">{t('admin.user.count', { n: filtered.length, total: admin.users.length })}</span>
     <button class="btn-primary" onclick={() => open(null)}><Plus size={14} /> {t('admin.user.new')}</button>
   {/snippet}
@@ -137,7 +145,9 @@
             <td class="py-1.5">
               <div class="font-medium">{u.display_name || u.username}</div>
               <div class="text-xs text-muted">{u.username}{u.email ? ` · ${u.email}` : ''}{u.disabled ? ` · ${t('admin.user.disabled')}` : ''}</div>
-              {#if u.providers?.length}
+              {#if !u.providers?.length}
+                <div class="mt-1"><span class="chip text-2xs">{t('account.local')}</span></div>
+              {:else}
                 <div class="mt-1 flex items-center gap-1">
                   {#each u.providers as p (p)}<span class="pill-own"><KeyRound size={10} />{p}</span>{/each}
                   <button class="text-2xs text-muted underline hover:text-danger" onclick={() => unlink(u)}>{t('admin.user.unlink')}</button>
@@ -187,10 +197,14 @@
         <label class="label" for="u-email">{t('admin.user.email')} <span class="font-normal text-faint">{t('admin.user.emailHint')}</span></label>
         <input id="u-email" class="input" type="email" bind:value={form.email} autocomplete="off" />
       </div>
-      <div>
-        <label class="label" for="u-pass">{editing ? t('admin.user.newPassword') : t('admin.user.password')}</label>
-        <PasswordInput id="u-pass" bind:value={form.password} minlength={8} required={!editing} autocomplete="new-password" />
-      </div>
+      {#if editing?.providers?.length}
+        <p class="rounded-md border border-line bg-panel px-3 py-2 text-xs text-fg-2">{t('admin.user.ssoNoPassword', { provider: editing.providers.join(', ') })}</p>
+      {:else}
+        <div>
+          <label class="label" for="u-pass">{editing ? t('admin.user.newPassword') : t('admin.user.password')}</label>
+          <PasswordInput id="u-pass" bind:value={form.password} minlength={8} required={!editing} autocomplete="new-password" />
+        </div>
+      {/if}
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="label" for="u-role">{t('admin.user.role')}</label>

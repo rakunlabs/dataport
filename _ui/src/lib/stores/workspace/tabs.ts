@@ -251,6 +251,8 @@ export async function startWorkspace(userId: string) {
         if (!['settings', 'notebooks', 'notebook', 'docsHub'].includes(p.kind) && !connection(p.connectionId)) continue;
         // Notebooks may have been closed to this user since.
         if ((p.kind === 'notebooks' || p.kind === 'notebook') && !session.user?.can_use_notebooks) continue;
+        // So may documentation.
+        if ((p.kind === 'docs' || p.kind === 'docsHub' || (p.kind === 'diagram' && p.fromDocs)) && session.user?.docs_off) continue;
         const t = baseTab(p.kind, p.connectionId);
         Object.assign(t, p);
         if (p.kind === 'settings') t.title = '';

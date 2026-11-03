@@ -13,6 +13,12 @@ export interface Me {
   can_use_notebooks?: boolean;
   // The user may build and refresh documentation; others only read it.
   can_build_docs?: boolean;
+  // The SSO providers linked to the user, who then has no password here.
+  sso?: string[];
+  // The AI assistant is set up.
+  ai?: boolean;
+  // An admin turned documentation off for everyone.
+  docs_off?: boolean;
 }
 
 export interface AuthInfo {

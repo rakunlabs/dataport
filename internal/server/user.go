@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/rakunlabs/dataport/internal/auth"
@@ -25,12 +26,24 @@ type meResponse struct {
 	// CanBuildDocs is set when the user may build and refresh schema
 	// documentation; others only read it.
 	CanBuildDocs bool `json:"can_build_docs"`
+	// SSO lists the sign-in providers linked to the user. Such a user
+	// signs in there and has no dataport password to change.
+	SSO []string `json:"sso,omitempty"`
+	// AI is set while the AI assistant is set up.
+	AI bool `json:"ai,omitempty"`
+	// DocsOff is set while an admin turned documentation off.
+	DocsOff bool `json:"docs_off,omitempty"`
 }
 
 func (s *Server) toMe(ctx context.Context, u *store.User) meResponse {
-	return meResponse{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role,
+	providers, err := s.store.UserProviders(ctx, u.ID)
+	if err != nil {
+		slog.Warn("list sso providers of user", "user", u.ID, "error", err)
+	}
+
+	return meResponse{SSO: providers, AI: s.aiReady(ctx), ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role,
 		CanCreateConnections: s.connectionsCfg().UserCreate, Subtitle: s.loginPage(ctx).Subtitle,
-		CanUseNotebooks: s.notebooksAllowed(ctx, u), CanBuildDocs: s.docsBuildAllowed(ctx, u)}
+		CanUseNotebooks: s.notebooksAllowed(ctx, u), CanBuildDocs: s.docsBuildAllowed(ctx, u), DocsOff: s.docsOff()}
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +95,8 @@ func (s *Server) about(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, config.Build)
 }
 
+var errSSOPassword = errors.New("your account signs in with single sign-on; change your password at the provider")
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.toMe(r.Context(), currentUser(r)))
 }
@@ -97,6 +112,19 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := currentUser(r)
+
+	// A user linked to single sign-on has their password at the provider.
+	if providers, err := s.store.UserProviders(r.Context(), user.ID); err != nil || len(providers) > 0 {
+		if err != nil {
+			writeStoreError(w, err)
+
+			return
+		}
+
+		writeError(w, http.StatusForbidden, errSSOPassword.Error())
+
+		return
+	}
 
 	full, err := s.store.GetUserByUsername(r.Context(), user.Username)
 	if err != nil {
