@@ -16,6 +16,8 @@ export interface EditorOptions {
   placeholders: boolean;
   // A blank line ends a statement without a ";".
   blankLineSplits: boolean;
+  // Ask the server's model for the text at the cursor, shown greyed out.
+  aiComplete: boolean;
 }
 
 export const defaultOptions: EditorOptions = {
@@ -30,6 +32,7 @@ export const defaultOptions: EditorOptions = {
   vim: false,
   placeholders: false,
   blankLineSplits: true,
+  aiComplete: false,
 };
 
 export function editorOptions(p: Prefs): EditorOptions {
@@ -45,5 +48,6 @@ export function editorOptions(p: Prefs): EditorOptions {
     vim: p.vim,
     placeholders: p.variables,
     blankLineSplits: p.blankLineSplits,
+    aiComplete: p.aiComplete,
   };
 }

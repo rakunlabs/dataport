@@ -5,6 +5,7 @@
   import { fontFamilies, prefs, resetPrefs, savePrefs } from '@/lib/stores/prefs.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';
   import { placeholders, substitute } from '@/lib/helper/variables';
+  import { session } from '@/lib/stores/session.svelte';
 
   // The preview shows what the settings do: statements with run buttons,
   // a placeholder and a declared variable.
@@ -104,6 +105,15 @@ SELECT COUNT(*) FROM orders;
           <span class="block text-xs text-muted">{t('settings.vimHint')}</span>
         </span>
       </label>
+      {#if session.user?.ai_complete}
+        <label class="flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5" bind:checked={prefs.aiComplete} onchange={change} />
+          <span>
+            <span class="block">{t('settings.aiComplete')}</span>
+            <span class="block text-xs text-muted">{t('settings.aiCompleteHint')}</span>
+          </span>
+        </label>
+      {/if}
     </section>
 
     <section class="space-y-2.5">

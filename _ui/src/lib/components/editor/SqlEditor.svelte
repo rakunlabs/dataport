@@ -20,6 +20,10 @@
   import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
   import { catalogCompletion, dialect, editorTheme, highlight, placeholderMarks, runGutterExtension, setRunStatus, statementFields, statementText, type SqlCatalog } from '@/lib/components/editor/editorSetup';
+  import { clearGhost, inlineCompletion } from '@/lib/components/editor/inlineComplete';
+  import { tableRefs } from '@/lib/helper/sqlTables';
+  import { api } from '@/lib/api/client';
+  import { session } from '@/lib/stores/session.svelte';
 
   let {
     value,
@@ -262,6 +266,39 @@
     return span ? v.state.sliceDoc(span.from, span.to) : '';
   }
 
+  // The tables the model is told of: those the statement names with their
+  // columns, else the names of the default schema's tables.
+  async function contextTables(prefix: string): Promise<string[]> {
+    if (!catalog) return [];
+    const stmt = statementText(prefix, prefix.length, dbType);
+    try {
+      await catalog.prepare(stmt);
+    } catch {
+      return [];
+    }
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const ref of tableRefs(stmt)) {
+      const key = `${ref.schema}.${ref.table}`.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const cols = catalog.columns(ref.schema, ref.table);
+      if (cols) out.push(`${ref.schema ? ref.schema + '.' : ''}${ref.table}(${cols.map((c) => `${c.name} ${c.type}`).join(', ')})`);
+    }
+    if (!out.length) out.push(...catalog.tables().slice(0, 60).map((t) => t.name));
+    return out;
+  }
+
+  const inline = inlineCompletion({
+    enabled: () => opts.aiComplete && !!session.user?.ai_complete && !readonly,
+    fetch: async (req, signal) => {
+      const tables = await contextTables(req.prefix);
+      if (signal.aborted) return '';
+      const out = await api.post<{ text: string }>('/ai/complete', { ...req, db_type: dbType, tables }, signal);
+      return out?.text ?? '';
+    },
+  });
+
   onMount(() => {
     view = new EditorView({
       parent: host,
@@ -286,6 +323,7 @@
             },
           }),
           behaviour.of(behaviourExtension()),
+          inline,
           runGutter.of(runExtension()),
           highlightActiveLine(),
           drawSelection(),
@@ -366,6 +404,11 @@
 
   $effect(() => {
     view?.dispatch({ effects: access.reconfigure(EditorState.readOnly.of(readonly)) });
+  });
+
+  // Turned off, the suggestion shown goes at once.
+  $effect(() => {
+    if (!opts.aiComplete && view) clearGhost(view);
   });
 
   onDestroy(() => view?.destroy());

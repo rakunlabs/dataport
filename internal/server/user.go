@@ -31,6 +31,8 @@ type meResponse struct {
 	SSO []string `json:"sso,omitempty"`
 	// AI is set while the AI assistant is set up.
 	AI bool `json:"ai,omitempty"`
+	// AIComplete is set while inline completion in the editor is set up.
+	AIComplete bool `json:"ai_complete,omitempty"`
 	// DocsOff is set while an admin turned documentation off.
 	DocsOff bool `json:"docs_off,omitempty"`
 }
@@ -41,7 +43,7 @@ func (s *Server) toMe(ctx context.Context, u *store.User) meResponse {
 		slog.Warn("list sso providers of user", "user", u.ID, "error", err)
 	}
 
-	return meResponse{SSO: providers, AI: s.aiReady(ctx), ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role,
+	return meResponse{SSO: providers, AI: s.aiReady(ctx), AIComplete: s.aiCompleteReady(ctx), ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role,
 		CanCreateConnections: s.connectionsCfg().UserCreate, Subtitle: s.loginPage(ctx).Subtitle,
 		CanUseNotebooks: s.notebooksAllowed(ctx, u), CanBuildDocs: s.docsBuildAllowed(ctx, u), DocsOff: s.docsOff()}
 }

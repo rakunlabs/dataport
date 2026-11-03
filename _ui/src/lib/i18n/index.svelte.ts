@@ -17,6 +17,7 @@ type Later = {
     externalUrl: true;
     secretKey: true;
     ai: true;
+    aiComplete: true;
     user: 'search' | 'searchGroups' | 'allGroups' | 'count' | 'noMatch' | 'allKinds' | 'ssoNoPassword';
     group: 'search' | 'noMatch' | 'more' | 'allMembers' | 'selected' | 'onlyMembers' | 'addMatching' | 'removeMatching' | 'features' | 'featureNotebooks' | 'featureNotebooksHint' | 'featureDocs' | 'featureDocsHint' | 'featureOpen';
     cluster: true;
@@ -32,7 +33,8 @@ type Later = {
   query: 'runParallel';
   valuePanel: 'tab' | 'pick';
   sidebar: 'state';
-  editor: 'limits' | 'limitsReset';
+  editor: 'limits' | 'limitsReset' | 'aiComplete' | 'aiCompleteOn' | 'aiCompleteOff';
+  settings: 'aiComplete' | 'aiCompleteHint';
 };
 
 type Sections<K> = { [P in keyof K]: K[P] extends true ? P : never }[keyof K];

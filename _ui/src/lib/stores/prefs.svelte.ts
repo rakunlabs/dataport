@@ -46,6 +46,8 @@ export interface Prefs {
   variableSyntaxes: VariableSyntaxes;
   // New query tabs start with a manual transaction, as last chosen.
   manualTx: boolean;
+  // Inline AI completion in the SQL editor, where the server offers it.
+  aiComplete: boolean;
 }
 
 const key = 'dataport.prefs';
@@ -66,6 +68,7 @@ export const defaultPrefs: Prefs = {
   variables: true,
   variableSyntaxes: { atSet: true, shell: true, named: false, mybatis: true },
   manualTx: false,
+  aiComplete: true,
 };
 
 function load(): Prefs {

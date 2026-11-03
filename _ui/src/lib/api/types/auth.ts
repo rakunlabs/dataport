@@ -17,6 +17,8 @@ export interface Me {
   sso?: string[];
   // The AI assistant is set up.
   ai?: boolean;
+  // Inline completion in the SQL editor is set up.
+  ai_complete?: boolean;
   // An admin turned documentation off for everyone.
   docs_off?: boolean;
 }

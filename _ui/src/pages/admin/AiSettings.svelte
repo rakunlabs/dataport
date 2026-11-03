@@ -2,6 +2,7 @@
   import { t } from '@/lib/i18n/index.svelte';
   import { PlugZap, LoaderCircle, TriangleAlert } from 'lucide-svelte';
   import Page from '@/pages/admin/Page.svelte';
+  import AiCompletionSettings from '@/pages/admin/AiCompletionSettings.svelte';
   import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { api } from '@/lib/api/client';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
@@ -124,4 +125,6 @@
       </button>
     </div>
   </form>
+
+  <AiCompletionSettings />
 </Page>

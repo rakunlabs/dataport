@@ -1,7 +1,7 @@
 <script lang="ts">
   import { keepEdits } from '@/lib/stores/edits.svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity, WrapText, AlignLeft, ListVideo, SlidersHorizontal } from 'lucide-svelte';
+  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity, WrapText, Sparkles, AlignLeft, ListVideo, SlidersHorizontal } from 'lucide-svelte';
   import ExplainDialog from '@/lib/components/dialogs/ExplainDialog.svelte';
   import type { SQLNamespace } from '@codemirror/lang-sql';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
@@ -149,6 +149,12 @@
   // Wrapping is a preference, shared with Settings → Editor.
   function toggleWrap() {
     prefs.wrap = !prefs.wrap;
+    savePrefs();
+  }
+
+  // Inline completion is a preference too; the button turns it off quickly.
+  function toggleAiComplete() {
+    prefs.aiComplete = !prefs.aiComplete;
     savePrefs();
   }
 
@@ -329,6 +335,9 @@
     <button class="btn" onclick={save} title="Ctrl+S"><Save size={14} /> {tab.savedId ? t('query.save') : t('query.saveAs')}</button>
     <button class="icon-btn" onclick={() => editor?.format()} disabled={!tab.sql.trim()} title="{t('editor.format')} (Ctrl+Shift+F)" aria-label={t('editor.format')}><AlignLeft size={14} /></button>
     <button class="icon-btn" aria-pressed={prefs.wrap} onclick={toggleWrap} title="{t('editor.wrap')} ({altKeys}Z)" aria-label={t('editor.wrap')}><WrapText size={14} /></button>
+    {#if session.user?.ai_complete}
+      <button class="icon-btn" aria-pressed={prefs.aiComplete} onclick={toggleAiComplete} title={prefs.aiComplete ? t('editor.aiCompleteOn') : t('editor.aiCompleteOff')} aria-label={t('editor.aiComplete')}><Sparkles size={14} /></button>
+    {/if}
     {#if session.user?.can_use_notebooks}
       <button class="btn" onclick={() => openNotebook('', tab.sql, tab.connectionId)}>{t('notebook.fromQuery')}</button>
     {/if}

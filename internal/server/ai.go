@@ -268,7 +268,12 @@ func (s *Server) aiComplete(ctx context.Context, v aiConfig, messages []aiMessag
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, v.BaseURL+"/chat/completions", bytes.NewReader(raw))
+	endpoint, err := aiURL(v.BaseURL, "/chat/completions")
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
 	}
