@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, i18n, locales, setLocale } from '@/lib/i18n/index.svelte';
-  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, LockKeyhole, Sparkles, Moon, Sun, Monitor, Check, Info, SlidersHorizontal, PlugZap, Network } from 'lucide-svelte';
+  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, LockKeyhole, Sparkles, Moon, Sun, Monitor, Check, Info, SlidersHorizontal, PlugZap, Network, RotateCcw } from 'lucide-svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
   import { ws } from '@/lib/stores/workspace.svelte';
@@ -21,8 +21,19 @@
   import ServerSettings from '@/pages/admin/ServerSettings.svelte';
   import Cluster from '@/pages/admin/Cluster.svelte';
   import MyConnections from '@/pages/settings/MyConnections.svelte';
+  import Page from '@/pages/admin/Page.svelte';
+  import { resetPrefs } from '@/lib/stores/prefs.svelte';
 
   type Section = 'appearance' | 'editor' | 'account' | 'mcp' | 'myConnections' | 'about' | 'connections' | 'users' | 'groups' | 'sso' | 'oauthClients' | 'sessions' | 'secretKey' | 'ai' | 'server' | 'cluster' | 'docs' | 'logs';
+
+  // Titles of the personal sections, which share the admin page header.
+  const personalTitles: Partial<Record<Section, string>> = {
+    appearance: 'settings.appearance',
+    editor: 'settings.editor',
+    account: 'settings.account',
+    mcp: 'mcp.title',
+    about: 'about.title',
+  };
 
   const isAdmin = $derived(session.user?.role === 'admin');
 
@@ -72,7 +83,7 @@
 </script>
 
 <div class="flex h-full min-h-0">
-  <nav class="w-52 shrink-0 overflow-y-auto border-r border-line bg-panel p-1.5" aria-label={t('settings.title')}>
+  <nav class="w-52 shrink-0 overflow-y-auto border-r border-line bg-panel px-1.5 pb-1.5 pt-1" aria-label={t('settings.title')}>
     <p class="flex h-7 items-center px-2 text-xs font-semibold text-fg-2">{t('settings.personal')}</p>
     {#each personal as item (item.key)}
       {@const active = section === item.key}
@@ -141,16 +152,18 @@
     {:else if section === 'logs'}
       <Logs />
     {:else}
-      <div class="h-full overflow-y-auto">
-        <div class="space-y-6 px-6 py-5 {section === 'editor' ? 'max-w-6xl' : 'max-w-3xl'}">
+      <Page title={t(personalTitles[section] ?? 'settings.title')}>
+        {#snippet actions()}
+          {#if section === 'editor'}<button class="btn" onclick={resetPrefs}><RotateCcw size={13} /> {t('settings.reset')}</button>{/if}
+        {/snippet}
+        <div class="space-y-6 px-4 py-4 {section === 'editor' ? 'max-w-6xl' : 'max-w-3xl'}">
           {#if section === 'appearance'}
-            <h2 class="text-base font-semibold">{t('settings.appearance')}</h2>
             <section>
               <span class="label">{t('app.theme')}</span>
               <div class="flex gap-2">
                 {#each themes as th (th.mode)}
                   <button
-                    class="flex h-9 items-center gap-2 rounded-md border px-3 text-sm {theme.mode === th.mode ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover'}"
+                    class="flex h-7 items-center gap-2 rounded-md border px-2.5 text-sm {theme.mode === th.mode ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover'}"
                     aria-pressed={theme.mode === th.mode}
                     onclick={() => setTheme(th.mode)}
                   >
@@ -165,7 +178,7 @@
               <div class="flex flex-wrap gap-2">
                 {#each locales as l (l.value)}
                   <button
-                    class="flex h-9 items-center gap-2 rounded-md border px-3 text-sm {i18n.locale === l.value ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover'}"
+                    class="flex h-7 items-center gap-2 rounded-md border px-2.5 text-sm {i18n.locale === l.value ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover'}"
                     aria-pressed={i18n.locale === l.value}
                     onclick={() => setLocale(l.value)}
                   >
@@ -178,7 +191,6 @@
           {:else if section === 'editor'}
             <EditorSettings />
           {:else if section === 'account'}
-            <h2 class="text-base font-semibold">{t('settings.account')}</h2>
             <dl class="grid max-w-md grid-cols-[8rem_1fr] gap-y-2 text-sm">
               <dt class="text-muted">{t('login.username')}</dt>
               <dd class="font-mono">{session.user?.username}</dd>
@@ -203,11 +215,10 @@
           {:else if section === 'about'}
             <About />
           {:else if section === 'mcp'}
-            <h2 class="text-base font-semibold">{t('mcp.title')}</h2>
             <McpPanel />
           {/if}
         </div>
-      </div>
+      </Page>
     {/if}
   </div>
 </div>

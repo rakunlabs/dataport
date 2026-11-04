@@ -175,7 +175,7 @@
       <button class="btn" disabled={!note.id || busy} onclick={() => { if (!tab.dirty || confirm(t('notebook.reloadConfirm'))) void load(); }} title={t('notebook.reload')} aria-label={t('notebook.reload')}><RefreshCw size={14} /></button>
       <button class="btn-primary" onclick={save} disabled={!editable || busy || !tab.dirty}><Save size={14} />{t('common.save')}</button>
     </div>
-    <div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line bg-panel px-2 py-1">
+    <div class="toolbar overflow-x-auto">
       {#each ['cells', 'parameters', 'endpoint', 'runs', ...(owner && note.id ? ['sharing'] : [])] as s}
         <button class="btn whitespace-nowrap" class:bg-active={section === s} aria-pressed={section === s} onclick={() => (section = s)}>{t(`notebook.${s}`)}</button>
       {/each}

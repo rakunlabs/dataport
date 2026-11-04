@@ -133,7 +133,7 @@
       <button class="btn-outline" onclick={() => load(true)}>{t('common.refresh')}</button>
     </div>
   {:else if data && tab.view === 'ddl'}
-    <div class="flex h-8 shrink-0 items-center gap-1 border-b border-line bg-bg pr-1 pl-3">
+    <div class="toolbar pl-3">
       <span class="text-xs text-muted">{t('structure.ddlHint')}</span>
       <div class="flex-1"></div>
       <button class="btn" onclick={copyDDL}><Copy size={14} /> {t('common.copy')}</button>
@@ -146,16 +146,7 @@
       {/key}
     </div>
   {:else if data && draft}
-    <!-- table comment and the tabs -->
-    <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-bg px-3 py-2">
-      {#if can.comments}
-        <label class="flex min-w-72 flex-1 items-center gap-2 text-xs text-muted">
-          {t('structureEdit.comment')}
-          <input class="input h-7 max-w-md flex-1 text-xs {draft.comment !== (data.comment ?? '') ? 'ring-1 ring-warn' : ''}" bind:value={draft.comment} placeholder={t('structureEdit.commentPlaceholder')} disabled={!writable} />
-        </label>
-      {:else}
-        <div class="flex-1"></div>
-      {/if}
+    {#snippet pending()}
       {#if dirty}
         <span class="flex items-center gap-1.5 text-xs font-medium text-row-dirty-fg"><span class="size-2 rounded-full bg-warn"></span>{t('structureEdit.pending', { count: plan.statements.length })}</span>
         <button class="icon-btn" onclick={discard} title={t('edit.discard')} aria-label={t('edit.discard')}><Undo2 size={14} /></button>
@@ -168,9 +159,20 @@
       <button class="icon-btn" onclick={() => (dirty && !confirm(t('structureEdit.reloadConfirm')) ? null : load(true))} title={t('common.refresh')} aria-label={t('common.refresh')}>
         <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
       </button>
-    </div>
+    {/snippet}
 
-    <div class="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-panel px-3">
+    <!-- The table comment, where the database keeps one. -->
+    {#if can.comments}
+      <div class="toolbar gap-2 bg-bg px-3">
+        <label class="flex min-w-72 flex-1 items-center gap-2 text-xs text-muted">
+          {t('structureEdit.comment')}
+          <input class="input h-[26px] max-w-md flex-1 text-xs {draft.comment !== (data.comment ?? '') ? 'ring-1 ring-warn' : ''}" bind:value={draft.comment} placeholder={t('structureEdit.commentPlaceholder')} disabled={!writable} />
+        </label>
+        {@render pending()}
+      </div>
+    {/if}
+
+    <div class="toolbar gap-2 px-3">
       <div class="segmented" role="group">
         {#each [
           { id: 'columns', label: t('structure.columns'), n: draft.columns.filter((c) => !c.dropped).length },
@@ -187,13 +189,17 @@
       {#if section === 'columns'}
         <div class="relative">
           <Search size={13} class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-faint" />
-          <input class="input h-7 w-48 pl-7 text-xs" placeholder={t('structureEdit.searchColumn')} bind:value={filter} />
+          <input class="input h-[26px] w-48 pl-7 text-xs" placeholder={t('structureEdit.searchColumn')} bind:value={filter} />
         </div>
-        {#if writable && can.columns}<button class="btn-primary h-7" onclick={addColumn}><Plus size={13} /> {t('structureEdit.addColumn')}</button>{/if}
+        {#if writable && can.columns}<button class="btn" onclick={addColumn}><Plus size={13} /> {t('structureEdit.addColumn')}</button>{/if}
       {:else if section === 'indexes' && writable && can.indexes}
-        <button class="btn-primary h-7" onclick={addIndex}><Plus size={13} /> {t('structureEdit.addIndex')}</button>
+        <button class="btn" onclick={addIndex}><Plus size={13} /> {t('structureEdit.addIndex')}</button>
       {:else if section === 'fks' && writable && can.fks}
-        <button class="btn-primary h-7" onclick={addFk}><Plus size={13} /> {t('structureEdit.addFk')}</button>
+        <button class="btn" onclick={addFk}><Plus size={13} /> {t('structureEdit.addFk')}</button>
+      {/if}
+      {#if !can.comments}
+        <span class="toolbar-sep"></span>
+        {@render pending()}
       {/if}
     </div>
 

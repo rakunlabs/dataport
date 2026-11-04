@@ -1,8 +1,8 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { Info, RotateCcw, Variable } from 'lucide-svelte';
+  import { Info, Variable } from 'lucide-svelte';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
-  import { fontFamilies, prefs, resetPrefs, savePrefs } from '@/lib/stores/prefs.svelte';
+  import { fontFamilies, prefs, savePrefs } from '@/lib/stores/prefs.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';
   import { placeholders, substitute } from '@/lib/helper/variables';
   import { session } from '@/lib/stores/session.svelte';
@@ -47,11 +47,6 @@ SELECT COUNT(*) FROM orders;
     savePrefs();
   }
 </script>
-
-<div class="flex items-center justify-between">
-  <h2 class="text-base font-semibold">{t('settings.editor')}</h2>
-  <button class="btn" onclick={resetPrefs}><RotateCcw size={13} /> {t('settings.reset')}</button>
-</div>
 
 <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
   <div class="space-y-6">

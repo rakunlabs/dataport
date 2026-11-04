@@ -319,7 +319,7 @@ A neutral graphite (dark) or cool paper-grey (light) IDE palette with a single b
 **Character:** A neutral, slightly tightened Inter (`cv11`, `ss01` enabled) for chrome, and JetBrains Mono with ligatures off for everything a database would print: SQL, schema-qualified names, hosts, cell values, the generated SELECT in the status bar.
 
 ### Hierarchy
-- **Headline** (600, 16px, 22px): the product name on the login page; the only text above 14px.
+- **Headline** (600, 16px, 22px): the largest text inside the app. The product name on the login card is the single exception at 24px.
 - **Title** (600, 14px, 20px, or 600 at 13px): login heading, modal titles, admin page titles. Admin page titles sit inline with their description rather than above it.
 - **Body** (400, 13px, 18px): the default for the whole app: tree items, buttons, menu items, table cells.
 - **Label** (500, 12px, 16px): field labels, table headers, sidebar section heading, status bar, hints (at 400 in `muted`).
@@ -337,7 +337,7 @@ A desktop IDE frame that fills the viewport and never scrolls as a page (`body` 
 
 - **Workspace frame:** 38px top bar (mark and product name, New query; History, Saved, Admin, user menu on the right) over a resizable connection-tree sidebar (default 264px, 200–560px, persisted) and the editor area. The editor area stacks a 34px tab strip, a 36px per-tab toolbar, the WHERE / ORDER BY bar, the grid, and a 28px status bar (rows, time against budget, SQL, export, page size, paging).
 - **Admin frame:** the same top bar, a 208px left nav on `panel`, and full-width tables on `bg` headed by a single row holding title, description and the primary action at the right.
-- **Login:** a centred 340px column on `panel`, no card.
+- **Login:** a centred 384px card (`raised`, 1px `line` border, 6px corners, Dialog shadow, 32px padding) on `sunken`, with the version at its top left and the theme switch at its top right; the language picker sits below the card. The login card is the one resting surface allowed a shadow, as the only thing on the page.
 - **Density:** grid rows 26px with a 28px header; tree rows 24px; admin table rows 36px with a 32px header; menu items and fields 28px.
 - **Spacing rhythm:** a 4px base. Toolbars use 4px gaps and 8px side padding; table cells 12px horizontal padding; modal bodies 16px.
 - **Alignment:** the primary action is right-aligned in its toolbar or header row, after the pending-state readout.
@@ -407,6 +407,8 @@ The signature surface: a virtualised grid with 26px rows and a sticky 28px `grid
 
 ### Toolbar and Status Bar
 36px `panel` toolbars with a bottom hairline and 16px `toolbar-sep` dividers; the 28px status bar mirrors it with a top hairline and 12px `muted` text, mono for the executed SQL.
+
+**The One Bar Height Rule.** Every horizontal bar under the tab strip (tab toolbars, admin and settings page headers, filter rows, section switches) is the `.toolbar` class at 36px, so switching tabs never moves a hairline. Controls inside a bar stay at 26px. A bar that has nothing to hold is not drawn; its actions move into the next bar.
 
 ## Do's and Don'ts
 

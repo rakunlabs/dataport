@@ -113,14 +113,14 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <div class="flex h-10 shrink-0 items-center gap-2 border-b border-line px-3">
+  <div class="toolbar gap-2 bg-bg px-3">
     <span class="text-sm font-medium">{t('processes.title')}</span>
     {#if view.data}<span class="text-xs text-faint tabular-nums">{t('processes.count', { n: rows.length, total: view.data.result.rows?.length ?? 0 })}</span>{/if}
     {#if view.data?.result.truncated}<span class="text-xs text-warn">{t('processes.truncated')}</span>{/if}
     <div class="flex-1"></div>
     <div class="relative">
       <Search size={13} class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-faint" />
-      <input class="input h-7 w-56 pr-6 pl-7 text-xs" placeholder={t('processes.filter')} bind:value={view.filter} />
+      <input class="input h-[26px] w-56 pr-6 pl-7 text-xs" placeholder={t('processes.filter')} bind:value={view.filter} />
       {#if view.filter}<button class="absolute top-1/2 right-1.5 -translate-y-1/2 text-faint hover:text-fg" onclick={() => (view.filter = '')} aria-label={t('common.clear')}><X size={12} /></button>{/if}
     </div>
     {#if canMine}
@@ -131,7 +131,7 @@
     <label class="flex items-center gap-1.5 text-xs text-fg-2"><input type="checkbox" bind:checked={view.hideIdle} /> {t('processes.hideIdle')}</label>
     <label class="flex items-center gap-1.5 text-xs text-fg-2">
       {t('processes.refresh')}
-      <select class="input h-7 w-20 text-xs" bind:value={view.every}>
+      <select class="input h-[26px] w-20 text-xs" bind:value={view.every}>
         <option value={0}>{t('processes.off')}</option>
         {#each [2, 5, 10, 30] as n (n)}<option value={n}>{n}s</option>{/each}
       </select>

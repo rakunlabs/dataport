@@ -191,7 +191,7 @@
     <div class="flex-1"></div>
     <div class="relative">
       <Search size={13} class="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-faint" />
-      <input class="input h-7 w-52 pr-6 pl-7 text-xs" placeholder={t(section === 'columns' ? 'docs.filterColumns' : 'docs.filter')} bind:value={filter} />
+      <input class="input h-[26px] w-52 pr-6 pl-7 text-xs" placeholder={t(section === 'columns' ? 'docs.filterColumns' : 'docs.filter')} bind:value={filter} />
       {#if filter}<button class="absolute top-1/2 right-1.5 -translate-y-1/2 text-faint hover:text-fg" onclick={() => (filter = '')} aria-label={t('common.clear')}><X size={12} /></button>{/if}
     </div>
     <button class="btn" onclick={exportHTML} disabled={!data}><Download size={14} /> {t('docs.download')}</button>

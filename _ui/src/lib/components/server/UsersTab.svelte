@@ -144,7 +144,7 @@
 </script>
 
 <div class="flex h-full flex-col">
-  <div class="flex h-10 shrink-0 items-center gap-2 border-b border-line px-3">
+  <div class="toolbar gap-2 bg-bg px-3">
     <span class="text-sm font-medium">{t('users.title')}</span>
     <span class="text-xs text-faint tabular-nums">{users.length}</span>
     <div class="flex-1"></div>

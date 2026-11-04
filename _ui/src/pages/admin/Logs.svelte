@@ -62,7 +62,7 @@
     <button class="btn-outline" onclick={() => load()}><RefreshCw size={14} class={loading ? 'animate-spin' : ''} /> {t('common.refresh')}</button>
   {/snippet}
 
-  <div class="sticky top-0 z-[2] flex gap-2 border-b border-line bg-panel px-4 py-2">
+  <div class="toolbar sticky top-0 z-[2] gap-2 overflow-x-auto px-4">
     <select class="input w-48" bind:value={filter.user_id} onchange={changed}>
       <option value="">{t('admin.log.allUsers')}</option>
       {#each admin.users as u (u.id)}<option value={u.id}>{u.username}</option>{/each}

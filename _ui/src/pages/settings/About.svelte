@@ -57,8 +57,6 @@
   }
 </script>
 
-<h2 class="text-base font-semibold">{t('about.title')}</h2>
-
 <div class="flex items-center gap-3">
   <Logo size={40} />
   <div>
