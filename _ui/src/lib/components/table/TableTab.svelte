@@ -71,7 +71,10 @@
   const writable = $derived(!!conn && !conn.read_only && conn.editable !== false && current?.kind === 'rows');
   const pending = $derived(tab.edit.count);
 
+  // The columns are read with the rows; a tab restored on a closed
+  // connection waits for Refresh instead of opening it.
   $effect(() => {
+    if (!tab.result && !ws.schemas[tab.connectionId]) return;
     void loadColumns(tab.connectionId, tab.schema, tab.table);
   });
 

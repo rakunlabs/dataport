@@ -25,6 +25,12 @@ export interface PersistedTab {
 let currentUser = '';
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
+// openConnections lists the connections left open in the tree, so the
+// next visit opens those and leaves the closed ones closed.
+export function openConnections(): string[] {
+  return Object.keys(ws.expanded).filter((k) => !k.includes('|') && ws.expanded[k]);
+}
+
 export function persistedUser(): string {
   return currentUser;
 }
@@ -50,7 +56,7 @@ export function persist() {
         ...(t.kind === 'diagram' && t.fromDocs ? { fromDocs: true } : {}),
       }));
       const active = ws.tabs.findIndex((t) => t.id === ws.activeId);
-      localStorage.setItem(storageKey(), JSON.stringify({ tabs, active }));
+      localStorage.setItem(storageKey(), JSON.stringify({ tabs, active, open: openConnections() }));
     } catch {
       // Storage may be full or disabled.
     }
@@ -58,10 +64,11 @@ export function persist() {
 }
 
 // loadPersisted reads the user's saved tabs; corrupt state reads as none.
-export function loadPersisted(): { tabs: PersistedTab[]; active: number } | null {
+// open is missing in state saved before it was kept.
+export function loadPersisted(): { tabs: PersistedTab[]; active: number; open?: string[] } | null {
   try {
     const raw = localStorage.getItem(storageKey());
-    return raw ? (JSON.parse(raw) as { tabs: PersistedTab[]; active: number }) : null;
+    return raw ? (JSON.parse(raw) as { tabs: PersistedTab[]; active: number; open?: string[] }) : null;
   } catch {
     return null;
   }

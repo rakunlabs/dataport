@@ -268,11 +268,21 @@ export async function startWorkspace(userId: string) {
   // Tabs learn which of their transactions the server still holds.
   void syncTxs();
 
-  // A single connection opens by itself, unless it still needs the user's
-  // own account: the sign-in dialog should follow a click, not the page load.
+  // Connections open as the user left them. Before that was kept, a single
+  // connection opens by itself. Either way one that still needs the user's
+  // own account stays closed: the sign-in dialog should follow a click, not
+  // the page load.
   const visible = workspaceConnections();
-  const only = visible.length === 1 ? visible[0] : undefined;
-  if (only && !(only.user_credentials && !only.credential_user)) ws.expanded[only.id] = true;
+  const openable = (c: (typeof visible)[number]) => !(c.user_credentials && !c.credential_user);
+  if (data?.open) {
+    for (const id of data.open) {
+      const c = visible.find((x) => x.id === id);
+      if (c && openable(c)) ws.expanded[id] = true;
+    }
+  } else {
+    const only = visible.length === 1 ? visible[0] : undefined;
+    if (only && openable(only)) ws.expanded[only.id] = true;
+  }
   for (const c of visible) if (ws.expanded[c.id]) void loadSchemas(c.id);
 
   if (pendingSettings) {

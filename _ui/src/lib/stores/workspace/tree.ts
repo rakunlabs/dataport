@@ -3,6 +3,7 @@ import { api, qs } from '@/lib/api/client';
 import type { ColumnInfo, ConnectionView, DbObject, Routine, TableStructure } from '@/lib/api/types';
 import { withCredentials } from '@/lib/stores/credentials.svelte';
 import { errorMessage } from '@/lib/stores/toast.svelte';
+import { persist } from '@/lib/stores/workspace/persist';
 import { ws, type TreeNode } from '@/lib/stores/workspace/state.svelte';
 
 export async function loadConnections() {
@@ -109,6 +110,7 @@ export function refreshConnection(connId: string) {
 
 export function toggle(key: string, value?: boolean) {
   ws.expanded[key] = value ?? !ws.expanded[key];
+  if (!key.includes('|')) persist();
 }
 
 // setSelfReadOnly lets the user use a writable connection read-only, in
@@ -129,4 +131,5 @@ export async function disconnect(connId: string) {
     for (const key of Object.keys(m)) if (key.startsWith(connId + '|')) delete m[key];
   }
   delete ws.schemas[connId];
+  persist();
 }

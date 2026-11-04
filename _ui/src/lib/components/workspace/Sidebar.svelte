@@ -16,7 +16,7 @@
     showGroup as showGroupFor,
     type GroupKey,
   } from '@/lib/components/workspace/treeMenus';
-  import { loadColumns, loadObjects, loadRoutines, loadSchemas, openQueryTab, openTableTab, refreshConnection, toggle, ws, activeTab, workspaceConnections } from '@/lib/stores/workspace.svelte';
+  import { loadColumns, loadObjects, loadRoutines, loadSchemas, openQueryTab, openTableTab, refreshConnection, toggle, ws, activeTab, workspaceConnections, persist } from '@/lib/stores/workspace.svelte';
   import { askCredentials, forgetCredentials } from '@/lib/stores/credentials.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import type { ConnectionView, DbObject, Routine } from '@/lib/api/types';
@@ -110,6 +110,7 @@
       // Drop the cached tree, so nothing loaded with the old account stays.
       ws.expanded[id] = false;
       delete ws.schemas[id];
+      persist();
       toast(t('credentials.forgotten'), 'success');
     } catch (e) {
       toast(errorMessage(e), 'error');
