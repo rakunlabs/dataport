@@ -20,6 +20,7 @@ require (
 	github.com/rakunlabs/ada/middleware/requestid v0.5.4
 	github.com/rakunlabs/ada/middleware/server v0.5.4
 	github.com/rakunlabs/ada/middleware/telemetry v0.5.4
+	github.com/rakunlabs/alan v0.5.0
 	github.com/rakunlabs/chu v0.5.1
 	github.com/rakunlabs/chu/loader/external/loaderawssecrets v0.0.0-20261027215840-cda2502637e3
 	github.com/rakunlabs/chu/loader/external/loaderawsssm v0.0.0-20261027215840-cda2502637e3
@@ -38,6 +39,7 @@ require (
 	github.com/spf13/cast v1.10.0
 	github.com/trinodb/trino-go-client v1.0.0
 	golang.org/x/crypto v0.58.0
+	golang.org/x/net v0.62.0
 	modernc.org/sqlite v1.61.0
 )
 
@@ -150,7 +152,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.30 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
-	github.com/rakunlabs/alan v0.5.0 // indirect
 	github.com/rakunlabs/gofret v0.2.1 // indirect
 	github.com/rakunlabs/ok v0.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
@@ -183,7 +184,6 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
 	golang.org/x/mod v0.42.0 // indirect
-	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect

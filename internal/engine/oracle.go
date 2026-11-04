@@ -58,7 +58,17 @@ func (oracleDriver) Open(c *store.Connection, password string) (*sql.DB, error) 
 		service = ""
 	}
 
-	return sql.OpenDB(goora.NewConnector(goora.BuildUrl(c.Host, port, service, c.Username, password, opts))), nil
+	dial, err := dialer(c)
+	if err != nil {
+		return nil, err
+	}
+
+	connector := goora.NewConnector(goora.BuildUrl(c.Host, port, service, c.Username, password, opts)).(*goora.OracleConnector)
+	if dial != nil {
+		connector.Dialer(dialFunc(dial))
+	}
+
+	return sql.OpenDB(connector), nil
 }
 
 func (oracleDriver) BackendID(context.Context, *sql.Conn) (string, error) { return "", nil }

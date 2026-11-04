@@ -15,19 +15,24 @@ const (
 // Connection is a target database defined by an admin. Users never see the
 // host, credentials or options; they only get a ConnectionView.
 type Connection struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	DBType      string            `json:"db_type"`
-	Host        string            `json:"host"`
-	Port        int               `json:"port"`
-	Database    string            `json:"database"`
-	Username    string            `json:"username"`
-	PasswordEnc string            `json:"-"`
-	HasPassword bool              `json:"has_password"`
-	Options     map[string]string `json:"options"`
-	Color       string            `json:"color"`
-	ReadOnly    bool              `json:"read_only"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	DBType      string `json:"db_type"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Database    string `json:"database"`
+	Username    string `json:"username"`
+	PasswordEnc string `json:"-"`
+	HasPassword bool   `json:"has_password"`
+	// ProxyEnc is the SOCKS5 proxy URL the connection is opened through,
+	// encrypted as the password is; empty connects directly. Proxy is that
+	// URL without its password, for the form.
+	ProxyEnc string            `json:"-"`
+	Proxy    string            `json:"proxy,omitempty"`
+	Options  map[string]string `json:"options"`
+	Color    string            `json:"color"`
+	ReadOnly bool              `json:"read_only"`
 	// Production asks users to confirm every write before it runs.
 	Production bool `json:"production"`
 	// UserCredentials makes every user sign in to the database with their
@@ -56,6 +61,8 @@ type Connection struct {
 	// Owner is set at runtime when Username and the password are a user's
 	// own account, so the engine keeps a separate pool for that user.
 	Owner string `json:"-"`
+	// ProxyURL is the decrypted proxy, set at runtime for the engine.
+	ProxyURL string `json:"-"`
 }
 
 type Access struct {
@@ -156,7 +163,7 @@ type ConnectionView struct {
 	NotebookOnly  bool `json:"notebook_only"`
 }
 
-const connectionColumns = "id, name, description, db_type, host, port, database_name, username, password_enc, options, color, read_only, production, user_credentials, max_rows, timeout_ms, limits, owner_id, hide_workspace, hide_notebooks, hide_mcp, notebook_only, created_at, updated_at"
+const connectionColumns = "id, name, description, db_type, host, port, database_name, username, password_enc, options, color, read_only, production, user_credentials, max_rows, timeout_ms, limits, owner_id, hide_workspace, hide_notebooks, hide_mcp, notebook_only, created_at, updated_at, proxy_enc"
 
 func scanConnection(row interface{ Scan(...any) error }) (*Connection, error) {
 	var (
@@ -171,7 +178,7 @@ func scanConnection(row interface{ Scan(...any) error }) (*Connection, error) {
 
 	if err := row.Scan(&c.ID, &c.Name, &c.Description, &c.DBType, &c.Host, &c.Port, &c.Database, &c.Username,
 		&c.PasswordEnc, &options, &c.Color, &readOnly, &production, &userCreds, &c.MaxRows, &c.TimeoutMS, &limits,
-		&c.OwnerID, &hide[0], &hide[1], &hide[2], &hide[3], &c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.OwnerID, &hide[0], &hide[1], &hide[2], &hide[3], &c.CreatedAt, &c.UpdatedAt, &c.ProxyEnc); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -269,11 +276,11 @@ func (s *Store) CreateConnection(ctx context.Context, c *Connection) error {
 
 	return wrapWriteErr(s.inTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, s.q("INSERT INTO "+s.t("connections")+" ("+connectionColumns+
-			") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+			") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
 			c.ID, c.Name, c.Description, c.DBType, c.Host, c.Port, c.Database, c.Username, c.PasswordEnc,
 			string(options), c.Color, b2i(c.ReadOnly), b2i(c.Production), b2i(c.UserCredentials), c.MaxRows, c.TimeoutMS,
 			limitsJSON(c.Limits), c.OwnerID, b2i(c.HideWorkspace), b2i(c.HideNotebooks), b2i(c.HideMCP), b2i(c.NotebookOnly),
-			ts, ts); err != nil {
+			ts, ts, c.ProxyEnc); err != nil {
 			return err
 		}
 
@@ -281,8 +288,8 @@ func (s *Store) CreateConnection(ctx context.Context, c *Connection) error {
 	}))
 }
 
-// UpdateConnection replaces every field. PasswordEnc is kept as is, so the
-// caller decides whether the password changes. Access is replaced only when
+// UpdateConnection replaces every field. PasswordEnc and ProxyEnc are
+// written as given, so the caller decides whether they change. Access is replaced only when
 // it is not nil.
 func (s *Store) UpdateConnection(ctx context.Context, c *Connection) error {
 	c.UpdatedAt = now()
@@ -296,10 +303,10 @@ func (s *Store) UpdateConnection(ctx context.Context, c *Connection) error {
 		res, err := tx.ExecContext(ctx, s.q("UPDATE "+s.t("connections")+
 			" SET name = ?, description = ?, db_type = ?, host = ?, port = ?, database_name = ?, username = ?, password_enc = ?,"+
 			" options = ?, color = ?, read_only = ?, production = ?, user_credentials = ?, max_rows = ?, timeout_ms = ?, limits = ?,"+
-			" hide_workspace = ?, hide_notebooks = ?, hide_mcp = ?, notebook_only = ?, updated_at = ? WHERE id = ?"),
+			" hide_workspace = ?, hide_notebooks = ?, hide_mcp = ?, notebook_only = ?, updated_at = ?, proxy_enc = ? WHERE id = ?"),
 			c.Name, c.Description, c.DBType, c.Host, c.Port, c.Database, c.Username, c.PasswordEnc,
 			string(options), c.Color, b2i(c.ReadOnly), b2i(c.Production), b2i(c.UserCredentials), c.MaxRows, c.TimeoutMS,
-			limitsJSON(c.Limits), b2i(c.HideWorkspace), b2i(c.HideNotebooks), b2i(c.HideMCP), b2i(c.NotebookOnly), c.UpdatedAt, c.ID)
+			limitsJSON(c.Limits), b2i(c.HideWorkspace), b2i(c.HideNotebooks), b2i(c.HideMCP), b2i(c.NotebookOnly), c.UpdatedAt, c.ProxyEnc, c.ID)
 		if err != nil {
 			return err
 		}

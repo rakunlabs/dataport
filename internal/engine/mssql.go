@@ -66,6 +66,17 @@ func (mssqlDriver) Open(c *store.Connection, password string) (*sql.DB, error) {
 		return nil, fmt.Errorf("parse sqlserver config; %w", err)
 	}
 
+	dial, err := dialer(c)
+	if err != nil {
+		return nil, err
+	}
+
+	// Named with the host, the driver does not resolve it first; the dialer
+	// resolves it for socks5 and the proxy for socks5h.
+	if dial != nil {
+		connector.Dialer = hostDialFunc{dialFunc: dialFunc(dial), host: c.Host}
+	}
+
 	return sql.OpenDB(connector), nil
 }
 

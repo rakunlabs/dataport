@@ -35,6 +35,10 @@ func (s *Server) listPersonalConnections(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
+		for _, c := range list {
+			s.showProxy(c)
+		}
+
 		out.Connections = list
 	}
 
@@ -133,6 +137,12 @@ func (s *Server) createPersonalConnection(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	if err := s.sealProxy(c, req.Proxy); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
 	if err := s.store.CreateConnection(ctx, c); err != nil {
 		writeStoreError(w, err)
 
@@ -140,6 +150,7 @@ func (s *Server) createPersonalConnection(w http.ResponseWriter, r *http.Request
 	}
 
 	c.HasPassword = c.PasswordEnc != ""
+	s.showProxy(c)
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -183,6 +194,16 @@ func (s *Server) updatePersonalConnection(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	if err := s.sealProxy(c, req.Proxy); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	if !engine.SupportsProxy(c.DBType) {
+		c.ProxyEnc = ""
+	}
+
 	if err := s.store.UpdateConnection(ctx, c); err != nil {
 		writeStoreError(w, err)
 
@@ -192,6 +213,7 @@ func (s *Server) updatePersonalConnection(w http.ResponseWriter, r *http.Request
 	s.engine.Forget(c.ID)
 
 	c.HasPassword = c.PasswordEnc != ""
+	s.showProxy(c)
 	writeJSON(w, http.StatusOK, c)
 }
 

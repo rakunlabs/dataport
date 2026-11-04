@@ -20,19 +20,21 @@ type SecretCount struct {
 	Unreadable int `json:"unreadable"`
 }
 
-// secretColumns are the tables that hold an encrypted password, with the
-// columns that find a row.
+// secretColumns are the encrypted columns, with the columns that find a
+// row of their table.
 var secretColumns = []struct {
-	table string
-	keys  []string
+	table  string
+	keys   []string
+	column string
 }{
-	{"connections", []string{"id"}},
-	{"user_credentials", []string{"connection_id", "user_id"}},
-	{"doc_connections", []string{"connection_id"}},
+	{"connections", []string{"id"}, "password_enc"},
+	{"connections", []string{"id"}, "proxy_enc"},
+	{"user_credentials", []string{"connection_id", "user_id"}, "password_enc"},
+	{"doc_connections", []string{"connection_id"}, "password_enc"},
 }
 
 // RewriteSecrets passes every encrypted value of the store through fn in one
-// transaction: the password columns, and in settings stored as JSON every
+// transaction: the password and proxy columns, and in settings stored as JSON every
 // string under a key ending in "_enc". A value fn fails on is kept and
 // counted as unreadable; one it answers ErrKeepSecret for is kept and
 // counted as read.
@@ -74,7 +76,7 @@ func (s *Store) rewriteSecrets(ctx context.Context, fn func(string) (string, err
 
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		for _, t := range secretColumns {
-			if err := s.rewriteColumn(ctx, tx, t.table, t.keys, rewrite, lock); err != nil {
+			if err := s.rewriteColumn(ctx, tx, t.table, t.keys, t.column, rewrite, lock); err != nil {
 				return err
 			}
 		}
@@ -85,7 +87,7 @@ func (s *Store) rewriteSecrets(ctx context.Context, fn func(string) (string, err
 	return count, err
 }
 
-func (s *Store) rewriteColumn(ctx context.Context, tx *sql.Tx, table string, keys []string, rewrite func(string) (string, bool), locked bool) error {
+func (s *Store) rewriteColumn(ctx context.Context, tx *sql.Tx, table string, keys []string, column string, rewrite func(string) (string, bool), locked bool) error {
 	// On PostgreSQL the rows are locked, so a save at the same time waits
 	// instead of being written over with the value read here.
 	lock := ""
@@ -93,7 +95,7 @@ func (s *Store) rewriteColumn(ctx context.Context, tx *sql.Tx, table string, key
 		lock = " FOR UPDATE"
 	}
 
-	rows, err := tx.QueryContext(ctx, s.q("SELECT "+strings.Join(keys, ", ")+", password_enc FROM "+s.t(table)+" WHERE password_enc <> ''"+lock))
+	rows, err := tx.QueryContext(ctx, s.q("SELECT "+strings.Join(keys, ", ")+", "+column+" FROM "+s.t(table)+" WHERE "+column+" <> ''"+lock))
 	if err != nil {
 		return err
 	}
@@ -138,7 +140,7 @@ func (s *Store) rewriteColumn(ctx context.Context, tx *sql.Tx, table string, key
 		where[i] = k + " = ?"
 	}
 
-	update := s.q("UPDATE " + s.t(table) + " SET password_enc = ? WHERE " + strings.Join(where, " AND "))
+	update := s.q("UPDATE " + s.t(table) + " SET " + column + " = ? WHERE " + strings.Join(where, " AND "))
 
 	for _, r := range list {
 		next, ok := rewrite(r.value)

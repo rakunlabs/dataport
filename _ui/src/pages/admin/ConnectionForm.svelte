@@ -58,6 +58,7 @@
     hide_notebooks: c?.hide_notebooks ?? false,
     hide_mcp: c?.hide_mcp ?? false,
     notebook_only: c?.notebook_only ?? false,
+    proxy: c?.proxy ?? '',
   });
 
   // A new connection starts by choosing the database.
@@ -80,6 +81,17 @@
           ? t('admin.conn.serviceName')
           : t('admin.conn.database'),
   );
+  // The proxy goes with the request only when it was changed; the saved one
+  // stays as it is otherwise, its password masked in the form.
+  const proxyChanged = $derived(form.proxy.trim() !== (c?.proxy ?? ''));
+  const proxyAvailable = $derived(!!driver?.proxy);
+  // Open when a proxy or limits are saved, then as the user leaves them:
+  // bound to the form, they would fold while being typed in.
+  // svelte-ignore state_referenced_locally
+  let proxyOpen = $state(!!c?.proxy);
+  // svelte-ignore state_referenced_locally
+  let limitsOpen = $state(Object.values(c?.limits ?? {}).some(Boolean));
+
   const canTest = $derived(target === 'file' ? !!form.database : target === 'dsn' ? !!form.options.dsn : !!form.host);
 
   function choose() {
@@ -113,6 +125,7 @@
       hide_notebooks: form.hide_notebooks,
       hide_mcp: form.hide_mcp,
       notebook_only: form.notebook_only,
+      proxy: proxyChanged ? form.proxy.trim() : null,
     };
   }
 
@@ -269,6 +282,21 @@
       </div>
     </section>
 
+    {#if proxyAvailable}
+      <details class="group rounded-md border border-line" bind:open={proxyOpen}>
+        <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm select-none hover:bg-hover">
+          <ChevronRight size={14} class="text-faint disclosure-icon" />
+          <span class="font-medium">{t('admin.conn.proxy')}</span>
+          <span class="truncate font-mono text-xs text-muted">{form.proxy.trim() || t('admin.conn.proxyNone')}</span>
+        </summary>
+        <div class="space-y-1 border-t border-line-soft px-3 pt-2.5 pb-3">
+          <label class="label" for="c-proxy">{t('admin.conn.proxyUrl')}</label>
+          <input id="c-proxy" class="input font-mono" bind:value={form.proxy} autocomplete="off" spellcheck="false" placeholder="socks5://user:password@proxy.example.com:1080" maxlength="2000" />
+          <p class="hint">{t('admin.conn.proxyHint')}</p>
+        </div>
+      </details>
+    {/if}
+
     <section class="flex items-center gap-3">
       <button type="button" class="btn-outline" onclick={runTest} disabled={testing || !canTest}>
         {#if testing}<LoaderCircle size={14} class="animate-spin" />{:else}<PlugZap size={14} />{/if}
@@ -334,7 +362,7 @@
       <p class="hint mt-1">{form.notebook_only ? t('admin.conn.notebookOnlyHint') : t('admin.conn.visibilityHint')}</p>
     </section>
 
-    <details class="group rounded-md border border-line" open={Object.values(form.limits).some(Boolean)}>
+    <details class="group rounded-md border border-line" bind:open={limitsOpen}>
       <summary class="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm select-none hover:bg-hover">
         <ChevronRight size={14} class="text-faint disclosure-icon" />
         <span class="font-medium">{t('limits.title')}</span>

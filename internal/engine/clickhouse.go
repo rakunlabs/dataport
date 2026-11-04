@@ -58,6 +58,36 @@ func (clickhouseDriver) Open(c *store.Connection, password string) (*sql.DB, err
 		opts.TLS = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true} //nolint:gosec // admin opt-in
 	}
 
+	dial, err := dialer(c)
+	if err != nil {
+		return nil, err
+	}
+
+	// The driver does TLS only with its own dialer; through the proxy the
+	// connection is wrapped here, so secure stays secure.
+	if dial != nil {
+		opts.DialContext = func(ctx context.Context, addr string) (net.Conn, error) {
+			conn, err := dial(ctx, "tcp", addr)
+			if err != nil || opts.TLS == nil {
+				return conn, err
+			}
+
+			cfg := opts.TLS.Clone()
+			if cfg.ServerName == "" {
+				cfg.ServerName, _, _ = net.SplitHostPort(addr)
+			}
+
+			tc := tls.Client(conn, cfg)
+			if err := tc.HandshakeContext(ctx); err != nil {
+				_ = conn.Close()
+
+				return nil, err
+			}
+
+			return tc, nil
+		}
+	}
+
 	return clickhouse.OpenDB(opts), nil
 }
 

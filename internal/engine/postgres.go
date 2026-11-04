@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/rakunlabs/dataport/internal/store"
@@ -50,6 +51,26 @@ func (postgresDriver) Open(c *store.Connection, password string) (*sql.DB, error
 	cfg, err := pgx.ParseConfig(u.String())
 	if err != nil {
 		return nil, fmt.Errorf("parse postgres config; %w", err)
+	}
+
+	dial, err := dialer(c)
+	if err != nil {
+		return nil, err
+	}
+
+	if dial != nil {
+		cfg.DialFunc = pgconn.DialFunc(dial)
+
+		// pgx resolves the host before it dials; with socks5h the name goes
+		// to the proxy as it is, which may know names this server does not.
+		if proxyResolves(c) {
+			keep := func(_ context.Context, host string) ([]string, error) { return []string{host}, nil }
+			cfg.LookupFunc = keep
+
+			for _, f := range cfg.Fallbacks {
+				f.Host = c.Host
+			}
+		}
 	}
 
 	// The extended protocol refuses several statements in one string, so a

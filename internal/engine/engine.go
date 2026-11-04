@@ -8,6 +8,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync"
 	"time"
 
@@ -116,6 +117,41 @@ type Manager struct {
 	// txMu guards the manual transactions, by user and tab.
 	txMu sync.Mutex
 	txs  map[txKey]*openTx
+
+	// unseal reads the encrypted proxy of a connection; nil leaves a
+	// connection with a proxy unopened.
+	unseal func(string) (string, error)
+}
+
+// SetUnseal gives the engine the function that decrypts stored secrets, for
+// the proxy a connection is opened through.
+func (m *Manager) SetUnseal(fn func(string) (string, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.unseal = fn
+}
+
+// withProxy is c with its proxy decrypted into ProxyURL, for the drivers.
+// A connection from a form being tested carries ProxyURL already.
+func (m *Manager) withProxy(c *store.Connection) (*store.Connection, error) {
+	if c.ProxyEnc == "" || c.ProxyURL != "" {
+		return c, nil
+	}
+
+	if m.unseal == nil {
+		return nil, errors.New("the connection's proxy cannot be read")
+	}
+
+	raw, err := m.unseal(c.ProxyEnc)
+	if err != nil {
+		return nil, errors.New("the connection's proxy cannot be read; enter it again in the connection settings")
+	}
+
+	out := *c
+	out.ProxyURL = raw
+
+	return &out, nil
 }
 
 type runKey struct{ userID, queryID string }
@@ -162,7 +198,12 @@ func (m *Manager) Test(ctx context.Context, c *store.Connection, password string
 		return err
 	}
 
-	db, err := d.Open(c, password)
+	pc, err := m.withProxy(c)
+	if err != nil {
+		return err
+	}
+
+	db, err := d.Open(pc, password)
 	if err != nil {
 		return openErr(c, err)
 	}

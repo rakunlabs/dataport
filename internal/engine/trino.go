@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -71,7 +73,21 @@ func (trinoDriver) Open(c *store.Connection, password string) (*sql.DB, error) {
 		Catalog:   c.Database,
 	}
 
-	if ssl == "skip-verify" {
+	// Through a proxy the driver takes our client, which then carries the
+	// TLS choice: the driver refuses its own SSL settings next to a client.
+	if c.ProxyURL != "" {
+		dial, err := dialer(c)
+		if err != nil {
+			return nil, err
+		}
+
+		client := httpClient(dial)
+		if ssl == "skip-verify" {
+			client.Transport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // admin opt-in
+		}
+
+		cfg.HTTPClient = client
+	} else if ssl == "skip-verify" {
 		cfg.SSLVerification = "NONE"
 	}
 

@@ -21,7 +21,7 @@ type Later = {
     user: 'search' | 'searchGroups' | 'allGroups' | 'count' | 'noMatch' | 'allKinds' | 'ssoNoPassword';
     group: 'search' | 'noMatch' | 'more' | 'allMembers' | 'selected' | 'onlyMembers' | 'addMatching' | 'removeMatching' | 'features' | 'featureNotebooks' | 'featureNotebooksHint' | 'featureDocs' | 'featureDocsHint' | 'featureOpen';
     cluster: true;
-    conn: 'visibility' | 'visibilityHint' | 'showWorkspace' | 'showWorkspaceHint' | 'showNotebooks' | 'showNotebooksHint' | 'showMcp' | 'showMcpHint' | 'notebookOnly' | 'notebookOnlyHint' | 'notebookOnlyShared' | 'notebookOnlyChip' | 'personalTitle' | 'personalHint' | 'owner';
+    conn: 'visibility' | 'visibilityHint' | 'showWorkspace' | 'showWorkspaceHint' | 'showNotebooks' | 'showNotebooksHint' | 'showMcp' | 'showMcpHint' | 'notebookOnly' | 'notebookOnlyHint' | 'notebookOnlyShared' | 'notebookOnlyChip' | 'personalTitle' | 'personalHint' | 'owner' | 'proxy' | 'proxyNone' | 'proxyUrl' | 'proxyHint' | 'viaProxy';
     docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' | 'turnedOff' };
   grid: 'sortBy';
   diagram: 'fromDocs';

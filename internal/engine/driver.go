@@ -184,6 +184,8 @@ type DriverInfo struct {
 	// Available is false when this build of dataport lacks the driver, such
 	// as ODBC and DuckDB, which need cgo.
 	Available bool `json:"available"`
+	// Proxy is set when the database can be reached through a SOCKS5 proxy.
+	Proxy bool `json:"proxy"`
 }
 
 // Availability is implemented by drivers that may be missing from a build.
@@ -213,7 +215,7 @@ func Drivers() []DriverInfo {
 }
 
 func Info(d Driver) DriverInfo {
-	return DriverInfo{Type: d.Type(), DefaultPort: d.DefaultPort(), Target: target(d), Transactional: transactional(d), Available: available(d)}
+	return DriverInfo{Type: d.Type(), DefaultPort: d.DefaultPort(), Target: target(d), Transactional: transactional(d), Available: available(d), Proxy: SupportsProxy(d.Type())}
 }
 
 // Editable reports whether rows of the database can be edited in the grid.

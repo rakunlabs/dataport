@@ -403,3 +403,42 @@ func TestForgetReachesTheOwner(t *testing.T) {
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
+
+// A connection's proxy travels sealed with the forwarded connection, and
+// the owner opens the pool through it: the owner's engine reads it.
+func TestProxyReachesTheOwner(t *testing.T) {
+	_, rs, _ := setup(t, 2)
+	ctx := context.Background()
+
+	ci, _ := crypto.New("shared")
+	sealed, _ := ci.Encrypt("socks5://127.0.0.1:1")
+
+	c := &store.Connection{ID: "P", Name: "p", DBType: "postgres", Host: "127.0.0.1", Port: 1, Database: "x", Username: "u", ProxyEnc: sealed, UpdatedAt: 1}
+
+	// The first replica owns the pool; the second forwards to it. Without
+	// an unseal function the owner refuses the proxy instead of
+	// connecting around it.
+	_, err := rs[0].r.Execute(ctx, c, "pw", engine.ExecRequest{SQL: "SELECT 1", ReadOnly: true})
+	if err == nil || !strings.Contains(err.Error(), "proxy") {
+		t.Fatalf("owner without unseal: %v", err)
+	}
+
+	var seen []string
+	for _, rep := range rs {
+		rep.m.SetUnseal(func(v string) (string, error) {
+			out, err := ci.Decrypt(v)
+			seen = append(seen, out)
+
+			return out, err
+		})
+	}
+
+	_, err = rs[1].r.Execute(ctx, c, "pw", engine.ExecRequest{SQL: "SELECT 1", ReadOnly: true})
+	if err == nil || !strings.Contains(err.Error(), "through the proxy 127.0.0.1:1") {
+		t.Fatalf("forwarded with a proxy: %v (the owner must dial through the proxy)", err)
+	}
+
+	if len(seen) == 0 {
+		t.Fatal("no replica read the proxy")
+	}
+}

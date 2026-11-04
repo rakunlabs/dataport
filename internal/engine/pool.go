@@ -59,7 +59,12 @@ func (m *Manager) pool(c *store.Connection, password string) (*pool, error) {
 		return nil, err
 	}
 
-	db, err := d.Open(c, password)
+	pc, err := m.withProxy(c)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := d.Open(pc, password)
 	if err != nil {
 		return nil, openErr(c, err)
 	}

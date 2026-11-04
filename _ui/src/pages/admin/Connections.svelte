@@ -70,6 +70,7 @@
             </td>
             <td class="font-mono text-xs text-fg-2">
               {c.username ? c.username + '@' : ''}{c.host}:{c.port || '—'}{c.database ? '/' + c.database : ''}
+              {#if c.proxy}<div class="mt-0.5 truncate text-muted" title={c.proxy}>{t('admin.conn.viaProxy', { proxy: c.proxy.replace(/^socks5h?:\/\/([^@]*@)?/, '') })}</div>{/if}
             </td>
             <td>
               <div class="flex flex-wrap gap-1">

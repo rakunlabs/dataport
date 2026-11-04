@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -56,6 +57,17 @@ func (d mysqlDriver) Open(c *store.Connection, password string) (*sql.DB, error)
 		cfg.TLSConfig = tls
 	default:
 		return nil, fmt.Errorf("unknown tls option %q", tls)
+	}
+
+	// The driver takes a dial function as a network it knows by name; one
+	// is registered per proxy, and the address goes to it unchanged.
+	if c.ProxyURL != "" {
+		dial, err := dialer(c)
+		if err != nil {
+			return nil, err
+		}
+
+		cfg.Net = mysqlNet(c.ProxyURL, dial)
 	}
 
 	connector, err := mysql.NewConnector(cfg)
@@ -323,4 +335,30 @@ func (d mysqlDriver) DDL(ctx context.Context, db Querier, schema, table string, 
 	}
 
 	return "", rows.Err()
+}
+
+var (
+	mysqlNetsMu sync.Mutex
+	mysqlNets   = map[string]string{}
+)
+
+// mysqlNet registers a dial function for a proxy with the driver, once per
+// proxy URL, and returns the network name it goes by. The name is a
+// sequence number, so nothing of the proxy shows in the driver's errors.
+func mysqlNet(proxyURL string, dial DialFunc) string {
+	mysqlNetsMu.Lock()
+	defer mysqlNetsMu.Unlock()
+
+	if name, ok := mysqlNets[proxyURL]; ok {
+		return name
+	}
+
+	name := "dataport-proxy-" + strconv.Itoa(len(mysqlNets)+1)
+
+	mysql.RegisterDialContext(name, func(ctx context.Context, addr string) (net.Conn, error) {
+		return dial(ctx, "tcp", addr)
+	})
+	mysqlNets[proxyURL] = name
+
+	return name
 }

@@ -95,6 +95,9 @@ func run(ctx context.Context) error {
 	}, cfg.Query.PoolIdleTimeout)
 	defer en.Close()
 
+	// Connections keep their proxy encrypted, as their password.
+	en.SetUnseal(cipher.Decrypt)
+
 	go en.Janitor(ctx)
 
 	rt, err := joinCluster(ctx, cfg, en, cipher)

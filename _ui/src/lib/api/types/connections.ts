@@ -64,6 +64,8 @@ export interface Connection {
   database: string;
   username: string;
   has_password: boolean;
+  // The SOCKS5 proxy the connection goes through, its password masked.
+  proxy?: string;
   options: Record<string, string>;
   color: string;
   read_only: boolean;
@@ -100,6 +102,8 @@ export interface DriverInfo {
   transactional: boolean;
   // False when this dataport build lacks the driver (ODBC, DuckDB need cgo).
   available: boolean;
+  // Set when the database can be reached through a SOCKS5 proxy.
+  proxy?: boolean;
 }
 
 export interface DriverList {

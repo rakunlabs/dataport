@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,7 +21,10 @@ type connectionRequest struct {
 	Database    string `json:"database"`
 	Username    string `json:"username"`
 	// Password nil keeps the stored password; "" clears it.
-	Password   *string           `json:"password"`
+	Password *string `json:"password"`
+	// Proxy nil keeps the stored proxy; "" removes it. A proxy given with
+	// the password shown masked keeps the stored password.
+	Proxy      *string           `json:"proxy"`
 	Options    map[string]string `json:"options"`
 	Color      string            `json:"color"`
 	ReadOnly   bool              `json:"read_only"`
@@ -49,6 +54,25 @@ func (req *connectionRequest) validate() string {
 
 	if err := engine.CheckConnection(c); err != nil {
 		return err.Error()
+	}
+
+	if req.Proxy != nil && strings.TrimSpace(*req.Proxy) != "" {
+		if !engine.SupportsProxy(req.DBType) {
+			return req.DBType + " connections cannot use a proxy"
+		}
+
+		if _, err := engine.ParseProxy(*req.Proxy); err != nil {
+			return err.Error()
+		}
+
+		if len(*req.Proxy) > 2000 {
+			return "the proxy URL is too long"
+		}
+
+		// A named instance is found over UDP, which SOCKS does not carry.
+		if req.DBType == "mssql" && strings.TrimSpace(req.Options["instance"]) != "" {
+			return "a SQL Server named instance cannot be found through a proxy; enter its port instead of the instance name"
+		}
 	}
 
 	switch {
@@ -127,6 +151,10 @@ func (s *Server) adminListConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for _, c := range list {
+		s.showProxy(c)
+	}
+
 	writeJSON(w, http.StatusOK, list)
 }
 
@@ -153,6 +181,7 @@ func (s *Server) adminGetConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.showProxy(c)
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -186,6 +215,12 @@ func (s *Server) adminCreateConnection(w http.ResponseWriter, r *http.Request) {
 		c.PasswordEnc = enc
 	}
 
+	if err := s.sealProxy(c, req.Proxy); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
 	if err := s.store.CreateConnection(r.Context(), c); err != nil {
 		writeStoreError(w, err)
 
@@ -193,6 +228,7 @@ func (s *Server) adminCreateConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c.HasPassword = c.PasswordEnc != ""
+	s.showProxy(c)
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -234,6 +270,18 @@ func (s *Server) adminUpdateConnection(w http.ResponseWriter, r *http.Request) {
 		c.Username, c.PasswordEnc = "", ""
 	}
 
+	if err := s.sealProxy(c, req.Proxy); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	// A proxy that only works with a database type the connection left
+	// goes with it.
+	if !engine.SupportsProxy(c.DBType) {
+		c.ProxyEnc = ""
+	}
+
 	if err := s.store.UpdateConnection(ctx, c); err != nil {
 		writeStoreError(w, err)
 
@@ -272,6 +320,7 @@ func (s *Server) adminUpdateConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c.HasPassword = c.PasswordEnc != ""
+	s.showProxy(c)
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -328,6 +377,15 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request, check fu
 	c := &store.Connection{}
 	req.apply(c)
 
+	proxy, err := s.testProxy(r.Context(), &req.connectionRequest, req.ID, saved)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	c.ProxyURL = proxy
+
 	password := ""
 
 	switch {
@@ -341,9 +399,16 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request, check fu
 			return
 		}
 
-		// The stored password only goes to the server it was saved for.
+		// The stored password only goes to the server it was saved for, by
+		// the way it was saved for: a new proxy sees the connection too.
 		if !sameTarget(stored, c) {
 			writeError(w, http.StatusBadRequest, "enter the password to test a changed type, host, port or username")
+
+			return
+		}
+
+		if !s.sameProxy(stored, proxy) {
+			writeError(w, http.StatusBadRequest, "enter the password to test through a changed proxy")
 
 			return
 		}
@@ -369,4 +434,124 @@ func (s *Server) testConnection(w http.ResponseWriter, r *http.Request, check fu
 func sameTarget(a, b *store.Connection) bool {
 	return a.DBType == b.DBType && strings.EqualFold(strings.TrimSpace(a.Host), strings.TrimSpace(b.Host)) &&
 		a.Port == b.Port && a.Username == b.Username && a.Options["dsn"] == b.Options["dsn"]
+}
+
+// proxyMask stands for the stored proxy password in the form, as the
+// password field leaves the stored password unshown.
+const proxyMask = "xxxxx"
+
+// sealProxy writes the requested proxy into c.ProxyEnc. nil keeps the
+// stored one; "" removes it. A URL whose password is the mask keeps the
+// stored password, when it is the same proxy and account.
+func (s *Server) sealProxy(c *store.Connection, req *string) error {
+	if req == nil {
+		return nil
+	}
+
+	raw := strings.TrimSpace(*req)
+	if raw == "" {
+		c.ProxyEnc = ""
+
+		return nil
+	}
+
+	u, err := engine.ParseProxy(raw)
+	if err != nil {
+		return err
+	}
+
+	if pw, ok := u.User.Password(); ok && pw == proxyMask {
+		stored := ""
+		if c.ProxyEnc != "" {
+			if stored, err = s.cipher.Decrypt(c.ProxyEnc); err != nil {
+				return errors.New("the saved proxy cannot be read; enter its password again")
+			}
+		}
+
+		old, err := engine.ParseProxy(stored)
+		if err != nil || old.Host != u.Host || old.User.Username() != u.User.Username() {
+			return errors.New("enter the proxy password again for a changed proxy host or user")
+		}
+
+		u.User = old.User
+		raw = u.String()
+	}
+
+	c.ProxyEnc, err = s.cipher.Encrypt(raw)
+
+	return err
+}
+
+// showProxy fills c.Proxy, the stored proxy with its password masked.
+func (s *Server) showProxy(c *store.Connection) {
+	c.Proxy = ""
+	if c.ProxyEnc == "" {
+		return
+	}
+
+	raw, err := s.cipher.Decrypt(c.ProxyEnc)
+	if err != nil {
+		// Shown so the admin sees there is one to enter again.
+		c.Proxy = "socks5://(unreadable)"
+
+		return
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return
+	}
+
+	if u.User != nil {
+		if _, ok := u.User.Password(); ok {
+			u.User = url.UserPassword(u.User.Username(), proxyMask)
+		}
+	}
+
+	c.Proxy = u.String()
+}
+
+// testProxy is the proxy a connection test goes through: the form's, with
+// a masked password filled in from the saved connection, or the saved one
+// when the form leaves it unchanged.
+func (s *Server) testProxy(ctx context.Context, req *connectionRequest, id string,
+	saved func(context.Context, string) (*store.Connection, error),
+) (string, error) {
+	stored := &store.Connection{}
+
+	if id != "" && (req.Proxy == nil || strings.Contains(*req.Proxy, ":"+proxyMask+"@")) {
+		c, err := saved(ctx, id)
+		if err != nil {
+			return "", err
+		}
+
+		stored = c
+	}
+
+	if err := s.sealProxy(stored, req.Proxy); err != nil {
+		return "", err
+	}
+
+	if stored.ProxyEnc == "" || !engine.SupportsProxy(req.DBType) {
+		return "", nil
+	}
+
+	raw, err := s.cipher.Decrypt(stored.ProxyEnc)
+	if err != nil {
+		return "", errors.New("the saved proxy cannot be read; enter it again")
+	}
+
+	return raw, nil
+}
+
+// sameProxy tells whether the proxy a test goes through is the one the
+// connection was saved with; an unreadable saved proxy is not.
+func (s *Server) sameProxy(stored *store.Connection, proxy string) bool {
+	if stored.ProxyEnc == "" {
+		return proxy == ""
+	}
+
+	saved, err := s.cipher.Decrypt(stored.ProxyEnc)
+
+	return err == nil && saved == proxy
 }
