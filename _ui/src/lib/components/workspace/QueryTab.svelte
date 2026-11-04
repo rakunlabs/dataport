@@ -1,7 +1,7 @@
 <script lang="ts">
   import { keepEdits } from '@/lib/stores/edits.svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity, WrapText, Sparkles, AlignLeft, ListVideo, SlidersHorizontal } from 'lucide-svelte';
+  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity, WrapText, Sparkles, AlignLeft, ListVideo, SlidersHorizontal, LoaderCircle } from 'lucide-svelte';
   import ExplainDialog from '@/lib/components/dialogs/ExplainDialog.svelte';
   import type { SQLNamespace } from '@codemirror/lang-sql';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
@@ -10,6 +10,7 @@
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { cancel, cancelPending, connection, endTx, explain, explainOptions, loadColumns, loadObjects, loadSchemas, persist, run, runInNewTab, saveExplainOptions, saveTab, setManualTx, setSelfReadOnly, openNotebook, ws, workspaceConnections, type Tab } from '@/lib/stores/workspace.svelte';
   import type { SqlCatalog } from '@/lib/components/editor/editorSetup';
+  import type { InlineState } from '@/lib/components/editor/inlineComplete';
   import { defaultSchemas } from '@/lib/helper/sourceTable';
   import { qualifiers, tableRefs } from '@/lib/helper/sqlTables';
   import type { ExplainOptions } from '@/lib/api/types';
@@ -156,7 +157,32 @@
   function toggleAiComplete() {
     prefs.aiComplete = !prefs.aiComplete;
     savePrefs();
+    inline = { kind: 'idle' };
   }
+
+  // What inline completion is doing, shown on its button. A finished
+  // request shows its outcome for a few seconds, then the button rests.
+  let inline = $state<InlineState>({ kind: 'idle' });
+  let inlineTimer: ReturnType<typeof setTimeout> | undefined;
+  function oninline(s: InlineState) {
+    clearTimeout(inlineTimer);
+    inline = s;
+    if (s.kind === 'shown' || s.kind === 'empty') inlineTimer = setTimeout(() => (inline = { kind: 'idle' }), 4000);
+  }
+  $effect(() => () => clearTimeout(inlineTimer));
+
+  const inlineTitle = $derived.by(() => {
+    if (!prefs.aiComplete) return t('editor.aiCompleteOff');
+    switch (inline.kind) {
+      case 'waiting': return t('editor.aiState.waiting');
+      case 'asking': return t('editor.aiState.asking');
+      case 'shown': return inline.cached ? t('editor.aiState.cached') : t('editor.aiState.shown', { ms: inline.ms });
+      case 'empty': return t('editor.aiState.empty', { ms: inline.ms });
+      case 'error': return t('editor.aiState.error', { error: inline.message });
+      case 'off': return t('editor.aiState.off', { error: inline.message });
+      default: return t('editor.aiCompleteOn');
+    }
+  });
 
   function onchange(v: string) {
     tab.sql = v;
@@ -336,7 +362,29 @@
     <button class="icon-btn" onclick={() => editor?.format()} disabled={!tab.sql.trim()} title="{t('editor.format')} (Ctrl+Shift+F)" aria-label={t('editor.format')}><AlignLeft size={14} /></button>
     <button class="icon-btn" aria-pressed={prefs.wrap} onclick={toggleWrap} title="{t('editor.wrap')} ({altKeys}Z)" aria-label={t('editor.wrap')}><WrapText size={14} /></button>
     {#if session.user?.ai_complete}
-      <button class="icon-btn" aria-pressed={prefs.aiComplete} onclick={toggleAiComplete} title={prefs.aiComplete ? t('editor.aiCompleteOn') : t('editor.aiCompleteOff')} aria-label={t('editor.aiComplete')}><Sparkles size={14} /></button>
+      <button
+        class="icon-btn relative {prefs.aiComplete && (inline.kind === 'error' || inline.kind === 'off') ? 'text-danger' : ''}"
+        aria-pressed={prefs.aiComplete}
+        onclick={toggleAiComplete}
+        title={inlineTitle}
+        aria-label={t('editor.aiComplete')}
+      >
+        {#if prefs.aiComplete && inline.kind === 'asking'}
+          <LoaderCircle size={14} class="animate-spin text-accent" />
+        {:else}
+          <Sparkles size={14} />
+        {/if}
+        {#if prefs.aiComplete && inline.kind === 'waiting'}
+          <span class="absolute top-1 right-1 size-1.5 rounded-full bg-accent/60" aria-hidden="true"></span>
+        {:else if prefs.aiComplete && (inline.kind === 'error' || inline.kind === 'off')}
+          <span class="absolute top-1 right-1 size-1.5 rounded-full bg-danger" aria-hidden="true"></span>
+        {/if}
+      </button>
+      {#if prefs.aiComplete && (inline.kind === 'shown' || inline.kind === 'empty')}
+        <span class="text-2xs whitespace-nowrap text-muted tabular-nums" role="status">
+          {inline.kind === 'shown' ? (inline.cached ? t('editor.aiState.cachedShort') : `${inline.ms} ms`) : t('editor.aiState.emptyShort')}
+        </span>
+      {/if}
     {/if}
     {#if session.user?.can_use_notebooks}
       <button class="btn" onclick={() => openNotebook('', tab.sql, tab.connectionId)}>{t('notebook.fromQuery')}</button>
@@ -465,6 +513,7 @@
       onsave={save}
       onexplain={conn?.explain?.supported ? openExplain : undefined}
       onwrap={toggleWrap}
+      {oninline}
       options={editorOptions(prefs)}
     />
   </div>

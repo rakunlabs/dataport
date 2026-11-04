@@ -33,7 +33,7 @@ type Later = {
   query: 'runParallel';
   valuePanel: 'tab' | 'pick';
   sidebar: 'state';
-  editor: 'limits' | 'limitsReset' | 'aiComplete' | 'aiCompleteOn' | 'aiCompleteOff';
+  editor: 'limits' | 'limitsReset' | 'aiComplete' | 'aiCompleteOn' | 'aiCompleteOff' | 'aiState';
   settings: 'aiComplete' | 'aiCompleteHint';
 };
 

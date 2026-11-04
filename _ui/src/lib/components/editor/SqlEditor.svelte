@@ -20,7 +20,7 @@
   import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
   import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
   import { catalogCompletion, dialect, editorTheme, highlight, placeholderMarks, runGutterExtension, setRunStatus, statementFields, statementText, type SqlCatalog } from '@/lib/components/editor/editorSetup';
-  import { clearGhost, inlineCompletion } from '@/lib/components/editor/inlineComplete';
+  import { clearGhost, inlineCompletion, type InlineState } from '@/lib/components/editor/inlineComplete';
   import { tableRefs } from '@/lib/helper/sqlTables';
   import { api } from '@/lib/api/client';
   import { session } from '@/lib/stores/session.svelte';
@@ -39,6 +39,7 @@
     runsWhole = false,
     readonly = false,
     options = {},
+    oninline,
   }: {
     value: string;
     dbType: string;
@@ -64,6 +65,8 @@
     readonly?: boolean;
     // Display preferences; missing ones use the defaults.
     options?: Partial<EditorOptions>;
+    // What AI inline completion is doing, for a status in the toolbar.
+    oninline?: (s: InlineState) => void;
   } = $props();
 
   const opts = $derived<EditorOptions>({ ...defaultOptions, ...options });
@@ -290,6 +293,7 @@
   }
 
   const inline = inlineCompletion({
+    onstate: (s) => oninline?.(s),
     enabled: () => opts.aiComplete && !!session.user?.ai_complete && !readonly,
     fetch: async (req, signal) => {
       const tables = await contextTables(req.prefix);

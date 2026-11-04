@@ -1,11 +1,12 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { t, i18n, fmtDateTime } from '@/lib/i18n/index.svelte';
-  import { X, ChevronDown, Plus, History, Send, Square, Trash2, LoaderCircle, Check, CircleX, Wrench, Copy, Replace, TextCursorInput, Sparkles, ChevronLeft, RotateCcw, Table2, ListTree, BookOpen, Network, FilePlus2, MessageCircleQuestion } from 'lucide-svelte';
+  import { X, ChevronDown, ChevronUp, Plus, History, Send, Square, Trash2, LoaderCircle, Check, CircleX, Wrench, Copy, Replace, TextCursorInput, Sparkles, ChevronLeft, RotateCcw, Table2, ListTree, BookOpen, Network, FilePlus2, MessageCircleQuestion } from 'lucide-svelte';
   import {
     assistant,
     closeAssistant,
     minimizeAssistant,
+    restoreAssistant,
     deleteAllConversations,
     deleteConversation,
     loadConversations,
@@ -210,24 +211,42 @@
 </script>
 
 <aside class="flex h-full min-w-0 flex-col bg-panel" aria-label={t('assistant.title')}>
-  <div class="pane-head items-center gap-1 pr-1.5 pl-3">
-    {#if assistant.listing}
+  <div class="pane-head items-center gap-1 pr-1.5 pl-3 {assistant.minimized ? 'border-b-0' : ''}">
+    {#if assistant.listing && !assistant.minimized}
       <button class="icon-btn size-6 -ml-1.5" onclick={() => (assistant.listing = false)} aria-label={t('assistant.back')}><ChevronLeft size={14} /></button>
       <span class="pane-title flex-1">{t('assistant.conversations')}</span>
       {#if assistant.conversations.length}
         <button class="icon-btn size-6 hover:text-danger" onclick={removeAll} title={t('assistant.deleteAll')} aria-label={t('assistant.deleteAll')}><Trash2 size={13} /></button>
       {/if}
     {:else}
-      <Sparkles size={13} class="text-accent" />
-      <span class="pane-title flex-1">{t('assistant.title')}</span>
-      <button class="icon-btn size-6" onclick={startList} title={t('assistant.conversations')} aria-label={t('assistant.conversations')}><History size={13} /></button>
-      <button class="icon-btn size-6" onclick={newConversation} title={t('assistant.new')} aria-label={t('assistant.new')}><Plus size={14} /></button>
+      {#if assistant.busy}<LoaderCircle size={13} class="shrink-0 animate-spin text-accent" />{:else}<Sparkles size={13} class="shrink-0 text-accent" />{/if}
+      {#if assistant.minimized}
+        <!-- Folded: the header says what goes on and brings the chat back. -->
+        <button class="min-w-0 flex-1 truncate text-left pane-title" onclick={restoreAssistant} title={t('assistant.restore')}>
+          {assistant.busy ? t('assistant.writing') : (assistant.conversations.find((c) => c.id === assistant.current)?.title || t('assistant.title'))}
+        </button>
+      {:else}
+        <span class="pane-title flex-1">{t('assistant.title')}</span>
+      {/if}
+      {#if assistant.busy}
+        <button class="btn h-6 px-1.5 text-xs text-danger" onclick={stop} title={t('assistant.stopHint')}><Square size={11} /> {t('assistant.stop')}</button>
+      {/if}
+      {#if !assistant.minimized}
+        <button class="icon-btn size-6" onclick={startList} title={t('assistant.conversations')} aria-label={t('assistant.conversations')}><History size={13} /></button>
+        <button class="icon-btn size-6" onclick={newConversation} title={t('assistant.new')} aria-label={t('assistant.new')}><Plus size={14} /></button>
+      {/if}
     {/if}
-    <button class="icon-btn size-6" onclick={minimizeAssistant} title={t('assistant.minimize')} aria-label={t('assistant.minimize')}><ChevronDown size={14} /></button>
+    {#if assistant.minimized}
+      <button class="icon-btn size-6" onclick={restoreAssistant} title={t('assistant.restore')} aria-label={t('assistant.restore')}><ChevronDown size={14} /></button>
+    {:else}
+      <button class="icon-btn size-6" onclick={minimizeAssistant} title={t('assistant.minimize')} aria-label={t('assistant.minimize')}><ChevronUp size={14} /></button>
+    {/if}
     <button class="icon-btn size-6" onclick={closeAssistant} title={t('common.close')} aria-label={t('common.close')}><X size={14} /></button>
   </div>
 
-  {#if assistant.listing}
+  {#if assistant.minimized}
+    <!-- Nothing below the header while folded. -->
+  {:else if assistant.listing}
     <div class="min-h-0 flex-1 overflow-auto">
       {#each assistant.conversations as c (c.id)}
         <div class="group flex items-start gap-2 border-b border-line-soft px-3 py-2 hover:bg-hover {c.id === assistant.current ? 'bg-row-active' : ''}">

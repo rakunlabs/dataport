@@ -29,8 +29,14 @@ import (
 
 const (
 	aiSetting = "ai_assistant"
-	// aiMaxSteps bounds the tool calls of one answer.
-	aiMaxSteps = 12
+	// aiMaxSteps bounds the tool calls of one answer unless the admin sets
+	// another limit, up to aiMaxStepsLimit.
+	aiMaxSteps      = 12
+	aiMaxStepsLimit = 50
+	// aiRetries is how often a failed request is tried again unless the
+	// admin sets another count, up to aiRetriesLimit.
+	aiRetries      = 2
+	aiRetriesLimit = 5
 	// aiMaxToolChars shortens tool results sent back to the model.
 	aiMaxToolChars = 24000
 	aiTimeout      = 5 * time.Minute
@@ -46,9 +52,50 @@ type aiConfig struct {
 	// Prompt is added to the system prompt, for the house rules of an
 	// installation.
 	Prompt string `json:"prompt,omitempty"`
+	// MaxSteps bounds the tool calls of one answer; nil is aiMaxSteps.
+	MaxSteps *int `json:"max_steps,omitempty"`
+	// Retries is how often a request that failed before the answer began
+	// is tried again; nil is aiRetries.
+	Retries *int `json:"retries,omitempty"`
+	// ProxyEnc is the HTTP(S) proxy for the AI services, the assistant's
+	// and inline completion's, encrypted as it may carry an account; empty
+	// takes the server's HTTPS_PROXY. Secret key rotation reseals it with
+	// every other *_enc value of the settings.
+	ProxyEnc string `json:"proxy_enc,omitempty"`
+	// Proxy is ProxyEnc read, set at runtime.
+	Proxy string `json:"-"`
 }
 
+func (v aiConfig) maxSteps() int {
+	if v.MaxSteps == nil {
+		return aiMaxSteps
+	}
+
+	return *v.MaxSteps
+}
+
+func (v aiConfig) retries() int {
+	if v.Retries == nil {
+		return aiRetries
+	}
+
+	return *v.Retries
+}
+
+// loadAI reads the assistant's settings for use: a proxy that cannot be
+// read is an error, so requests do not go around it.
 func (s *Server) loadAI(ctx context.Context) (aiConfig, error) {
+	v, err := s.readAI(ctx)
+	if err == nil && v.ProxyEnc != "" && v.Proxy == "" {
+		err = errors.New("the AI proxy cannot be read; enter it again in the AI settings")
+	}
+
+	return v, err
+}
+
+// readAI reads the settings as stored, for the admin form: an unreadable
+// proxy reads as none, so the admin can see the form and enter it again.
+func (s *Server) readAI(ctx context.Context) (aiConfig, error) {
 	raw, err := s.store.GetSetting(ctx, aiSetting)
 	if errors.Is(err, store.ErrNotFound) {
 		return aiConfig{BaseURL: "https://api.openai.com/v1"}, nil
@@ -61,6 +108,10 @@ func (s *Server) loadAI(ctx context.Context) (aiConfig, error) {
 	var v aiConfig
 	if err := json.Unmarshal([]byte(raw), &v); err != nil {
 		return aiConfig{}, fmt.Errorf("decode ai settings; %w", err)
+	}
+
+	if v.ProxyEnc != "" {
+		v.Proxy, _ = s.cipher.Decrypt(v.ProxyEnc)
 	}
 
 	return v, nil
@@ -81,22 +132,29 @@ func (v aiConfig) ready() bool {
 // admin settings
 
 type aiView struct {
-	Enabled bool   `json:"enabled"`
-	BaseURL string `json:"base_url"`
-	Model   string `json:"model"`
-	HasKey  bool   `json:"has_key"`
-	Prompt  string `json:"prompt"`
+	Enabled  bool   `json:"enabled"`
+	BaseURL  string `json:"base_url"`
+	Model    string `json:"model"`
+	HasKey   bool   `json:"has_key"`
+	Prompt   string `json:"prompt"`
+	MaxSteps int    `json:"max_steps"`
+	Retries  int    `json:"retries"`
+	Proxy    string `json:"proxy"`
+	// The server's own proxy, which an empty Proxy takes, for the form's
+	// placeholder.
+	EnvProxy string `json:"env_proxy,omitempty"`
 }
 
 func (s *Server) adminGetAI(w http.ResponseWriter, r *http.Request) {
-	v, err := s.loadAI(r.Context())
+	v, err := s.readAI(r.Context())
 	if err != nil {
 		writeStoreError(w, err)
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, aiView{Enabled: v.Enabled, BaseURL: v.BaseURL, Model: v.Model, HasKey: v.KeyEnc != "", Prompt: v.Prompt})
+	writeJSON(w, http.StatusOK, aiView{Enabled: v.Enabled, BaseURL: v.BaseURL, Model: v.Model, HasKey: v.KeyEnc != "", Prompt: v.Prompt,
+		MaxSteps: v.maxSteps(), Retries: v.retries(), Proxy: maskURL(v.Proxy), EnvProxy: envProxy(v.BaseURL)})
 }
 
 func (s *Server) adminSetAI(w http.ResponseWriter, r *http.Request) {
@@ -107,13 +165,17 @@ func (s *Server) adminSetAI(w http.ResponseWriter, r *http.Request) {
 		// Key nil keeps the saved key, "" removes it.
 		Key    *string `json:"key"`
 		Prompt string  `json:"prompt"`
+		// Missing limits keep the defaults.
+		MaxSteps *int   `json:"max_steps"`
+		Retries  *int   `json:"retries"`
+		Proxy    string `json:"proxy"`
 	}
 
 	if !readJSON(w, r, &in) {
 		return
 	}
 
-	current, err := s.loadAI(r.Context())
+	current, err := s.readAI(r.Context())
 	if err != nil {
 		writeStoreError(w, err)
 
@@ -121,12 +183,30 @@ func (s *Server) adminSetAI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := aiConfig{Enabled: in.Enabled, BaseURL: strings.TrimRight(strings.TrimSpace(in.BaseURL), "/"), Model: strings.TrimSpace(in.Model),
-		KeyEnc: current.KeyEnc, Prompt: strings.TrimSpace(in.Prompt)}
+		KeyEnc: current.KeyEnc, Prompt: strings.TrimSpace(in.Prompt), MaxSteps: in.MaxSteps, Retries: in.Retries,
+		Proxy: unmaskURL(strings.TrimSpace(in.Proxy), current.Proxy)}
+
+	// The defaults are not stored, so a later default applies to them.
+	if v.MaxSteps != nil && *v.MaxSteps == aiMaxSteps {
+		v.MaxSteps = nil
+	}
+
+	if v.Retries != nil && *v.Retries == aiRetries {
+		v.Retries = nil
+	}
 
 	if msg := v.check(); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 
 		return
+	}
+
+	if v.Proxy != "" {
+		if v.ProxyEnc, err = s.cipher.Encrypt(v.Proxy); err != nil {
+			writeError(w, http.StatusInternalServerError, "the proxy cannot be saved")
+
+			return
+		}
 	}
 
 	if in.Key != nil {
@@ -168,6 +248,17 @@ func (v aiConfig) check() string {
 		}
 	}
 
+	if v.Proxy != "" {
+		u, err := url.Parse(v.Proxy)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+			return "the proxy must be an http(s) URL such as http://proxy.example.com:3128"
+		}
+
+		if p, ok := u.User.Password(); ok && p == proxyMask {
+			return "enter the proxy password again for a changed proxy host or user"
+		}
+	}
+
 	switch {
 	case v.Enabled && (v.BaseURL == "" || v.Model == ""):
 		return "the API address and the model are required while the assistant is on"
@@ -175,6 +266,12 @@ func (v aiConfig) check() string {
 		return "the model name is too long"
 	case len(v.Prompt) > 8000:
 		return "the instructions may be at most 8000 characters"
+	case v.MaxSteps != nil && (*v.MaxSteps < 1 || *v.MaxSteps > aiMaxStepsLimit):
+		return fmt.Sprintf("the tool steps of one answer must be between 1 and %d", aiMaxStepsLimit)
+	case v.Retries != nil && (*v.Retries < 0 || *v.Retries > aiRetriesLimit):
+		return fmt.Sprintf("the retries must be between 0 and %d", aiRetriesLimit)
+	case len(v.Proxy) > 2000:
+		return "the proxy URL is too long"
 	}
 
 	return ""
@@ -285,17 +382,11 @@ func (s *Server) aiComplete(ctx context.Context, v aiConfig, messages []aiMessag
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := aiDo(ctx, aiClient(v.Proxy), req, raw, v.retries())
 	if err != nil {
-		return nil, fmt.Errorf("cannot reach the AI service: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-
-		return nil, fmt.Errorf("the AI service answered %d: %s", resp.StatusCode, aiErrorText(data))
-	}
 
 	// A service that ignores stream answers with one JSON body.
 	if !strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
@@ -1169,10 +1260,11 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = session.client.Close() }()
 
 	system := aiMessage{Role: "system", Content: aiText(s.aiSystemPrompt(v, in.Context))}
+	maxSteps := v.maxSteps()
 
 	for step := 0; ; step++ {
 		tools := session.tools
-		if step >= aiMaxSteps {
+		if step >= maxSteps {
 			// The last step must answer in words.
 			tools = nil
 		}
@@ -1188,7 +1280,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 
 		// The last step answers in words; calls a service makes anyway are
 		// dropped, so the turn ends.
-		if step >= aiMaxSteps && len(msg.ToolCalls) > 0 {
+		if step >= maxSteps && len(msg.ToolCalls) > 0 {
 			msg.ToolCalls = nil
 			if msg.text() == "" {
 				msg.Content = aiText("(stopped: too many steps for one answer)")

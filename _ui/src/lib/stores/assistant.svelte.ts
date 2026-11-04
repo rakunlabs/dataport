@@ -109,8 +109,8 @@ export const assistant = $state({
   busy: false,
   // The conversation list shows instead of the chat.
   listing: false,
-  // Hidden for a moment to look at what is behind it: a bar at the bottom
-  // brings it back with everything as it was.
+  // Folded up to its header to look at what is behind it; the header keeps
+  // the state and the controls, and brings it back as it was.
   minimized: false,
 });
 
@@ -144,6 +144,8 @@ export function restoreAssistant() {
 }
 
 export function closeAssistant() {
+  // Closed means nothing goes on behind it.
+  stop();
   assistant.open = false;
   assistant.minimized = false;
 }

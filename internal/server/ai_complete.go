@@ -84,6 +84,8 @@ type aiRoute struct {
 	Path    string
 	Model   string
 	KeyEnc  string
+	// Proxy is the assistant's proxy setting, which covers this service too.
+	Proxy string
 }
 
 // aiCompleteRoute is the service inline completion uses, ok when it is on
@@ -96,12 +98,16 @@ func (s *Server) aiCompleteRoute(ctx context.Context) (aiRoute, bool, error) {
 
 	r := aiRoute{Mode: v.Mode, BaseURL: v.BaseURL, Path: v.Path, Model: v.Model, KeyEnc: v.KeyEnc}
 
-	if v.Shared {
-		a, err := s.loadAI(ctx)
-		if err != nil {
-			return aiRoute{}, false, err
-		}
+	// The assistant's settings hold the shared address and the proxy; one
+	// that cannot be read stops completion rather than go around the proxy.
+	a, err := s.loadAI(ctx)
+	if err != nil {
+		return aiRoute{}, false, err
+	}
 
+	r.Proxy = a.Proxy
+
+	if v.Shared {
 		r.BaseURL, r.KeyEnc = a.BaseURL, a.KeyEnc
 	}
 
@@ -412,17 +418,12 @@ func (s *Server) aiInfill(ctx context.Context, route aiRoute, in aiInfillInput) 
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	// Not tried again: the user has typed on by the time a retry answers.
+	resp, err := aiDo(ctx, aiClient(route.Proxy), req, raw, 0)
 	if err != nil {
-		return "", fmt.Errorf("cannot reach the AI service: %w", err)
+		return "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-
-		return "", fmt.Errorf("the AI service answered %d: %s", resp.StatusCode, aiErrorText(data))
-	}
 
 	// /completions answers with text, Codestral and chat with a message,
 	// Ollama's /api/generate with response, llama.cpp's /completion and
