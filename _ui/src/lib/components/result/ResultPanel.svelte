@@ -488,7 +488,9 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="flex h-full min-h-0 flex-col" onkeydown={onQueryKey}>
-  {#if results.length > 1 || runs > 1}
+  <!-- A query shows its result tabs from the first result, so where a
+       second one will go is plain; a table tab has only ever one. -->
+  {#if results.length > 1 || runs > 1 || (tab.kind === 'query' && results.length > 0)}
     <div class="flex h-[30px] shrink-0 items-stretch gap-px border-b border-line bg-panel px-1">
       <div class="flex min-w-0 flex-1 items-stretch gap-px overflow-x-auto" role="tablist">
         {#each results as r, i (i)}
@@ -520,7 +522,7 @@
           </div>
         {/each}
       </div>
-      {#if tab.kind === 'query'}
+      {#if tab.kind === 'query' && results.length > 1}
         <button class="icon-btn my-auto size-6 shrink-0" onclick={closeAll} title={t('result.close')} aria-label={t('result.close')}><X size={14} /></button>
       {/if}
     </div>

@@ -13,6 +13,23 @@ export function isNumeric(type: string) {
   return /^(u?int|integer|bigint|smallint|tinyint|mediumint|numeric|decimal|real|double|float|serial|bigserial|money|int2|int4|int8|float4|float8|nullable\((u?int|decimal|float))/i.test(type);
 }
 
+// numericColumns tells which columns hold numbers. A column without a type
+// (an expression in SQLite, for one) counts when its first values are all
+// JSON numbers.
+export function numericColumns(columns: { type: string }[], rows: unknown[][]): boolean[] {
+  return columns.map((col, c) => {
+    if (col.type) return isNumeric(col.type);
+    let seen = false;
+    for (let r = 0; r < rows.length && r < 200; r++) {
+      const v = rows[r][c];
+      if (v === null || v === undefined) continue;
+      if (typeof v !== 'number') return false;
+      seen = true;
+    }
+    return seen;
+  });
+}
+
 export function typeColor(type: string): string {
   const ty = type.toLowerCase();
   if (ty.endsWith('[]')) return 'var(--color-type-struct)';

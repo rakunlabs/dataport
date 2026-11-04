@@ -6,7 +6,7 @@
   import { formatRows } from '@/lib/helper/copy';
   import { copyText } from '@/lib/helper/clipboard';
   import DataGridHeader from '@/lib/components/result/DataGridHeader.svelte';
-  import { display, isJsonType, isNumeric } from '@/lib/components/result/grid';
+  import { display, isJsonType, numericColumns } from '@/lib/components/result/grid';
   import JsonEditor from '@/lib/components/editor/JsonEditor.svelte';
   import type { Paint } from '@/lib/helper/rowColors';
 
@@ -47,6 +47,7 @@
   const rowHeight = 26;
   const overscan = 12;
   const numberWidth = 52;
+  const numeric = $derived(numericColumns(columns, rows));
 
   let scroller: HTMLDivElement;
   let scrollTop = $state(0);
@@ -523,7 +524,7 @@
               class="relative flex min-w-0 items-center border-r border-line-soft px-2 font-mono text-xs
                 {dirty ? 'bg-cell-dirty' : inRange ? 'bg-accent/15' : ''}
                 {isSel ? 'outline-2 -outline-offset-2 outline-focus' : ''}
-                {isNumeric(column.type) ? 'justify-end tabular-nums' : ''}"
+                {numeric[c] ? 'justify-end tabular-nums' : ''}"
               style={cellColor && !dirty && !inRange ? `background:${cellColor}` : undefined}
               onclick={(e) => (e.shiftKey || e.metaKey || e.ctrlKey) && selectCell(e, r, c)}
               onmousedown={(e) => {
