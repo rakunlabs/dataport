@@ -169,6 +169,7 @@ const tr: Messages = {
     copiedRows: '{count} satır kopyalandı',
     close: 'Sonuçları kapat',
     closeOne: 'Bu sonucu kapat',
+    refresh: 'Bu sorguyu yeniden çalıştır',
     noRows: 'İfade hiç satır döndürmedi.',
     result: 'Sonuç {n}',
     statement: 'İfade {n}',

@@ -29,7 +29,7 @@ type Later = {
   conn: 'useReadOnly' | 'allowWrites' | 'selfReadOnlyOn' | 'selfReadOnlyOff' | 'selfReadOnlyHint' | 'writeToggleHint' | 'selfReadOnlyTx';
   processes: 'mine' | 'mineHint';
   docs: 'hubReadOnly' | 'snapshotReadOnly' | 'snapshotSystem' | 'partitioned' | 'partitionHint' | 'onPartitions' | 'indexWhere' | 'triggers' | 'disabled' | 'values';
-  result: 'elapsed' | 'cancelling' | 'runningFor';
+  result: 'elapsed' | 'cancelling' | 'runningFor' | 'refresh';
   query: 'runParallel';
   valuePanel: 'tab' | 'pick';
   sidebar: 'state';

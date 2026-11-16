@@ -447,6 +447,26 @@
     @apply flex h-9 shrink-0 border-b border-line bg-panel;
   }
 
+  /* Strips that scroll sideways (see helper/overlayScroll) hide the native
+     scrollbar and draw a thumb over their bottom edge while scrolling, so
+     their height never changes. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .overlay-thumb {
+    @apply pointer-events-none absolute bottom-0 z-[3] h-1 rounded-full opacity-0 transition-opacity duration-300;
+    background: color-mix(in srgb, var(--color-fg) 28%, transparent);
+  }
+
+  .overlay-thumb.visible {
+    @apply pointer-events-auto opacity-100 duration-100;
+  }
+
   .pane-title {
     @apply text-xs font-semibold text-fg-2;
   }

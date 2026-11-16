@@ -30,6 +30,7 @@
   import { withCredentials } from '@/lib/stores/credentials.svelte';
   import { ask, assistantAvailable } from '@/lib/stores/assistant.svelte';
   import { fmtNumber, t } from '@/lib/i18n/index.svelte';
+  import { overlayScroll } from '@/lib/helper/overlayScroll';
 
   let {
     tab,
@@ -479,6 +480,28 @@
     void write(v === null || v === undefined ? 'NULL' : typeof v === 'object' ? JSON.stringify(v) : String(v));
   }
 
+  // A result is read again only when its statement plainly reads: a
+  // statement that also wrote, such as INSERT … RETURNING, must not run twice
+  // from one click. In a manual transaction the run would read outside it.
+  const refreshable = $derived.by(() => {
+    if (tab.kind !== 'query' || current?.kind !== 'rows' || current.plan || current.pending || tab.txOpen) return false;
+    const sql = current.statement
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/--[^\n]*/g, ' ')
+      .replace(/^[\s(]+/, '')
+      .toLowerCase();
+    const first = sql.match(/^[a-z]+/)?.[0] ?? '';
+    // SELECT … INTO makes a table; a WITH may wrap a change.
+    if (/\binto\b/.test(sql)) return false;
+    if (['select', 'show', 'describe', 'desc', 'values', 'table', 'pragma'].includes(first)) return true;
+    return first === 'with' && !/\b(insert|update|delete|merge)\b/.test(sql);
+  });
+
+  function refresh() {
+    if (!refreshable || !keepEdits([current!])) return;
+    void reloadResult(tab.id, tab.activeResult);
+  }
+
 </script>
 
 <svelte:window
@@ -492,7 +515,8 @@
        second one will go is plain; a table tab has only ever one. -->
   {#if results.length > 1 || runs > 1 || (tab.kind === 'query' && results.length > 0)}
     <div class="flex h-[30px] shrink-0 items-stretch gap-px border-b border-line bg-panel px-1">
-      <div class="flex min-w-0 flex-1 items-stretch gap-px overflow-x-auto" role="tablist">
+      <div class="relative flex min-w-0 flex-1">
+      <div class="flex min-w-0 flex-1 items-stretch gap-px overflow-x-auto" role="tablist" use:overlayScroll>
         {#each results as r, i (i)}
           {@const active = i === tab.activeResult}
           <div
@@ -521,6 +545,7 @@
             {#if active}<span class="absolute inset-x-1 bottom-0 h-0.5 rounded-full bg-accent"></span>{/if}
           </div>
         {/each}
+      </div>
       </div>
       {#if tab.kind === 'query' && results.length > 1}
         <button class="icon-btn my-auto size-6 shrink-0" onclick={closeAll} title={t('result.close')} aria-label={t('result.close')}><X size={14} /></button>
@@ -760,6 +785,9 @@
 
       {#if current?.kind === 'rows' && current.rows?.length}
         <ExportMenu columns={current.columns ?? []} rows={current.rows} name={tab.table || tab.title} {dbType} />
+      {/if}
+      {#if refreshable}
+        <button class="icon-btn size-[22px]" onclick={refresh} title={t('result.refresh')} aria-label={t('result.refresh')}><RefreshCw size={13} /></button>
       {/if}
       {#if current?.kind === 'rows' && assistantAvailable()}
         <button class="icon-btn size-[22px]" onclick={() => ask(t('assistant.askResultPrompt'))} title={t('assistant.askResult')} aria-label={t('assistant.askResult')}><Sparkles size={13} /></button>

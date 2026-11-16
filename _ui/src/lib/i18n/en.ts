@@ -167,6 +167,7 @@ const en = {
     copiedRows: 'Copied {count} row | Copied {count} rows',
     close: 'Close the results',
     closeOne: 'Close this result',
+    refresh: 'Run this statement again',
     noRows: 'The statement returned no rows.',
     result: 'Result {n}',
     statement: 'Statement {n}',

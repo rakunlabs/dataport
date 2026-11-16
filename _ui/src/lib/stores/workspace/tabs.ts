@@ -226,6 +226,18 @@ export function closeOthers(id: string) {
   for (const t of ws.tabs.filter((t) => t.id !== id)) closeTab(t.id);
 }
 
+// moveTab puts a tab at the given place in the strip, as counted before it
+// is taken out.
+export function moveTab(id: string, to: number) {
+  const from = ws.tabs.findIndex((t) => t.id === id);
+  if (from < 0) return;
+  const at = to > from ? to - 1 : to;
+  if (at === from) return;
+  const [tab] = ws.tabs.splice(from, 1);
+  ws.tabs.splice(at, 0, tab);
+  persist();
+}
+
 // startWorkspace resets the state for the user and restores their tabs.
 export async function startWorkspace(userId: string) {
   if (persistedUser() === userId && ws.connectionsLoaded) return;
