@@ -136,10 +136,19 @@ func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Access-Control-Allow-Origin", "*")
-		h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Protocol-Version")
+		h.Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Protocol-Version, Mcp-Session-Id, Last-Event-ID")
+		// Browser clients read the session ID of initialize from the
+		// response and send it back on every later request.
+		h.Set("Access-Control-Expose-Headers", "Mcp-Session-Id, WWW-Authenticate")
 
 		if r.Method == http.MethodOptions {
+			// Chrome asks before a public page calls a server on a local
+			// address (Private Network Access).
+			if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+				h.Set("Access-Control-Allow-Private-Network", "true")
+			}
+
 			w.WriteHeader(http.StatusNoContent)
 
 			return
