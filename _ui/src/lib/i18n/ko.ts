@@ -1069,7 +1069,6 @@ const ko: Messages = {
     methodToken: '접근 토큰',
     oauthHint: '토큰 없이 서버를 추가하세요. 클라이언트가 처음에 브라우저에서 dataport를 열면 로그인하여 승인하고, 이후 접근 권한은 자동으로 갱신됩니다.',
     tokenHint: '브라우저 로그인이 없는 클라이언트, 스크립트, CI용: 아래에서 토큰을 생성하여 bearer 토큰으로 전송하세요.',
-    tokenScoped: '이 토큰은 {name}에서만 작동합니다.',
     title: 'MCP 접근',
     intro: 'AI 에이전트(Claude Code, Cursor, VS Code…)가 공유된 데이터베이스를 사용할 수 있도록 합니다. 에이전트는 본인으로 동작하며, 본인의 권한, 읽기 전용 제한, 운영 환경 확인이 적용되고 모든 문장은 쿼리 로그에 기록됩니다.',
     disabled: '이 서버에서는 MCP가 꺼져 있습니다.',

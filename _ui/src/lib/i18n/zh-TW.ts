@@ -1069,7 +1069,6 @@ const zhTW: Messages = {
     methodToken: '存取權杖',
     oauthHint: '不需權杖即可新增伺服器。用戶端第一次會在您的瀏覽器中開啟 dataport；您登入並核准後，它會自行更新存取權。',
     tokenHint: '適用於不支援瀏覽器登入的用戶端、指令碼與 CI：請在下方建立權杖，並以 bearer 權杖傳送。',
-    tokenScoped: '此權杖僅適用於 {name}。',
     title: 'MCP 存取',
     intro: '讓 AI 代理程式（Claude Code、Cursor、VS Code…）使用與您共用的資料庫。它會以您的身分操作：套用您的授權、唯讀限制與正式環境確認，且每個陳述式都會記錄在查詢記錄中。',
     disabled: '此伺服器已關閉 MCP。',

@@ -46,7 +46,7 @@
     e.preventDefault();
     busy = true;
     try {
-      created = await api.post('/tokens', { name, read_only: readOnly, expires_in_days: Number(days) || 0, connection_id: scope });
+      created = await api.post('/tokens', { name, read_only: readOnly, expires_in_days: Number(days) || 0 });
       name = '';
       await load();
     } catch (err) {
@@ -187,7 +187,6 @@
               {t('mcp.readOnly')}
               <span class="text-xs text-muted">{t('mcp.readOnlyHint')}</span>
             </label>
-            {#if scoped}<p class="col-span-6 text-xs text-muted">{t('mcp.tokenScoped', { name: scoped.name })}</p>{/if}
           </form>
         </section>
       {/if}
@@ -206,7 +205,7 @@
               <span class="min-w-0 flex-1">
                 <span class="flex items-center gap-1.5 truncate font-medium {expired ? 'text-faint line-through' : ''}">
                   {#if tok.client_id}<Bot size={12} class="shrink-0 text-accent" />{/if}{tok.name}
-                  {#if tok.connection_id}<span class="truncate text-xs font-normal text-muted">· {connectionName(tok.connection_id)}</span>{/if}
+                  {#if tok.connection_id}<span class="truncate text-xs font-normal text-warn" title={t('mcp.tokenLimited', { name: connectionName(tok.connection_id) })}>· {t('mcp.tokenOnly', { name: connectionName(tok.connection_id) })}</span>{/if}
                 </span>
                 <span class="block text-xs text-muted">
                   {t('mcp.lastUsed', { when: tok.last_used_at ? fmtDateTime(tok.last_used_at) : t('mcp.never') })}

@@ -1069,7 +1069,6 @@ const zhCN: Messages = {
     methodToken: '访问令牌',
     oauthHint: '添加服务器时无需令牌。客户端首次使用时会在浏览器中打开 dataport，你登录并批准后，它会自行续期访问权限。',
     tokenHint: '适用于不支持浏览器登录的客户端、脚本和 CI：在下方创建令牌，并作为 Bearer 令牌发送。',
-    tokenScoped: '该令牌仅适用于 {name}。',
     title: 'MCP 访问',
     intro: '让 AI 代理（Claude Code、Cursor、VS Code…）使用共享给你的数据库。它以你的身份操作：你的授权、只读限制和生产环境确认均适用，每条语句都会记录在查询日志中。',
     disabled: '此服务器已关闭 MCP。',

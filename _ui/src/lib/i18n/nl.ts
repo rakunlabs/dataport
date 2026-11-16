@@ -1069,7 +1069,6 @@ const nl: Messages = {
     methodToken: 'Toegangstoken',
     oauthHint: 'Voeg de server toe zonder token. De client opent dataport de eerste keer in je browser; je meldt je aan en keurt het goed, en daarna vernieuwt hij zijn toegang zelf.',
     tokenHint: 'Voor clients zonder browseraanmelding, scripts en CI: maak hieronder een token aan en stuur het als bearer-token mee.',
-    tokenScoped: 'Het token werkt alleen voor {name}.',
     title: 'MCP-toegang',
     intro: 'Laat een AI-agent (Claude Code, Cursor, VS Code…) de databases gebruiken die met je gedeeld zijn. Hij handelt als jou: je rechten, alleen-lezenlimieten en productiebevestigingen gelden, en elk statement staat in het querylogboek.',
     disabled: 'MCP is uitgeschakeld op deze server.',

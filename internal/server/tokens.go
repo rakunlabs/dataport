@@ -14,7 +14,9 @@ type tokenRequest struct {
 	ReadOnly bool   `json:"read_only"`
 	// ExpiresInDays of zero uses the longest lifetime the server allows.
 	ExpiresInDays int `json:"expires_in_days"`
-	// ConnectionID limits the token to one connection.
+	// ConnectionID is sent by pages of earlier versions and ignored: a new
+	// token reaches what the user's MCP access setting allows. Tokens made
+	// before keep the connection they were made for.
 	ConnectionID string `json:"connection_id"`
 }
 
@@ -68,15 +70,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ConnectionID != "" {
-		if _, err := s.store.GetGrant(r.Context(), currentUser(r), req.ConnectionID); err != nil {
-			writeError(w, http.StatusBadRequest, "you have no access to this connection")
-
-			return
-		}
-	}
-
-	t := &store.AccessToken{UserID: currentUser(r).ID, Name: req.Name, TokenHash: hash, ReadOnly: req.ReadOnly, ConnectionID: req.ConnectionID}
+	t := &store.AccessToken{UserID: currentUser(r).ID, Name: req.Name, TokenHash: hash, ReadOnly: req.ReadOnly}
 	if req.ExpiresInDays > 0 {
 		t.ExpiresAt = time.Now().Add(time.Duration(req.ExpiresInDays) * 24 * time.Hour).UnixMilli()
 	}

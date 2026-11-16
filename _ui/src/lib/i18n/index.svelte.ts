@@ -35,6 +35,7 @@ type Later = {
   sidebar: 'state';
   editor: 'limits' | 'limitsReset' | 'aiComplete' | 'aiCompleteOn' | 'aiCompleteOff' | 'aiState';
   settings: 'aiComplete' | 'aiCompleteHint';
+  mcp: 'tokenOnly' | 'tokenLimited';
 };
 
 type Sections<K> = { [P in keyof K]: K[P] extends true ? P : never }[keyof K];

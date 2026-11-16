@@ -1069,7 +1069,6 @@ const es: Messages = {
     methodToken: 'Token de acceso',
     oauthHint: 'Añade el servidor sin token. La primera vez, el cliente abre dataport en tu navegador; inicias sesión, lo apruebas y renueva su acceso por sí solo.',
     tokenHint: 'Para clientes sin inicio de sesión en el navegador, scripts y CI: crea un token abajo y envíalo como bearer token.',
-    tokenScoped: 'El token solo funciona para {name}.',
     title: 'Acceso MCP',
     intro: 'Permite que un agente de IA (Claude Code, Cursor, VS Code…) use las bases de datos compartidas contigo. Actúa como tú: se aplican tus permisos, los límites de solo lectura y las confirmaciones de producción, y cada sentencia queda en el registro de consultas.',
     disabled: 'MCP está desactivado en este servidor.',

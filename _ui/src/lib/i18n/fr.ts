@@ -1069,7 +1069,6 @@ const fr: Messages = {
     methodToken: "Jeton d'accès",
     oauthHint: "Ajoutez le serveur sans jeton. Le client ouvre dataport dans votre navigateur la première fois ; vous vous connectez et l'autorisez, puis il renouvelle son accès tout seul.",
     tokenHint: 'Pour les clients sans connexion via navigateur, les scripts et la CI : créez un jeton ci-dessous et envoyez-le comme bearer token.',
-    tokenScoped: 'Le jeton ne fonctionne que pour {name}.',
     title: 'Accès MCP',
     intro: "Permettez à un agent IA (Claude Code, Cursor, VS Code…) d'utiliser les bases de données partagées avec vous. Il agit en votre nom : vos droits, limites de lecture seule et confirmations de production s'appliquent, et chaque instruction figure dans le journal des requêtes.",
     disabled: 'MCP est désactivé sur ce serveur.',

@@ -1069,7 +1069,6 @@ const de: Messages = {
     methodToken: 'Zugriffstoken',
     oauthHint: 'Fügen Sie den Server ohne Token hinzu. Der Client öffnet dataport beim ersten Mal in Ihrem Browser; Sie melden sich an und genehmigen ihn, danach erneuert er seinen Zugriff selbst.',
     tokenHint: 'Für Clients ohne Browser-Anmeldung, Skripte und CI: Erstellen Sie unten ein Token und senden Sie es als Bearer-Token.',
-    tokenScoped: 'Das Token funktioniert nur für {name}.',
     title: 'MCP-Zugriff',
     intro: 'Lassen Sie einen KI-Agenten (Claude Code, Cursor, VS Code…) die für Sie freigegebenen Datenbanken nutzen. Er handelt in Ihrem Namen: Ihre Berechtigungen, Schreibschutz und Produktionsbestätigungen gelten, und jede Anweisung steht im Abfrageprotokoll.',
     disabled: 'MCP ist auf diesem Server deaktiviert.',

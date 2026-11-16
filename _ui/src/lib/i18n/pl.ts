@@ -1069,7 +1069,6 @@ const pl: Messages = {
     methodToken: 'Token dostępu',
     oauthHint: 'Dodaj serwer bez tokenu. Za pierwszym razem klient otworzy dataport w przeglądarce; zaloguj się i zatwierdź dostęp, a klient sam będzie go odnawiał.',
     tokenHint: 'Dla klientów bez logowania przez przeglądarkę, skryptów i CI: utwórz token poniżej i wysyłaj go jako bearer token.',
-    tokenScoped: 'Token działa tylko dla {name}.',
     title: 'Dostęp MCP',
     intro: 'Pozwól agentowi AI (Claude Code, Cursor, VS Code…) korzystać z udostępnionych Ci baz danych. Działa on jako Ty: obowiązują Twoje uprawnienia, ograniczenia tylko do odczytu i potwierdzenia produkcyjne, a każda instrukcja trafia do dziennika zapytań.',
     disabled: 'MCP jest wyłączone na tym serwerze.',
