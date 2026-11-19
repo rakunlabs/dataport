@@ -1,7 +1,7 @@
 import en from '@/lib/i18n/en';
 
 // Sections a translation may leave out; t() falls back to English for them.
-type Optional = 'account' | 'assistant' | 'pager' | 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn' | 'calc' | 'record' | 'rowColors';
+type Optional = 'account' | 'assistant' | 'pager' | 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn' | 'calc' | 'record' | 'rowColors' | 'morph';
 
 // Messages added after a translation was written may be missing from it;
 // t() falls back to English for them too. A string names leaf messages,
@@ -23,7 +23,7 @@ type Later = {
     cluster: true;
     conn: 'visibility' | 'visibilityHint' | 'showWorkspace' | 'showWorkspaceHint' | 'showNotebooks' | 'showNotebooksHint' | 'showMcp' | 'showMcpHint' | 'notebookOnly' | 'notebookOnlyHint' | 'notebookOnlyShared' | 'notebookOnlyChip' | 'personalTitle' | 'personalHint' | 'owner' | 'proxy' | 'proxyNone' | 'proxyUrl' | 'proxyHint' | 'viaProxy';
     docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' | 'turnedOff' };
-  grid: 'sortBy';
+  grid: 'sortBy' | 'fill';
   diagram: 'fromDocs';
   login: 'forClient';
   conn: 'useReadOnly' | 'allowWrites' | 'selfReadOnlyOn' | 'selfReadOnlyOff' | 'selfReadOnlyHint' | 'writeToggleHint' | 'selfReadOnlyTx';
@@ -33,7 +33,8 @@ type Later = {
   query: 'runParallel';
   valuePanel: 'tab' | 'pick';
   sidebar: 'state';
-  editor: 'limits' | 'limitsReset' | 'aiComplete' | 'aiCompleteOn' | 'aiCompleteOff' | 'aiState';
+  edit: 'quick';
+  editor: 'limits' | 'limitsReset' | 'aiComplete' | 'aiCompleteOn' | 'aiCompleteOff' | 'aiState' | 'menu';
   settings: 'aiComplete' | 'aiCompleteHint';
   mcp: 'tokenOnly' | 'tokenLimited';
 };

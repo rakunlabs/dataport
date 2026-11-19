@@ -128,16 +128,11 @@
   }
 
   function addRow() {
-    tab.edit.addRow(columnNames().length);
-    const grid = panel?.grid();
-    grid?.focusCell(rowCount + tab.edit.inserted.length - 1, 0);
+    void panel?.addRow();
   }
 
   function cloneRows() {
-    const sel = panel?.grid()?.selection();
-    if (!sel || !current?.rows) return;
-    const names = columnNames();
-    tab.edit.clone(current.rows, sel, names.length, new Set(meta.filter((c) => c.primary_key).map((c) => names.indexOf(c.name))));
+    void panel?.cloneRows();
   }
 
   function deleteRows() {

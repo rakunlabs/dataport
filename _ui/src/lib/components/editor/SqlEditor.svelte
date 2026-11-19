@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t as tr } from '@/lib/i18n/index.svelte';
   import { onDestroy, onMount } from 'svelte';
-  import { EditorState, EditorSelection, Compartment, type Extension } from '@codemirror/state';
+  import { EditorState, EditorSelection, Compartment, type Extension, type SelectionRange } from '@codemirror/state';
   import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, placeholder } from '@codemirror/view';
   import { statementAt, statements, type Statement } from '@/lib/helper/statements';
 
@@ -12,7 +12,11 @@
   import { defaultOptions, type EditorOptions } from '@/lib/helper/editorOptions';
   import { formatSql } from '@/lib/helper/formatSql';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
-  import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+  import { defaultKeymap, history, historyKeymap, indentWithTab, toggleBlockComment, toggleLineComment } from '@codemirror/commands';
+  import { AlignLeft, CaseLower, CaseUpper, ClipboardPaste, Copy, List, MessageSquareCode, Pilcrow, Scissors, TextSelect, WrapText } from 'lucide-svelte';
+  import TreeMenu, { type MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
+  import DelimitedListDialog from '@/lib/components/editor/DelimitedListDialog.svelte';
+  import { trimSpans, type TrimMode } from '@/lib/helper/textMorph';
   import { sql, schemaCompletionSource, type SQLNamespace } from '@codemirror/lang-sql';
   import type { CompletionContext } from '@codemirror/autocomplete';
   import { quoteIdent } from '@/lib/helper/copy';
@@ -73,6 +77,8 @@
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   // The shortcut that runs the whole script, as it reads on this system.
   const scriptKey = isMac ? 'Ctrl+Option+X' : 'Alt+X';
+  const mod = isMac ? '⌘' : 'Ctrl+';
+  const shift = isMac ? '⇧' : 'Shift+';
 
   let host: HTMLDivElement;
   let view: EditorView | undefined;
@@ -292,6 +298,132 @@
     return out;
   }
 
+  // ////////////////////////////////////////////
+  // the Format menu, as DBeaver's
+
+  // editRanges are the selections, or for each empty one what pick gives.
+  function editRanges(v: EditorView, pick: (r: SelectionRange) => { from: number; to: number } | null) {
+    return v.state.selection.ranges.map((r) => (r.empty ? pick(r) : { from: r.from, to: r.to })).filter((r): r is { from: number; to: number } => !!r && r.to > r.from);
+  }
+
+  // changeCase changes the selection, or the word at the cursor, to upper
+  // or lower case; the selection stays.
+  function changeCase(v: EditorView, upper: boolean) {
+    if (readonly) return false;
+    const ranges = editRanges(v, (r) => v.state.wordAt(r.head));
+    const changes = ranges
+      .map((r) => {
+        const text = v.state.sliceDoc(r.from, r.to);
+        const insert = upper ? text.toUpperCase() : text.toLowerCase();
+        return insert === text ? null : { from: r.from, to: r.to, insert };
+      })
+      .filter((c) => !!c);
+    // A letter may change its length (ß to SS); then the selection follows.
+    if (changes.length) v.dispatch({ changes, userEvent: 'input.case' });
+    return true;
+  }
+
+  // trim removes spaces at the ends of the selected lines, or of the line
+  // with the cursor.
+  function trim(v: EditorView, mode: TrimMode) {
+    if (readonly) return;
+    const doc = v.state.doc;
+    const lines = new Set<number>();
+    for (const r of v.state.selection.ranges) {
+      const last = doc.lineAt(r.to > r.from && doc.lineAt(r.to).from === r.to ? r.to - 1 : r.to).number;
+      for (let n = doc.lineAt(r.from).number; n <= last; n++) lines.add(n);
+    }
+    const changes = [...lines].flatMap((n) => {
+      const line = doc.line(n);
+      return trimSpans(line.text, mode).map((s) => ({ from: line.from + s.from, to: line.from + s.to }));
+    });
+    if (changes.length) v.dispatch({ changes, userEvent: 'delete.trim' });
+  }
+
+  let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  let morph = $state<{ from: number; to: number; text: string } | null>(null);
+
+  async function clip(v: EditorView, kind: 'cut' | 'copy' | 'paste') {
+    const sel = v.state.selection.main;
+    try {
+      if (kind === 'paste') {
+        const text = await navigator.clipboard.readText();
+        v.dispatch(v.state.replaceSelection(text), { userEvent: 'input.paste', scrollIntoView: true });
+      } else {
+        await navigator.clipboard.writeText(v.state.sliceDoc(sel.from, sel.to));
+        if (kind === 'cut') v.dispatch({ changes: { from: sel.from, to: sel.to }, userEvent: 'delete.cut' });
+      }
+    } catch {
+      toast(tr('grid.clipboardUnavailable'), 'error');
+    }
+    v.focus();
+  }
+
+  function openMenu(e: MouseEvent, v: EditorView) {
+    // Leave the run gutter its own menu.
+    if ((e.target as HTMLElement).closest('.cm-gutters')) return false;
+    e.preventDefault();
+    // A click beside the selection moves the cursor there first.
+    const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
+    if (pos !== null && !v.state.selection.ranges.some((r) => !r.empty && pos >= r.from && pos <= r.to)) v.dispatch({ selection: { anchor: pos } });
+    const sel = v.state.selection.main;
+    const ro = readonly;
+    const act = (f: (v: EditorView) => unknown) => () => {
+      f(v);
+      v.focus();
+    };
+    const items: MenuItem[] = [
+      { label: tr('editor.menu.cut'), icon: Scissors, keys: mod + 'X', disabled: ro || sel.empty, action: () => clip(v, 'cut') },
+      { label: tr('common.copy'), icon: Copy, keys: mod + 'C', disabled: sel.empty, action: () => clip(v, 'copy') },
+      { label: tr('editor.menu.paste'), icon: ClipboardPaste, keys: mod + 'V', disabled: ro, action: () => clip(v, 'paste') },
+      { label: tr('editor.menu.selectAll'), icon: TextSelect, keys: mod + 'A', action: act((v) => v.dispatch({ selection: { anchor: 0, head: v.state.doc.length } })) },
+      { sep: true },
+      {
+        label: tr('editor.menu.format'),
+        icon: AlignLeft,
+        hidden: ro,
+        children: [
+          { label: tr('editor.format'), icon: AlignLeft, keys: mod + shift + 'F', action: () => format() },
+          {
+            label: tr('editor.menu.delimited'),
+            icon: List,
+            disabled: sel.empty,
+            action: () => (morph = { from: sel.from, to: sel.to, text: v.state.sliceDoc(sel.from, sel.to) }),
+          },
+          { sep: true },
+          { label: tr('editor.menu.upper'), icon: CaseUpper, keys: mod + shift + 'X', action: act((v) => changeCase(v, true)) },
+          { label: tr('editor.menu.lower'), icon: CaseLower, keys: mod + shift + 'Y', action: act((v) => changeCase(v, false)) },
+          { sep: true },
+          { label: tr('editor.menu.trim'), icon: Pilcrow, action: act((v) => trim(v, 'both')) },
+          { label: tr('editor.menu.trimLeading'), action: act((v) => trim(v, 'leading')) },
+          { label: tr('editor.menu.trimTrailing'), action: act((v) => trim(v, 'trailing')) },
+          { sep: true },
+          { label: tr('editor.wrap'), icon: WrapText, keys: scriptKey.replace('X', 'Z'), hidden: !onwrap, action: () => onwrap?.() },
+          { label: tr('editor.menu.lineComment'), icon: MessageSquareCode, keys: mod + '/', action: act(toggleLineComment) },
+          { label: tr('editor.menu.blockComment'), keys: mod + shift + '/', action: act(toggleBlockComment) },
+        ],
+      },
+    ];
+    // Set once the click has reached the window, where an open menu takes
+    // it as one outside and closes.
+    setTimeout(() => (menu = { x: e.clientX, y: e.clientY, items }));
+    return true;
+  }
+
+  // The list replaces what was selected, if it is still there.
+  function applyMorph(out: string) {
+    const v = view;
+    const m = morph;
+    morph = null;
+    if (!v || !m) return;
+    if (v.state.sliceDoc(m.from, m.to) !== m.text) {
+      toast(tr('morph.changed'), 'info', 4000);
+      return;
+    }
+    v.dispatch({ changes: { from: m.from, to: m.to, insert: out }, selection: { anchor: m.from, head: m.from + out.length }, scrollIntoView: true, userEvent: 'input.morph' });
+    v.focus();
+  }
+
   const inline = inlineCompletion({
     onstate: (s) => oninline?.(s),
     enabled: () => opts.aiComplete && !!session.user?.ai_complete && !readonly,
@@ -315,6 +447,7 @@
           // keep doing so. Keys are matched by their place, as the
           // character they give changes with Option.
           EditorView.domEventHandlers({
+            contextmenu: (e, v) => openMenu(e, v),
             keydown: (e, v) => {
               const mod = isMac ? e.altKey && e.ctrlKey : e.altKey && !e.ctrlKey;
               if (!mod || e.metaKey || e.shiftKey) return false;
@@ -349,6 +482,10 @@
                 return true;
               },
             },
+            // DBeaver's keys for case and comments.
+            { key: 'Mod-Shift-x', run: (v) => changeCase(v, true) },
+            { key: 'Mod-Shift-y', run: (v) => changeCase(v, false) },
+            { key: 'Mod-Shift-/', run: toggleBlockComment },
             { key: 'Mod-Enter', run: (v) => runTarget(v) },
             // DBX's keys; Alt+Up/Down stay with moving lines.
             // DBX's keys. On macOS Ctrl+Shift+Up/Down select by page, and
@@ -517,6 +654,20 @@
 </script>
 
 <div class="editor h-full min-h-0" bind:this={host}></div>
+
+{#if menu}
+  <TreeMenu x={menu.x} y={menu.y} items={menu.items} onclose={() => (menu = null)} />
+{/if}
+{#if morph}
+  <DelimitedListDialog
+    text={morph.text}
+    onapply={applyMorph}
+    onclose={() => {
+      morph = null;
+      view?.focus();
+    }}
+  />
+{/if}
 
 <style>
   /* Syntax colours after the JetBrains Light and Darcula schemes. */

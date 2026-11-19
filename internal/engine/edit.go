@@ -160,6 +160,18 @@ func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string
 		}
 
 		if len(keys) == 0 {
+			// A row of defaults only, where the database can write one.
+			switch d.Dialect() {
+			case DialectPostgres, DialectSQLite, DialectMSSQL:
+				b.WriteString("INSERT INTO " + qualified + " DEFAULT VALUES")
+
+				return b.String(), nil, nil
+			case DialectMySQL:
+				b.WriteString("INSERT INTO " + qualified + " () VALUES ()")
+
+				return b.String(), nil, nil
+			}
+
 			return "", nil, fmt.Errorf("%w: a new row needs at least one value", ErrBadEdit)
 		}
 

@@ -17,6 +17,8 @@ export interface ColumnInfo {
   primary_key: boolean;
   // What the column keeps beyond type and default, such as AUTO_INCREMENT.
   extra?: string;
+  // Set for a column the database numbers or computes.
+  auto?: 'identity' | 'generated';
 }
 
 export interface IndexInfo {

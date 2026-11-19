@@ -18,6 +18,7 @@
     edit,
     editable = false,
     paint,
+    defaults,
     oncontext,
     onselect,
   }: {
@@ -28,6 +29,8 @@
     edit?: EditState;
     editable?: boolean;
     paint?: (row: number) => Paint | null;
+    // What a new row's column gets when left alone.
+    defaults?: { text: string; tone?: 'auto' | 'warn' }[];
     oncontext?: (e: MouseEvent, row: number, col: number) => void;
     onselect?: (row: number, col: number) => void;
   } = $props();
@@ -35,7 +38,7 @@
   let sorted = $state(false);
   let filter = $state('');
   let selectedCol = $state(0);
-  let editing = $state<{ col: number; value: string; isNull: boolean } | null>(null);
+  let editing = $state<{ col: number; value: string; isNull: boolean; isDefault: boolean } | null>(null);
 
   const total = $derived(rows.length + (edit?.inserted.length ?? 0));
   const isNew = $derived(row >= rows.length);
@@ -81,12 +84,12 @@
     selectedCol = c;
     if (!canEdit()) return;
     const v = value(c);
-    editing = { col: c, value: v === null || v === undefined ? '' : display(v), isNull: v === null || v === undefined };
+    editing = { col: c, value: v === null || v === undefined ? '' : display(v), isNull: v === null || v === undefined, isDefault: isNew && v === undefined };
   }
 
   function commit() {
     if (!editing || !edit) return;
-    const v = editing.isNull && editing.value === '' ? null : editing.value;
+    const v = editing.isDefault && editing.value === '' ? undefined : editing.isNull && editing.value === '' ? null : editing.value;
     if (isNew) edit.setNew(row - rows.length, editing.col, v);
     else edit.set(row, editing.col, v, rows[row][editing.col]);
     editing = null;
@@ -171,9 +174,9 @@
               {#if editing?.col === c}
                 <input
                   class="absolute inset-0 z-20 border-2 border-focus bg-bg px-2.5 font-mono text-xs text-fg outline-none"
-                  placeholder={editing.isNull ? 'NULL' : ''}
+                  placeholder={editing.isDefault ? (defaults?.[c]?.text ?? t('grid.default')) : editing.isNull ? 'NULL' : ''}
                   bind:value={editing.value}
-                  oninput={() => editing && (editing.isNull = false)}
+                  oninput={() => editing && ((editing.isNull = false), (editing.isDefault = false))}
                   onkeydown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
@@ -187,8 +190,10 @@
                   onblur={commit}
                   use:autofocus
                 />
+              {:else if isNew && v === undefined}
+                <span class="italic {defaults?.[c]?.tone === 'warn' ? 'text-warn' : 'text-faint'}">{defaults?.[c]?.text ?? t('grid.default')}</span>
               {:else if v === null || v === undefined}
-                <span class="text-faint italic">{isNew ? t('grid.default') : '<null>'}</span>
+                <span class="text-faint italic">&lt;null&gt;</span>
               {:else}
                 <span class="break-all whitespace-pre-wrap">{display(v).length > 2000 ? display(v).slice(0, 2000) + '…' : display(v)}</span>
               {/if}

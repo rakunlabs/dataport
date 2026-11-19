@@ -9,6 +9,9 @@
     danger?: boolean;
     hidden?: boolean;
     sep?: boolean;
+    // The shortcut that does the same, shown at the right.
+    keys?: string;
+    disabled?: boolean;
     // A submenu that opens beside the item, such as More.
     children?: MenuItem[];
   }
@@ -104,6 +107,7 @@
       <button
         class="menu-item {it.danger ? 'text-danger' : ''}"
         role="menuitem"
+        disabled={it.disabled}
         onmouseenter={() => (sub = null)}
         onclick={() => {
           onclose();
@@ -111,7 +115,8 @@
         }}
       >
         {#if it.icon}<it.icon size={13} />{:else}<span class="w-[13px]"></span>{/if}
-        {it.label}
+        <span class="flex-1 text-left">{it.label}</span>
+        {#if it.keys}<span class="pl-4 text-xs text-faint">{it.keys}</span>{/if}
       </button>
     {/if}
   {/each}
@@ -138,13 +143,15 @@
         <button
           class="menu-item {it.danger ? 'text-danger' : ''}"
           role="menuitem"
+          disabled={it.disabled}
           onclick={() => {
             onclose();
             void it.action?.();
           }}
         >
           {#if it.icon}<it.icon size={13} />{:else}<span class="w-[13px]"></span>{/if}
-          {it.label}
+          <span class="flex-1 text-left">{it.label}</span>
+          {#if it.keys}<span class="pl-4 text-xs text-faint">{it.keys}</span>{/if}
         </button>
       {/if}
     {/each}

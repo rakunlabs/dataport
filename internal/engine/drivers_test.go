@@ -188,6 +188,16 @@ INSERT INTO customers VALUES (1, 'Ada'), (2, 'Linus');`); err != nil {
 	if err != nil || edit.Affected != 1 {
 		t.Fatalf("edit: %v %+v", err, edit)
 	}
+
+	// A numbered key is marked, so a new row leaves it to the database.
+	if _, err := run("create table shapes (id integer primary key autoincrement, w int)", false); err != nil {
+		t.Fatal(err)
+	}
+
+	cols, err := m.Columns(ctx, c, "", "main", "shapes")
+	if err != nil || len(cols) != 2 || cols[0].Auto != "identity" || cols[1].Auto != "" {
+		t.Fatalf("auto columns: %+v %v", cols, err)
+	}
 }
 
 func TestPostgresLocks(t *testing.T) {

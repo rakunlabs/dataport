@@ -6,7 +6,9 @@ import { t } from '@/lib/i18n/index.svelte';
 import type { ColumnInfo, ExecResult } from '@/lib/api/types';
 
 // Pending changes of one table tab, kept until saved or discarded. Rows are
-// addressed by their index in the loaded result; new rows live apart.
+// addressed by their index in the loaded result; new rows live apart. A
+// value of a new row left undefined is not sent, so the database fills in
+// the column's default; null is an explicit NULL.
 
 export interface RowEdit {
   op: 'update' | 'insert' | 'delete';
@@ -19,6 +21,8 @@ export class EditState {
   dirty = $state(new Map<number, Map<number, unknown>>());
   deleted = $state(new Set<number>());
   inserted = $state<unknown[][]>([]);
+  // Where each new row shows: below this loaded row, or at the top for -1.
+  after = $state<number[]>([]);
 
   get count(): number {
     let n = this.deleted.size + this.inserted.length;
@@ -30,6 +34,7 @@ export class EditState {
     this.dirty = new Map();
     this.deleted = new Set();
     this.inserted = [];
+    this.after = [];
   }
 
   set(row: number, col: number, value: unknown, original: unknown) {
@@ -56,19 +61,47 @@ export class EditState {
     this.deleted = next;
   }
 
-  addRow(width: number, from?: unknown[]) {
-    this.inserted.push(from ? [...from] : Array(width).fill(null));
+  // addRow adds a new row right below a loaded row or a new one, or at the
+  // top without either, and returns its index among the new rows.
+  addRow(width: number, near?: { existing?: number; added?: number }, from?: unknown[]): number {
+    const values = from ? [...from] : Array(width).fill(undefined);
+    let at: number;
+    let after: number;
+    if (near?.added !== undefined && near.added < this.inserted.length) {
+      at = near.added + 1;
+      after = this.after[near.added];
+    } else {
+      after = near?.existing ?? -1;
+      const first = this.after.indexOf(after);
+      at = first < 0 ? this.inserted.length : first;
+    }
+    this.inserted.splice(at, 0, values);
+    this.after.splice(at, 0, after);
+    return at;
   }
 
   removeNew(index: number) {
     this.inserted.splice(index, 1);
+    this.after.splice(index, 1);
   }
 
-  // clone adds the selected rows again as new rows, as shown; key columns
-  // are cleared so the database assigns new ones.
-  clone(rows: unknown[][], sel: { existing: number[]; added: number[] }, width: number, keyCols: Set<number>) {
-    for (const r of sel.existing) this.addRow(width, rows[r].map((v, i) => (keyCols.has(i) ? null : this.value(r, i, v))));
-    for (const i of sel.added) this.addRow(width, [...this.inserted[i]]);
+  // clone adds the selected rows again as new rows, as shown, each below
+  // the last; key columns are left to the database, so it assigns new ones.
+  clone(rows: unknown[][], sel: { existing: number[]; added: number[] }, width: number, keyCols: Set<number>): number[] {
+    const copies: { near: { existing?: number; added?: number }; values: unknown[] }[] = [
+      ...sel.existing.map((r) => ({ near: { existing: r }, values: rows[r].map((v, i) => (keyCols.has(i) ? undefined : this.value(r, i, v))) })),
+      ...sel.added.map((i) => ({ near: { added: i }, values: this.inserted[i].map((v, c) => (keyCols.has(c) ? undefined : v)) })),
+    ];
+    // New rows are added from the last, so the indices of those still to
+    // copy stay put; the indices returned follow later insertions.
+    copies.sort((a, b) => (b.near.added ?? -1) - (a.near.added ?? -1));
+    const out: number[] = [];
+    for (const c of copies) {
+      const at = this.addRow(width, c.near, c.values);
+      for (let i = 0; i < out.length; i++) if (out[i] >= at) out[i]++;
+      out.push(at);
+    }
+    return out;
   }
 
   // remove drops selected new rows and marks or unmarks the others for
@@ -107,9 +140,9 @@ export class EditState {
 
     for (const row of this.inserted) {
       const values: Record<string, unknown> = {};
-      // NULL is left out so the database applies the column default.
+      // Values not set are left out, so the database applies the default.
       row.forEach((v, i) => {
-        if (v !== null && v !== undefined) values[columns[i]] = v;
+        if (v !== undefined) values[columns[i]] = v;
       });
       out.push({ op: 'insert', values });
     }

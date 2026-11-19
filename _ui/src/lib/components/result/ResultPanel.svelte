@@ -31,6 +31,8 @@
   import { ask, assistantAvailable } from '@/lib/stores/assistant.svelte';
   import { fmtNumber, t } from '@/lib/i18n/index.svelte';
   import { overlayScroll } from '@/lib/helper/overlayScroll';
+  import { fillOf, firstToFill, quickValues, type Quick } from '@/lib/helper/cellValues';
+  import { tick } from 'svelte';
 
   let {
     tab,
@@ -266,16 +268,69 @@
     return current?.edit?.edits(resultColumns, queryMeta, current.rows ?? [], queryVirtual) ?? [];
   }
 
-  function queryAddRow() {
-    if (!current?.edit) return;
-    current.edit.addRow(resultColumns.length);
-    gridRef?.focusCell((current.rows?.length ?? 0) + current.edit.inserted.length - 1, 0);
+  // The table's columns, for what a new row's cells get when left alone.
+  const editMeta = $derived(tab.kind === 'table' ? (ws.columns[tableKey(tab)]?.items ?? []) : queryMeta);
+  const defaults = $derived(
+    resultColumns.map((name) => {
+      const f = fillOf(editMeta.find((m) => m.name === name));
+      if (!f) return { text: t('grid.default') };
+      if (f.kind === 'auto') return { text: t('grid.fill.auto'), tone: 'auto' as const };
+      if (f.kind === 'generated') return { text: t('grid.fill.generated'), tone: 'auto' as const };
+      if (f.kind === 'default') return { text: t('grid.fill.default', { expr: f.expr ?? '' }) };
+      if (f.kind === 'required') return { text: t('grid.fill.required'), tone: 'warn' as const };
+      return { text: t('grid.fill.null') };
+    }),
+  );
+
+  // addRow adds a row below the selected one, or at the top without one,
+  // and opens the first cell to type into.
+  export async function addRow() {
+    if (!edit || !editable) return;
+    const index = edit.addRow(resultColumns.length, gridRef?.near());
+    const id = (current?.rows?.length ?? 0) + index;
+    await tick();
+    // The record view shows the new row; the hidden grid only selects it.
+    if (record) {
+      recordRow = id;
+      gridRef?.focusCell(id, firstToFill(resultColumns, editMeta), false);
+    } else gridRef?.startNew(index, firstToFill(resultColumns, editMeta));
   }
 
-  function queryCloneRows() {
+  // cloneRows copies the selected rows below themselves, leaving the key
+  // columns to the database.
+  export async function cloneRows() {
     const sel = gridRef?.selection();
-    if (!sel || !current?.rows || !current.edit) return;
-    current.edit.clone(current.rows, sel, resultColumns.length, new Set(queryPrimary.map((k) => resultColumns.indexOf(k))));
+    if (!sel || !current?.rows || !edit || !editable) return;
+    const keyCols = new Set(editMeta.filter((c) => c.primary_key || c.auto).map((c) => resultColumns.indexOf(c.name)));
+    const added = edit.clone(current.rows, sel, resultColumns.length, keyCols);
+    await tick();
+    if (!added.length) return;
+    const id = (current.rows?.length ?? 0) + Math.min(...added);
+    if (record) recordRow = id;
+    gridRef?.focusCell(id, gridRef.selectedColumns()[0] ?? 0, !record);
+  }
+
+  const queryAddRow = addRow;
+  const queryCloneRows = cloneRows;
+
+  // What the cell the menu was opened on can be set to in one click.
+  const quick = $derived.by((): { items: Quick[]; isNew: boolean; fill: string } | null => {
+    if (!menu || !editable || !gridRef?.canEditCell(menu.row)) return null;
+    const col = current?.columns?.[menu.col];
+    if (!col) return null;
+    const isNew = gridRef.isNewRow(menu.row);
+    const f = fillOf(editMeta.find((m) => m.name === col.name));
+    return { items: quickValues(col.type), isNew, fill: f?.kind === 'default' ? (f.expr ?? '') : '' };
+  });
+
+  function setQuick(v: unknown) {
+    if (menu) gridRef?.fill(menu.col, v);
+    menu = null;
+  }
+
+  function quickText(v: unknown) {
+    const s = String(v);
+    return s === '' ? "''" : s.length > 22 ? s.slice(0, 22) + '…' : s;
   }
 
   function queryDeleteRows() {
@@ -676,6 +731,7 @@
                 {rowOffset}
                 {edit}
                 {editable}
+                {defaults}
                 {paint}
                 oncontext={(e, row, col) => {
                   gridRef?.focusCell(row, col, false);
@@ -700,6 +756,7 @@
             {onsort}
             {edit}
             {editable}
+            {defaults}
             {oncontext}
             oncell={(row, col) => (valuePanel.open ? (focused = { row, col }) : (cell = { row, col }))}
             onselect={select}
@@ -861,6 +918,22 @@
       {#if record}<Table2 size={13} /> {t('record.backToGrid')}{:else}<TableProperties size={13} /> {t('record.toggle')}{/if}
     </button>
     <button class="menu-item" onclick={() => ((menu = null), setValuePanel(true, 'calc'))}><Calculator size={13} /> {t('calc.open')}</button>
+    {#if quick && (quick.items.length || quick.isNew)}
+      <div class="menu-sep"></div>
+      {#each quick.items as q (q.key)}
+        <button class="menu-item" onclick={() => setQuick(q.value)}>
+          <span class="w-[13px]"></span>
+          <span class="flex-1 text-left">{t(`edit.quick.${q.key}`)}</span>
+          <span class="truncate pl-3 font-mono text-2xs text-faint">{quickText(q.value)}</span>
+        </button>
+      {/each}
+      {#if quick.isNew}
+        <button class="menu-item" onclick={() => setQuick(undefined)} title={quick.fill}>
+          <Undo2 size={13} />
+          <span class="flex-1 truncate text-left">{quick.fill ? t('edit.quick.defaultExpr', { expr: quick.fill }) : t('edit.quick.default')}</span>
+        </button>
+      {/if}
+    {/if}
     {#if menuItems}
       <div class="menu-sep"></div>
       {@render menuItems()}

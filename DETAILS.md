@@ -283,6 +283,17 @@ non-admins only see the personal part.
 - `Ctrl+Shift+F` (or the toolbar button) formats the selection, or the whole
   script, in the connection's dialect; placeholders and `@set` lines are kept
   as written. `Alt+Z` (or the toolbar button) turns line wrapping on and off.
+- A right click in the editor opens Cut, Copy, Paste, Select all and a
+  **Format** menu, as DBeaver's: Format SQL, **Make a delimited list…**,
+  upper and lower case (`Ctrl+Shift+X` / `Ctrl+Shift+Y`, the word at the
+  cursor without a selection), trimming spaces at both ends, the start or
+  the end of the selected lines, line wrapping, and line or block comments
+  (`Ctrl+/`, `Ctrl+Shift+/`). The delimited list splits the selection at new
+  lines, tabs, commas or other characters, quotes each item (`'`, `"`, `` ` ``
+  or none, quotes inside doubled), joins them and puts text around the whole:
+  a column pasted from a sheet becomes `('a', 'b', 'c')`. It can keep each
+  item once and wrap long lines, shows a live preview, and remembers the
+  choices in the browser.
 - **Explain** (`Ctrl+Shift+E`, or a statement's gutter menu) shows the
   execution plan of the selection or the statement under the cursor, as a
   result of its own. A dialog offers the options the database has: on
@@ -309,7 +320,20 @@ non-admins only see the personal part.
 - Rows are filtered with a WHERE and ORDER BY bar that completes column
   names; `Ctrl+Enter` or `F5` reloads.
 - Cells are edited in place and rows added with *Add row*; changes stay
-  pending until saved (see above).
+  pending until saved (see above). A new row goes below the selected row,
+  or at the top when none is selected; the grid scrolls to it and opens the
+  first cell to type into (one the database does not fill). Clones go
+  below their rows. Empty cells of a new row say what the database will
+  put there: `auto` for numbered and `computed` for generated columns,
+  `default: now()` for a default, `NULL`, or `required` when the column
+  needs a value. Untouched cells are left out of the INSERT, so the
+  database applies its default; a row with every cell untouched is written
+  with `DEFAULT VALUES`.
+- A right click on a cell being edited offers values for its type: now or
+  today for dates and timestamps (local time, with the offset where the
+  type keeps one), the current time, a new UUID, true or false, `{}` and
+  `[]` for JSON, an empty string for text, and on a new row *Back to the
+  default*. They fill every selected row.
 - The value panel on the right shows the selected cell; JSON shows as a
   tree that folds with +/−, keeps large integers exact and can be edited
   as text.

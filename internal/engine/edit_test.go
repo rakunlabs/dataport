@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -45,6 +46,7 @@ func TestEditSQL(t *testing.T) {
 			wantSQL:  `INSERT INTO "public"."t" ("name") VALUES ($1)`,
 			wantArgs: 1,
 		},
+		{"defaults only", pg, RowEdit{Op: "insert"}, `INSERT INTO "public"."t" DEFAULT VALUES`, 0, false},
 		{"unknown column", pg, RowEdit{Op: "update", Key: map[string]any{"id": 1}, Values: map[string]any{"x; drop": 1}}, "", 0, true},
 		{"missing key", pg, RowEdit{Op: "delete", Key: map[string]any{}}, "", 0, true},
 		{"null key", pg, RowEdit{Op: "delete", Key: map[string]any{"id": nil}}, "", 0, true},
@@ -98,5 +100,20 @@ func TestEditSQLVirtualKey(t *testing.T) {
 
 	if want := "UPDATE `t` SET `city` = ? WHERE `name` = ? LIMIT 2"; got != want {
 		t.Fatalf("mysql: got %q, want %q", got, want)
+	}
+}
+
+func TestMarkAuto(t *testing.T) {
+	list := []ColumnInfo{
+		{Name: "id", Type: "integer", Default: "nextval('t_id_seq'::regclass)", PrimaryKey: true},
+		{Name: "n", Type: "int", Extra: "AUTO_INCREMENT"},
+		{Name: "Total", Type: "int"},
+		{Name: "at", Type: "timestamp", Default: "now()"},
+	}
+	markAuto("postgres", list, map[string]string{"total": "generated"})
+
+	got := []string{list[0].Auto, list[1].Auto, list[2].Auto, list[3].Auto}
+	if want := []string{"identity", "identity", "generated", ""}; !slices.Equal(got, want) {
+		t.Fatalf("auto %v, want %v", got, want)
 	}
 }

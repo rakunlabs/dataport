@@ -24,6 +24,7 @@
     onselect,
     onrange,
     paint,
+    defaults,
   }: {
     columns: Column[];
     rows: unknown[][];
@@ -42,6 +43,9 @@
     onrange?: (rows: number[], cols: number[]) => void;
     // The colours of a row, from row colour rules.
     paint?: (row: number) => Paint | null;
+    // What a new row's column gets when left alone, such as its default
+    // expression; shown in its empty cells.
+    defaults?: { text: string; tone?: 'auto' | 'warn' }[];
   } = $props();
 
   const rowHeight = 26;
@@ -63,6 +67,87 @@
   // cellAt is what a cell shows, pending edits included.
   export function cellAt(r: number, c: number): unknown {
     return cellValue(r, c);
+  }
+
+  // ////////////////////////////////////////////
+  // display order
+  //
+  // Rows are addressed by id: a loaded row by its index, a new row by
+  // rows.length + its index among the new rows. They show in display
+  // order: each loaded row followed by the new rows added below it, and
+  // first the new rows added with no row selected.
+
+  const order = $derived.by(() => {
+    const list = edit?.inserted ?? [];
+    if (!list.length) return null;
+    const after = edit?.after ?? [];
+    const below = new Map<number, number[]>();
+    list.forEach((_, i) => {
+      const a = after[i] ?? -1;
+      const key = a >= 0 && a < rows.length ? a : -1;
+      const ids = below.get(key) ?? [];
+      ids.push(rows.length + i);
+      below.set(key, ids);
+    });
+    const out: number[] = [...(below.get(-1) ?? [])];
+    for (let r = 0; r < rows.length; r++) {
+      out.push(r);
+      const b = below.get(r);
+      if (b) out.push(...b);
+    }
+    return out;
+  });
+  const positions = $derived.by(() => {
+    if (!order) return null;
+    const m = new Map<number, number>();
+    order.forEach((id, p) => m.set(id, p));
+    return m;
+  });
+  const idAt = (p: number) => (order ? order[p] : p);
+  const posOf = (id: number) => (positions ? (positions.get(id) ?? id) : id);
+
+  // rowRange is the rows shown from one to another, either way.
+  function rowRange(a: number, b: number) {
+    const pa = posOf(a);
+    const pb = posOf(b);
+    const out = new Set<number>();
+    for (let p = Math.min(pa, pb); p <= Math.max(pa, pb); p++) out.add(idAt(p));
+    return out;
+  }
+
+  // step is the row d places below (or above) the given one, in the grid.
+  function step(id: number, d: number) {
+    return idAt(Math.min(Math.max(posOf(id) + d, 0), total - 1));
+  }
+
+  // near is where a new row goes: below the selected row, or nowhere
+  // without one, which puts it at the top.
+  export function near(): { existing?: number; added?: number } | undefined {
+    if (!selected || selected.row >= total) return undefined;
+    return isNew(selected.row) ? { added: selected.row - rows.length } : { existing: selected.row };
+  }
+
+  // startNew shows a new row and opens its cell for typing.
+  export function startNew(index: number, col: number) {
+    const id = rows.length + index;
+    focusCell(id, col);
+    beginEdit(id, col);
+  }
+
+  // fill sets a value in the column for every selected row that can take
+  // it; undefined, a new row's default, only goes to new rows.
+  export function fill(col: number, v: unknown) {
+    if (!edit) return;
+    const list = selectedRows.size && !columnPick ? [...selectedRows] : selected ? [selected.row] : [];
+    for (const r of list) {
+      if (!canEdit(r)) continue;
+      if (isNew(r)) edit.setNew(r - rows.length, col, v);
+      else if (v !== undefined) edit.set(r, col, v, rows[r][col]);
+    }
+  }
+
+  export function isNewRow(r: number) {
+    return isNew(r);
   }
 
   // setCell changes a cell as typing in it would.
@@ -99,7 +184,9 @@
   };
   // typed is true when editing started by typing a character, so the
   // editor keeps it instead of selecting it.
-  let editing = $state<{ row: number; col: number; value: string; isNull: boolean; typed: boolean } | null>(null);
+  // isDefault is set for an empty cell of a new row, which keeps its
+  // default unless something is typed.
+  let editing = $state<{ row: number; col: number; value: string; isNull: boolean; isDefault: boolean; typed: boolean } | null>(null);
 
   // Measure initial column widths from the header and the first rows.
   $effect(() => {
@@ -121,6 +208,7 @@
 
   const newRows = $derived(edit?.inserted ?? []);
   const total = $derived(rows.length + newRows.length);
+  // Positions in the grid, not ids.
   const start = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - overscan));
   const end = $derived(Math.min(total, Math.ceil((scrollTop + viewport) / rowHeight) + overscan));
   const visibleIdx = $derived(Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i));
@@ -161,7 +249,7 @@
   function selectCell(e: MouseEvent, r: number, c: number) {
     selected = { row: r, col: c };
     if (e.shiftKey && anchor >= 0) {
-      selectedRows = range(anchor, r);
+      selectedRows = rowRange(anchor, r);
       selectedCols = range(anchorCol < 0 ? c : anchorCol, c);
     } else if (e.metaKey || e.ctrlKey) {
       const next = new Set(selectedRows);
@@ -198,7 +286,7 @@
   function dragOver(r: number, c: number) {
     if (!dragging || anchor < 0) return;
     selected = { row: r, col: c };
-    selectedRows = range(anchor, r);
+    selectedRows = rowRange(anchor, r);
     selectedCols = range(anchorCol, c);
   }
 
@@ -259,7 +347,7 @@
     const all = range(0, columns.length - 1);
     const col = selected?.col ?? 0;
     if (e.shiftKey && anchor >= 0) {
-      selectedRows = range(anchor, r);
+      selectedRows = rowRange(anchor, r);
     } else if (e.metaKey || e.ctrlKey) {
       const next = new Set(selectedRows);
       if (next.has(r) && selectedCols.size === columns.length) next.delete(r);
@@ -284,7 +372,7 @@
 
   function rowDragOver(r: number) {
     if (!rowDragging || anchor < 0) return;
-    selectedRows = range(anchor, r);
+    selectedRows = rowRange(anchor, r);
     selected = { row: r, col: selected?.col ?? 0 };
   }
 
@@ -314,7 +402,7 @@
   // selectedValues returns the selected rows as shown, edits included, in
   // display order, and the column of the selected cell.
   export function selectedValues(): { rows: unknown[][]; col: number } {
-    const list = (selectedRows.size ? [...selectedRows] : selected ? [selected.row] : []).sort((a, b) => a - b);
+    const list = (selectedRows.size ? [...selectedRows] : selected ? [selected.row] : []).sort((a, b) => posOf(a) - posOf(b));
     return { rows: list.map((r) => columns.map((_, c) => cellValue(r, c))), col: selected?.col ?? 0 };
   }
 
@@ -326,7 +414,7 @@
     selectedCols = new Set([col]);
     anchor = row;
     anchorCol = col;
-    const top = row * rowHeight;
+    const top = posOf(row) * rowHeight;
     if (top < scroller.scrollTop || top > scroller.scrollTop + viewport - rowHeight * 2) scroller.scrollTop = Math.max(0, top - viewport / 2);
     if (focus) scroller.focus();
   }
@@ -349,14 +437,15 @@
       col: c,
       value: initial ?? (v === null || v === undefined ? '' : display(v)),
       isNull: initial === undefined && (v === null || v === undefined),
+      isDefault: initial === undefined && isNew(r) && v === undefined,
       typed: initial !== undefined,
     };
   }
 
   function commitEdit() {
     if (!editing || !edit) return;
-    const { row, col, value, isNull } = editing;
-    const v = isNull && value === '' ? null : value;
+    const { row, col, value, isNull, isDefault } = editing;
+    const v = isDefault && value === '' ? undefined : isNull && value === '' ? null : value;
     if (isNew(row)) edit.setNew(row - rows.length, col, v);
     else edit.set(row, col, v, rows[row][col]);
     editing = null;
@@ -380,7 +469,7 @@
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       commitEdit();
-      if (selected) move(selected.row + 1, selected.col);
+      if (selected) move(step(selected.row, 1), selected.col);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       cancelEdit();
@@ -398,7 +487,9 @@
     else node.select();
   }
 
+  // move selects a cell; r is a row id, as step gives.
   function move(r: number, c: number) {
+    if (!total) return;
     const nr = Math.min(Math.max(r, 0), total - 1);
     const nc = Math.min(Math.max(c, 0), columns.length - 1);
     selected = { row: nr, col: nc };
@@ -406,7 +497,7 @@
     selectedCols = new Set([nc]);
     anchor = nr;
     anchorCol = nc;
-    const top = nr * rowHeight;
+    const top = posOf(nr) * rowHeight;
     if (top < scroller.scrollTop) scroller.scrollTop = top;
     else if (top + rowHeight > scroller.scrollTop + viewport - rowHeight) scroller.scrollTop = top - viewport + rowHeight * 2;
   }
@@ -436,10 +527,10 @@
       selectAll();
       handled();
     } else if (e.key === 'ArrowDown') {
-      move(row + 1, col);
+      move(step(row, 1), col);
       handled();
     } else if (e.key === 'ArrowUp') {
-      move(row - 1, col);
+      move(step(row, -1), col);
       handled();
     } else if (e.key === 'ArrowLeft') {
       move(row, col - 1);
@@ -473,7 +564,8 @@
 
     <!-- body -->
     <div class="relative" style="height:{total * rowHeight}px">
-      {#each visibleIdx as r (r)}
+      {#each visibleIdx as p (p)}
+        {@const r = idAt(p)}
         {@const added = isNew(r)}
         {@const removed = !added && !!edit?.deleted.has(r)}
         {@const rowSel = selectedRows.has(r) && !columnPick}
@@ -481,9 +573,9 @@
         {@const multi = selectedRows.size > 1 || selectedCols.size > 1}
         <div
           class="absolute right-0 left-0 grid border-b border-line-soft
-            {added ? 'bg-row-new' : removed ? 'bg-row-deleted text-faint line-through' : rowSel ? 'bg-row-active' : r % 2 ? 'bg-row-stripe' : 'bg-bg'}
+            {added ? 'bg-row-new' : removed ? 'bg-row-deleted text-faint line-through' : rowSel ? 'bg-row-active' : p % 2 ? 'bg-row-stripe' : 'bg-bg'}
             {added || removed || rowSel ? '' : 'hover:bg-hover/70'}"
-          style="grid-template-columns:{template}; height:{rowHeight}px; transform:translateY({r * rowHeight}px){colors?.row && !added && !removed && !rowSel ? `; background-image:linear-gradient(${colors.row}, ${colors.row})` : ''}"
+          style="grid-template-columns:{template}; height:{rowHeight}px; transform:translateY({p * rowHeight}px){colors?.row && !added && !removed && !rowSel ? `; background-image:linear-gradient(${colors.row}, ${colors.row})` : ''}"
           oncontextmenu={(e) => {
             if (!oncontext) return;
             e.preventDefault();
@@ -564,16 +656,19 @@
                 {:else}
                   <input
                     class="absolute inset-0 z-20 border-2 border-focus bg-bg px-1.5 font-mono text-xs text-fg outline-none"
-                    placeholder={editing.isNull ? 'NULL' : ''}
+                    placeholder={editing.isDefault ? (defaults?.[c]?.text ?? t('grid.default')) : editing.isNull ? 'NULL' : ''}
                     bind:value={editing.value}
-                    oninput={() => editing && (editing.isNull = false)}
+                    oninput={() => editing && ((editing.isNull = false), (editing.isDefault = false))}
                     onkeydown={editorKey}
                     onblur={commitEdit}
                     use:autofocus
                   />
                 {/if}
+              {:else if added && value === undefined}
+                {@const d = defaults?.[c]}
+                <span class="truncate italic {d?.tone === 'warn' ? 'text-warn' : 'text-faint'}" title={d?.text}>{d?.text ?? t('grid.default')}</span>
               {:else if value === null || value === undefined}
-                <span class="text-faint italic">{added ? t('grid.default') : '<null>'}</span>
+                <span class="text-faint italic">&lt;null&gt;</span>
               {:else if typeof value === 'boolean'}
                 <span style="color:var(--color-type-bool)">{text}</span>
               {:else}

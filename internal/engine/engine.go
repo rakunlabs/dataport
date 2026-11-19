@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,10 @@ type ColumnInfo struct {
 	// Extra holds what the type and default leave out but the column keeps,
 	// such as MySQL's AUTO_INCREMENT.
 	Extra string `json:"extra,omitempty"`
+	// Auto is "identity" for a column the database numbers and "generated"
+	// for a computed one, as far as the database tells; a new row leaves
+	// both out.
+	Auto string `json:"auto,omitempty"`
 }
 
 type ExecRequest struct {
@@ -290,9 +295,40 @@ func (m *Manager) Columns(ctx context.Context, c *store.Connection, password, sc
 
 	err := m.meta(ctx, c, password, func(ctx context.Context, d Driver, conn *sql.Conn) (err error) {
 		list, err = d.Columns(ctx, conn, schema, table)
+		if err != nil {
+			return err
+		}
 
-		return err
+		markAuto(d.Type(), list, autoColumns(ctx, d, conn, schema, table))
+
+		return nil
 	})
 
 	return list, err
+}
+
+// markAuto sets Auto from what the database told, and from the numbered
+// columns it does not report: serial defaults, AUTO_INCREMENT and SQLite's
+// INTEGER PRIMARY KEY.
+func markAuto(dbType string, list []ColumnInfo, auto map[string]string) {
+	keys := 0
+
+	for _, c := range list {
+		if c.PrimaryKey {
+			keys++
+		}
+	}
+
+	for i := range list {
+		c := &list[i]
+		c.Auto = auto[strings.ToLower(c.Name)]
+
+		switch {
+		case c.Auto != "":
+		case strings.Contains(strings.ToLower(c.Default), "nextval("), strings.Contains(strings.ToLower(c.Extra), "auto_increment"):
+			c.Auto = "identity"
+		case dbType == "sqlite" && c.PrimaryKey && keys == 1 && strings.EqualFold(strings.TrimSpace(c.Type), "integer"):
+			c.Auto = "identity"
+		}
+	}
 }
