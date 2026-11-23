@@ -1,10 +1,10 @@
 <script lang="ts">
   import { link } from 'svelte-spa-router';
-  import { FilePlus2, History, Bookmark, Moon, Sun, Monitor, Settings, LogOut, KeyRound, ChevronDown, Bot, NotebookPen, BookOpen, Sparkles } from 'lucide-svelte';
+  import { FilePlus2, History, Bookmark, Moon, Sun, Monitor, Settings, LogOut, KeyRound, ChevronDown, Bot, NotebookPen, BookOpen, Sparkles } from '@lucide/svelte';
   import { assistant, assistantAvailable, toggleAssistant } from '@/lib/stores/assistant.svelte';
   import Logo from '@/lib/components/ui/Logo.svelte';
   import { logout, session } from '@/lib/stores/session.svelte';
-  import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
+  import { cycleTheme, theme, themeLabels } from '@/lib/stores/theme.svelte';
   import { activeTab, openQueryTab, openSettings, openNotebooks, openDocsHub, ws, workspaceConnections } from '@/lib/stores/workspace.svelte';
   import { i18n, locales, setLocale, t, type Locale } from '@/lib/i18n/index.svelte';
   import PasswordDialog from '@/lib/components/dialogs/PasswordDialog.svelte';
@@ -12,21 +12,12 @@
   let menuOpen = $state(false);
   let passwordOpen = $state(false);
 
-  const themes: { mode: ThemeMode; icon: typeof Sun; key: string }[] = [
-    { mode: 'system', icon: Monitor, key: 'app.themeSystem' },
-    { mode: 'light', icon: Sun, key: 'app.themeLight' },
-    { mode: 'dark', icon: Moon, key: 'app.themeDark' },
-  ];
+  const themeIcons = { system: Monitor, light: Sun, dark: Moon };
 
   const name = $derived(session.user?.display_name || session.user?.username || '');
 
   // One click moves to the next theme: system, light, dark.
-  const current = $derived(themes.find((th) => th.mode === theme.mode) ?? themes[0]);
-
-  function nextTheme() {
-    const i = themes.findIndex((th) => th.mode === theme.mode);
-    setTheme(themes[(i + 1) % themes.length].mode);
-  }
+  const current = $derived({ icon: themeIcons[theme.mode], key: themeLabels[theme.mode] });
 
   function newQuery() {
     // Settings, notebooks and the docs page have no connection of their own.
@@ -107,7 +98,7 @@
   >
     <Bookmark size={15} />
   </button>
-  <button class="icon-btn" onclick={nextTheme} title="{t('app.theme')}: {t(current.key)}" aria-label="{t('app.theme')}: {t(current.key)}">
+  <button class="icon-btn" onclick={cycleTheme} title="{t('app.theme')}: {t(current.key)}" aria-label="{t('app.theme')}: {t(current.key)}">
     <current.icon size={15} />
   </button>
   <button

@@ -1,11 +1,40 @@
 <script lang="ts">
   import { pendingEdits } from '@/lib/stores/edits.svelte';
   import { t as tr } from '@/lib/i18n/index.svelte';
-  import { X, Table2, FileCode2, Settings, Network, Activity, UsersRound, BookOpen, NotebookPen } from 'lucide-svelte';
-  import { closeOthers, closeTab, connection, moveTab, ws } from '@/lib/stores/workspace.svelte';
+  import { X, Table2, FileCode2, Settings, Network, Activity, UsersRound, BookOpen, NotebookPen } from '@lucide/svelte';
+  import { closeOthers, closeTab, connection, moveTab, renameTab, ws } from '@/lib/stores/workspace.svelte';
   import { overlayScroll } from '@/lib/helper/overlayScroll';
+  import { errorMessage, toast } from '@/lib/stores/toast.svelte';
 
   let menu = $state<{ id: string; x: number; y: number } | null>(null);
+
+  // The query tab whose title is being edited in place, and the draft.
+  let renamingId = $state('');
+  let draft = $state('');
+
+  function startRename(id: string) {
+    const tab = ws.tabs.find((t) => t.id === id);
+    if (!tab || tab.kind !== 'query') return;
+    ws.activeId = id;
+    draft = tab.title;
+    renamingId = id;
+  }
+
+  async function commitRename() {
+    const id = renamingId;
+    if (!id) return;
+    renamingId = '';
+    try {
+      await renameTab(id, draft);
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
+  }
+
+  function focusSelect(el: HTMLInputElement) {
+    el.focus();
+    el.select();
+  }
 
   // A tab being dragged to another place, and where it would go: the index
   // of the tab it goes before, or the number of tabs for the end.
@@ -79,12 +108,13 @@
       <div
         class="group relative flex max-w-72 min-w-32 shrink-0 cursor-pointer items-center gap-1.5 border-r border-line-soft pr-1.5 pl-3
           {active ? 'bg-bg text-fg' : 'text-muted hover:bg-hover hover:text-fg-2'} {dragId === t.id ? 'opacity-50' : ''}"
-        draggable="true"
+        draggable={renamingId !== t.id}
         ondragstart={(e) => ondragstart(e, t.id)}
         ondragover={(e) => ondragover(e, i)}
         ondrop={ondrop}
         ondragend={ondragend}
         onclick={() => (ws.activeId = t.id)}
+        ondblclick={() => startRename(t.id)}
         onauxclick={(e) => onauxclick(e, t.id)}
         oncontextmenu={(e) => {
           e.preventDefault();
@@ -92,6 +122,10 @@
         }}
         onkeydown={(e) => {
           if (e.key === 'Enter') ws.activeId = t.id;
+          else if (e.key === 'F2') {
+            e.preventDefault();
+            startRename(t.id);
+          }
           // Ctrl+Shift+Left/Right moves the tab without a mouse.
           else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
             e.preventDefault();
@@ -125,9 +159,26 @@
         {:else}
           <FileCode2 size={14} class="shrink-0 {active ? 'text-type' : ''}" />
         {/if}
+        {#if renamingId === t.id}
+          <input
+            class="min-w-0 flex-1 rounded-sm border border-accent bg-bg px-1 text-sm text-fg outline-none"
+            bind:value={draft}
+            use:focusSelect
+            aria-label={tr('tabs.rename')}
+            onclick={(e) => e.stopPropagation()}
+            ondblclick={(e) => e.stopPropagation()}
+            onkeydown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') void commitRename();
+              else if (e.key === 'Escape') renamingId = '';
+            }}
+            onblur={() => void commitRename()}
+          />
+        {:else}
         <span class="min-w-0 flex-1 truncate text-sm">
           {t.kind === 'settings' ? tr('settings.title') : t.kind === 'notebooks' ? tr('notebook.title') : t.kind === 'docsHub' ? tr('app.docs') : t.title}{#if conn}<span class="ml-1 text-faint">· {conn.name}</span>{/if}
         </span>
+        {/if}
         <span class="relative flex size-[18px] shrink-0 items-center justify-center">
           {#if unsaved}
             <span class="size-2 rounded-full {pendingEdits(t) ? 'bg-warn' : 'bg-fg-2'} group-hover:hidden"></span>
@@ -152,6 +203,9 @@
 
 {#if menu}
   <div class="popover fixed z-50 w-48" style="left:{menu.x}px; top:{menu.y}px" role="menu">
+    {#if ws.tabs.find((x) => x.id === menu?.id)?.kind === 'query'}
+      <button class="menu-item" role="menuitem" onclick={() => menu && startRename(menu.id)}>{tr('tabs.rename')}</button>
+    {/if}
     <button class="menu-item" role="menuitem" onclick={() => menu && closeTab(menu.id)}>{tr('tabs.close')}</button>
     <button class="menu-item" role="menuitem" onclick={() => menu && closeOthers(menu.id)}>{tr('tabs.closeOthers')}</button>
   </div>

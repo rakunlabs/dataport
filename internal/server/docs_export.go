@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/rakunlabs/dataport/internal/engine"
 	"github.com/rakunlabs/dataport/internal/store"
@@ -712,19 +711,6 @@ func roughCount(n int64) string {
 }
 
 // clip cuts s to at most n bytes on a rune boundary.
-func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-
-	s = s[:n]
-	for !utf8.ValidString(s) {
-		s = s[:len(s)-1]
-	}
-
-	return s
-}
-
 func pushBatches(items []pushItem) [][]pushItem {
 	var (
 		out   [][]pushItem

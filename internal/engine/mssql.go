@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -52,7 +53,7 @@ func (mssqlDriver) Open(c *store.Connection, password string) (*sql.DB, error) {
 	u := url.URL{
 		Scheme:   "sqlserver",
 		User:     url.UserPassword(c.Username, password),
-		Host:     c.Host + ":" + strconv.Itoa(port),
+		Host:     net.JoinHostPort(c.Host, strconv.Itoa(port)),
 		RawQuery: q.Encode(),
 	}
 
@@ -269,19 +270,38 @@ ORDER BY c.column_id`, schema, table)
 const mssqlObject = `OBJECT_ID(QUOTENAME(@p1) + '.' + QUOTENAME(@p2))`
 
 func (mssqlDriver) Indexes(ctx context.Context, db Querier, schema, table string) ([]IndexInfo, error) {
+	// A filtered index covers only the rows its filter matches.
 	rows, err := db.QueryContext(ctx, `SELECT i.name, i.is_unique, i.is_primary_key, LOWER(i.type_desc),
-COALESCE(STRING_AGG(c.name, CHAR(31)) WITHIN GROUP (ORDER BY ic.key_ordinal), '')
+COALESCE(STRING_AGG(c.name, CHAR(31)) WITHIN GROUP (ORDER BY ic.key_ordinal), ''),
+COALESCE(i.filter_definition, '')
 FROM sys.indexes i
 JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0
 JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
 WHERE i.object_id = `+mssqlObject+` AND i.type > 0
-GROUP BY i.name, i.is_unique, i.is_primary_key, i.type_desc
+GROUP BY i.name, i.is_unique, i.is_primary_key, i.type_desc, i.filter_definition
 ORDER BY i.is_primary_key DESC, i.name`, schema, table)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = rows.Close() }()
 
-	return scanIndexes(rows)
+	list := []IndexInfo{}
+
+	for rows.Next() {
+		var (
+			ix   IndexInfo
+			cols string
+		)
+
+		if err := rows.Scan(&ix.Name, &ix.Unique, &ix.Primary, &ix.Method, &cols, &ix.Where); err != nil {
+			return nil, err
+		}
+
+		ix.Columns = splitList(cols)
+		list = append(list, ix)
+	}
+
+	return list, rows.Err()
 }
 
 func (mssqlDriver) ForeignKeys(ctx context.Context, db Querier, schema, table string) ([]ForeignKey, error) {
@@ -359,9 +379,9 @@ FROM sys.identity_columns WHERE object_id = `+mssqlObject, schema, table)
 		case ix.Primary:
 			constraints = append(constraints, "CONSTRAINT "+d.QuoteIdent(ix.Name)+" PRIMARY KEY "+kind+" ("+quoteList(d, ix.Columns)+")")
 		case ix.Unique:
-			indexes = append(indexes, "CREATE UNIQUE "+kind+" INDEX "+d.QuoteIdent(ix.Name)+" ON "+qualified+" ("+quoteList(d, ix.Columns)+")")
+			indexes = append(indexes, "CREATE UNIQUE "+kind+" INDEX "+d.QuoteIdent(ix.Name)+" ON "+qualified+" ("+quoteList(d, ix.Columns)+")"+mssqlFilter(ix))
 		default:
-			indexes = append(indexes, "CREATE "+kind+" INDEX "+d.QuoteIdent(ix.Name)+" ON "+qualified+" ("+quoteList(d, ix.Columns)+")")
+			indexes = append(indexes, "CREATE "+kind+" INDEX "+d.QuoteIdent(ix.Name)+" ON "+qualified+" ("+quoteList(d, ix.Columns)+")"+mssqlFilter(ix))
 		}
 	}
 
@@ -370,4 +390,14 @@ FROM sys.identity_columns WHERE object_id = `+mssqlObject, schema, table)
 	}
 
 	return buildDDL(d, qualified, t.Columns, special, constraints, indexes), nil
+}
+
+// mssqlFilter is the WHERE clause of a filtered index, as SQL Server keeps
+// it: already in parentheses.
+func mssqlFilter(ix IndexInfo) string {
+	if ix.Where == "" {
+		return ""
+	}
+
+	return " WHERE " + ix.Where
 }

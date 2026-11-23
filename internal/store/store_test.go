@@ -345,3 +345,43 @@ func TestMigrateDSN(t *testing.T) {
 		t.Fatalf("the application account cannot use the tables: %v", err)
 	}
 }
+
+// Paging the query log by the last entry's time and id shows every entry,
+// also several made in the same millisecond.
+func TestQueryLogPagesSameMillisecond(t *testing.T) {
+	ctx := context.Background()
+
+	for name, s := range stores(t) {
+		t.Run(name, func(t *testing.T) {
+			for range 5 {
+				if err := s.AddQueryLog(ctx, &QueryLog{UserID: "u", SQL: "select 1", Status: "ok", CreatedAt: 1000}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			seen := map[string]bool{}
+			f := QueryLogFilter{UserID: "u", Limit: 2}
+			for range 10 {
+				page, err := s.ListQueryLog(ctx, f)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(page) == 0 {
+					break
+				}
+				for _, l := range page {
+					if seen[l.ID] {
+						t.Fatalf("entry %s shown twice", l.ID)
+					}
+					seen[l.ID] = true
+				}
+				last := page[len(page)-1]
+				f.Before, f.BeforeID = last.CreatedAt, last.ID
+			}
+
+			if len(seen) != 5 {
+				t.Fatalf("paged %d of 5 entries", len(seen))
+			}
+		})
+	}
+}

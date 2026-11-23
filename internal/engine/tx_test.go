@@ -120,6 +120,31 @@ func TestManualTx(t *testing.T) {
 		t.Fatalf("idle transaction kept: %+v", m.Txs(context.Background(), "u"))
 	}
 
+	// A run stopped by its time limit rolls the transaction back and returns.
+	stopped := make(chan struct{})
+
+	go func() {
+		defer close(stopped)
+
+		res, err := m.Execute(ctx, c, "", ExecRequest{
+			UserID: "u", TxID: "slow", MaxRows: 10, Timeout: 50 * time.Millisecond,
+			SQL: "INSERT INTO t (v) VALUES ('d'); WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT COUNT(*) FROM r",
+		})
+		if err != nil || !res.TxRolledBack {
+			t.Errorf("stopped run: %+v %v", res, err)
+		}
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a stopped run in a manual transaction does not return")
+	}
+
+	if len(m.Txs(context.Background(), "u")) != 0 || count() != 2 {
+		t.Fatalf("stopped transaction kept: %+v", m.Txs(context.Background(), "u"))
+	}
+
 	// One pooled connection stays free for everything else.
 	for _, id := range []string{"a", "b"} {
 		if _, err := run(id, "SELECT 1", false); err != nil {

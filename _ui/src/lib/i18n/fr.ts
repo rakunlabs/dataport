@@ -90,6 +90,7 @@ const fr: Messages = {
     closeOthers: 'Fermer les autres',
     closeTab: "Fermer l'onglet",
     query: 'Requête {n}',
+    rename: 'Renommer',
   },
   conn: {
     limitsHint: "Lignes renvoyées par instruction, et durée maximale d'une exécution",

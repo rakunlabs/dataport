@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/rakunlabs/dataport/internal/notebook"
@@ -122,13 +124,30 @@ func (s *Server) storeNotebook(ctx context.Context, user *store.User, existing *
 	}
 	// Saving a document must not let an editor smuggle in an ungranted DB.
 	// Connections kept out of notebooks cannot be put into a cell either.
-	for _, c := range req.Document.Cells {
-		if g, err := s.store.GetGrant(ctx, user, c.ConnectionID); err != nil || g.Connection.HideNotebooks {
+	// A write cell the editor adds or changes needs their own write grant,
+	// as it later runs with the grant of whoever runs the notebook; write
+	// cells left as they were stay, so a read-only editor can fix the rest.
+	// Compared as stored: a missing list and an empty one are the same.
+	before, next := normalizedCopy(notebook.Document{}), normalizedCopy(req.Document)
+	if existing != nil {
+		before = normalizedCopy(existing.Document)
+	}
+	for i, c := range req.Document.Cells {
+		g, err := s.store.GetGrant(ctx, user, c.ConnectionID)
+		if err != nil || g.Connection.HideNotebooks {
 			return nil, refuse(http.StatusForbidden, "cell "+c.Path+" names a connection not shared with you")
 		}
+		unchanged := sameWriteCell(before, next, next.Cells[i])
+		if c.Write && c.Transfer == nil && g.ReadOnly && !unchanged {
+			return nil, refuse(http.StatusForbidden, "cell "+c.Path+" writes to a connection that is read-only for you")
+		}
 		if c.Transfer != nil {
-			if g, err := s.store.GetGrant(ctx, user, c.Transfer.ConnectionID); err != nil || g.Connection.HideNotebooks {
+			dst, err := s.store.GetGrant(ctx, user, c.Transfer.ConnectionID)
+			if err != nil || dst.Connection.HideNotebooks {
 				return nil, refuse(http.StatusForbidden, "the transfer target of cell "+c.Path+" is not shared with you")
+			}
+			if dst.ReadOnly && !unchanged {
+				return nil, refuse(http.StatusForbidden, "the transfer target of cell "+c.Path+" is read-only for you")
 			}
 		}
 	}
@@ -200,4 +219,85 @@ func (s *Server) deleteNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// sameWriteCell reports a cell of next whose writing is as in before: the
+// same connection, SQL, template flag, transfer and whether it runs. A
+// template also renders from the parameters and the cells it depends on,
+// so those must be as before too.
+func sameWriteCell(before, next notebook.Document, c notebook.Cell) bool {
+	old, ok := cellByID(before, c.ID)
+	if !ok || old.Write != c.Write || old.Enabled != c.Enabled || old.ConnectionID != c.ConnectionID || old.SQL != c.SQL ||
+		old.Template != c.Template || !reflect.DeepEqual(old.Transfer, c.Transfer) {
+		return false
+	}
+
+	if !c.Template {
+		return true
+	}
+
+	if !reflect.DeepEqual(before.Parameters, next.Parameters) || !slices.Equal(old.Dependencies, c.Dependencies) {
+		return false
+	}
+
+	// What a dependency returns is fixed by its own SQL and inputs, all the
+	// way down.
+	seen := map[string]bool{}
+	var same func(paths []string) bool
+	same = func(paths []string) bool {
+		for _, path := range paths {
+			if seen[path] {
+				continue
+			}
+			seen[path] = true
+
+			a, okA := cellByPath(before, path)
+			b, okB := cellByPath(next, path)
+			if !okA || !okB || a.ConnectionID != b.ConnectionID || a.SQL != b.SQL || a.Template != b.Template ||
+				a.Enabled != b.Enabled || !slices.Equal(a.Dependencies, b.Dependencies) || !same(b.Dependencies) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return same(c.Dependencies)
+}
+
+// normalizedCopy normalizes a copy of d, leaving d as it was.
+func normalizedCopy(d notebook.Document) notebook.Document {
+	out := notebook.Document{Cells: make([]notebook.Cell, len(d.Cells)), Parameters: slices.Clone(d.Parameters)}
+	for i, c := range d.Cells {
+		c.Dependencies = slices.Clone(c.Dependencies)
+		if c.Transfer != nil {
+			tr := *c.Transfer
+			tr.Mappings = slices.Clone(tr.Mappings)
+			c.Transfer = &tr
+		}
+		out.Cells[i] = c
+	}
+	out.Normalize()
+
+	return out
+}
+
+func cellByID(d notebook.Document, id string) (notebook.Cell, bool) {
+	for _, c := range d.Cells {
+		if c.ID == id && id != "" {
+			return c, true
+		}
+	}
+
+	return notebook.Cell{}, false
+}
+
+func cellByPath(d notebook.Document, path string) (notebook.Cell, bool) {
+	for _, c := range d.Cells {
+		if c.Path == path {
+			return c, true
+		}
+	}
+
+	return notebook.Cell{}, false
 }

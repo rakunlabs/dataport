@@ -43,6 +43,12 @@ INSERT INTO users VALUES (1, 'a'), (2, 'b');`); err != nil {
 		t.Fatalf("select: %v %+v", err, res)
 	}
 
+	// A UUID, which the driver reads as 16 bytes, shows as text.
+	res, err = m.Execute(ctx, c, "", ExecRequest{SQL: "select '12345678-9abc-def0-1234-56789abcdef0'::uuid as u", ReadOnly: true, MaxRows: 1, Timeout: 5 * time.Second})
+	if err != nil || res.FirstError() != "" || res.Results[0].Rows[0][0] != "12345678-9abc-def0-1234-56789abcdef0" {
+		t.Fatalf("uuid: %v %+v %+v", err, res.Results[0].Columns, res.Results[0].Rows)
+	}
+
 	res, err = m.Execute(ctx, c, "", ExecRequest{SQL: "select * from read_csv('/etc/passwd')", MaxRows: 10, Timeout: 5 * time.Second})
 	if err == nil && res.FirstError() == "" {
 		t.Fatal("external access was allowed")

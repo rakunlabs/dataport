@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"slices"
 	"strings"
@@ -126,14 +127,24 @@ func (s *Server) updateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	g := &store.Group{ID: r.PathValue("id"), Name: req.Name, Description: req.Description, MemberIDs: req.MemberIDs}
-	if g.MemberIDs == nil {
-		g.MemberIDs = []string{}
-	}
 
+	// Omitted members stay as they are (the store keeps them for nil); []
+	// empties the group.
 	if err := s.store.UpdateGroup(r.Context(), g); err != nil {
 		writeStoreError(w, err)
 
 		return
+	}
+
+	if g.MemberIDs == nil {
+		members, err := s.groupMembers(r.Context(), g.ID)
+		if err != nil {
+			writeStoreError(w, err)
+
+			return
+		}
+
+		g.MemberIDs = members
 	}
 
 	if err := s.setGroupFeatures(r, g.ID, req.Features); err != nil {
@@ -157,4 +168,20 @@ func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {
 	_ = s.setGroupFeatures(r, id, &groupFeatures{})
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// groupMembers reads the members of one group.
+func (s *Server) groupMembers(ctx context.Context, id string) ([]string, error) {
+	groups, err := s.store.ListGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, g := range groups {
+		if g.ID == id {
+			return g.MemberIDs, nil
+		}
+	}
+
+	return []string{}, nil
 }

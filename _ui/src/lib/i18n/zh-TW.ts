@@ -90,6 +90,7 @@ const zhTW: Messages = {
     closeOthers: '關閉其他分頁',
     closeTab: '關閉分頁',
     query: '查詢 {n}',
+    rename: '重新命名',
   },
   conn: {
     limitsHint: '每個陳述式傳回的列數，以及執行可耗費的時間',

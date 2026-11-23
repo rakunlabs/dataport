@@ -40,7 +40,7 @@ func TestMCPRawHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if !strings.Contains(strings.ToLower(resp.Header.Get("Access-Control-Allow-Headers")), "mcp-session-id") {
 		t.Fatalf("preflight allows %q", resp.Header.Get("Access-Control-Allow-Headers"))
@@ -68,7 +68,7 @@ func TestMCPRawHTTP(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		data, _ := io.ReadAll(resp.Body)
 

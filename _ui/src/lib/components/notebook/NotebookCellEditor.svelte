@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Play, ArrowUp, ArrowDown, CopyPlus, Trash2, ChevronDown, ChevronRight } from 'lucide-svelte';
+  import { Play, ArrowUp, ArrowDown, CopyPlus, Trash2, ChevronDown, ChevronRight } from '@lucide/svelte';
   import type { NotebookCell } from '@/lib/api/notebooks';
   import { connection, notebookConnections, type Tab } from '@/lib/stores/workspace.svelte';
   import { t } from '@/lib/i18n/index.svelte';

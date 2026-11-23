@@ -18,7 +18,7 @@
 </script>
 
 <script lang="ts">
-  import { ChevronRight } from 'lucide-svelte';
+  import { ChevronRight } from '@lucide/svelte';
 
   let { x, y, items, onclose }: { x: number; y: number; items: MenuItem[]; onclose: () => void } = $props();
 

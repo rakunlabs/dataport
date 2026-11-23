@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, i18n } from '@/lib/i18n/index.svelte';
-  import { Bot, Trash2, RefreshCw, Search, X, ChevronRight, UserRound } from 'lucide-svelte';
+  import { Bot, Trash2, RefreshCw, Search, X, ChevronRight, UserRound } from '@lucide/svelte';
   import Page from '@/pages/admin/Page.svelte';
   import Pager from '@/lib/components/ui/Pager.svelte';
   import { api } from '@/lib/api/client';

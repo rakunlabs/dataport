@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { TriangleAlert, FileCode2 } from 'lucide-svelte';
+  import { TriangleAlert, FileCode2 } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import { answerReview, reviewState } from '@/lib/stores/review.svelte';
   import { t } from '@/lib/i18n/index.svelte';

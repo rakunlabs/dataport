@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { storedGet } from '@/lib/helper/storage';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Search, LayoutGrid, List } from 'lucide-svelte';
+  import { Search, LayoutGrid, List } from '@lucide/svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import type { DriverInfo } from '@/lib/api/types';
   import { categories, kinds, matches, type DbCategory, type DbKind } from '@/lib/helper/databases';
@@ -13,7 +14,7 @@
   }: { drivers: DriverInfo[]; filesEnabled: boolean; selected: string; onnext: () => void } = $props();
 
   const viewKey = 'dataport.picker.view';
-  let view = $state<'grid' | 'list'>(localStorage.getItem(viewKey) === 'list' ? 'list' : 'grid');
+  let view = $state<'grid' | 'list'>(storedGet(viewKey) === 'list' ? 'list' : 'grid');
   let query = $state('');
   // svelte-ignore state_referenced_locally
   let category = $state<DbCategory | 'all'>('all');

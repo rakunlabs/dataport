@@ -1,7 +1,7 @@
 <script lang="ts">
   // Statistics of the selected cells, beside the grid, as DBeaver's Calc
   // panel: functions by column, or the rows grouped by some columns.
-  import { Copy, X, Plus, Group, Hash } from 'lucide-svelte';
+  import { Copy, X, Plus, Group, Hash } from '@lucide/svelte';
   import type { Column } from '@/lib/api/types';
   import { t, fmtNumber } from '@/lib/i18n/index.svelte';
   import { copyText } from '@/lib/helper/clipboard';
@@ -87,7 +87,8 @@
 
   function show(v: unknown): string {
     if (v === null || v === undefined) return '';
-    if (typeof v === 'number') return fmtNumber(v);
+    // An average of small values needs more than three decimals.
+    if (typeof v === 'number') return fmtNumber(v, 10);
     if (typeof v === 'object') return JSON.stringify(v);
     return String(v);
   }

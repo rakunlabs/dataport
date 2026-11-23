@@ -1,13 +1,13 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Upload, Info, LoaderCircle, TriangleAlert, FileUp } from 'lucide-svelte';
+  import { Upload, Info, LoaderCircle, TriangleAlert, FileUp } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import { connection, loadColumns, loadObjects, loadSchemas, refreshSchema, ws } from '@/lib/stores/workspace.svelte';
   import { closeToolDialog } from '@/lib/stores/dialogs.svelte';
   import { confirmed } from '@/lib/stores/tools.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
-  import { detectDelimiter, fromCSV, fromJSON, genericTypes, guessType, type ParsedFile } from '@/lib/helper/importFile';
+  import { detectDelimiter, fromCSV, fromJSON, genericTypes, guessType, uniqueNames, type ParsedFile } from '@/lib/helper/importFile';
   import type { ImportResult } from '@/lib/api/types';
 
   let props: { connectionId: string; schema: string; tables: string[]; schemaFixed: boolean } = $props();
@@ -83,8 +83,10 @@
     parseError = '';
     try {
       parsed = format === 'json' ? fromJSON(text) : fromCSV(text, delimiter, header);
-      defs = parsed.columns.map((c, i) => ({
-        name: c.replace(/[^\p{L}\p{N}_]+/gu, '_').toLowerCase() || `column${i + 1}`,
+      // Two headers may become one name ("First Name", "first-name").
+      const names = uniqueNames(parsed.columns.map((c, i) => c.replace(/[^\p{L}\p{N}_]+/gu, '_').toLowerCase() || `column${i + 1}`));
+      defs = parsed.columns.map((_, i) => ({
+        name: names[i],
         type: guessType(parsed!.rows.map((r) => r[i])),
         key: false,
         skip: false,

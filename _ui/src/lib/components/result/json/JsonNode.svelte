@@ -2,7 +2,7 @@
   // One node of the JSON tree, as in kafka-console: objects and arrays fold
   // with a +/− button and show how many entries they hold when folded.
   import { getContext, untrack } from 'svelte';
-  import { Plus, Minus } from 'lucide-svelte';
+  import { Plus, Minus } from '@lucide/svelte';
   import JsonNode from './JsonNode.svelte';
   import { LosslessNumber, isContainer, type TreeControl } from './jsonTree';
   import { t } from '@/lib/i18n/index.svelte';

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/rakunlabs/dataport/internal/store"
 )
@@ -69,12 +70,45 @@ func CountSQL(d Driver, script string) (string, error) {
 		// Oracle takes no AS before a table alias.
 		return "SELECT COUNT(*) FROM (\n" + inner + ") dp_count", nil
 	case DialectMSSQL:
-		// ORDER BY needs TOP or OFFSET inside a derived table; counting does
-		// not care about the order.
+		// A CTE cannot stand in a derived table.
+		if kw == "WITH" {
+			return "", ErrNotCountable
+		}
+
+		// ORDER BY needs TOP or OFFSET inside a derived table; OFFSET 0
+		// keeps every row, and TOP cannot go with it.
+		if upper := strings.ToUpper(codeOnly(stmt, d.Dialect())); orderedAtTop(stmt, d.Dialect()) && !containsWord(upper, "OFFSET") && !containsWord(upper, "TOP") {
+			inner = stmt + "\nOFFSET 0 ROWS\n"
+		}
+
 		return "SELECT COUNT_BIG(*) FROM (\n" + inner + ") AS dp_count", nil
 	}
 
 	return "SELECT COUNT(*) FROM (\n" + inner + ") AS dp_count", nil
+}
+
+// orderedAtTop reports an ORDER BY outside every parenthesis.
+func orderedAtTop(stmt string, dialect Dialect) bool {
+	code := strings.ToUpper(codeOnly(stmt, dialect))
+	depth := 0
+
+	for i := 0; i < len(code); i++ {
+		switch code[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case 'O':
+			if depth == 0 && strings.HasPrefix(code[i:], "ORDER") && (i == 0 || !isWordChar(rune(code[i-1]))) {
+				rest := strings.TrimLeftFunc(code[i+len("ORDER"):], unicode.IsSpace)
+				if strings.HasPrefix(rest, "BY") {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // Count runs the count of a statement in a read-only transaction.

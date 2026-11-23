@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus, Trash2 } from 'lucide-svelte';
+  import { Plus, Trash2 } from '@lucide/svelte';
   import type { NotebookCell } from '@/lib/api/notebooks';
   import { notebookConnections } from '@/lib/stores/workspace.svelte';
   import { t } from '@/lib/i18n/index.svelte';

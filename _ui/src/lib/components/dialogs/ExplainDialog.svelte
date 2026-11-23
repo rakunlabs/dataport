@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { TriangleAlert } from 'lucide-svelte';
+  import { TriangleAlert } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import type { ExplainOptions, ExplainSupport } from '@/lib/api/types';
 

@@ -1,4 +1,6 @@
 import { session } from '@/lib/stores/session.svelte';
+import { storedGet } from '@/lib/helper/storage';
+import { readNdjson } from '@/lib/helper/ndjson';
 import { i18n } from '@/lib/i18n/index.svelte';
 import { activeTab, connection } from '@/lib/stores/workspace.svelte';
 import { editorOf } from '@/lib/stores/editors.svelte';
@@ -102,7 +104,7 @@ const widthKey = 'dataport.assistant.width';
 
 export const assistant = $state({
   open: false,
-  width: Number(localStorage.getItem(widthKey)) || 380,
+  width: Number(storedGet(widthKey)) || 380,
   conversations: [] as AIConversation[],
   current: '' as string,
   entries: [] as AIEntry[],
@@ -158,7 +160,12 @@ export async function loadConversations() {
   }
 }
 
+// openSeq counts what the panel was asked to show: a conversation that loads
+// after another was opened, a new one started or a message sent is dropped.
+let openSeq = 0;
+
 export function newConversation() {
+  openSeq++;
   stop();
   assistant.current = '';
   assistant.entries = [];
@@ -169,7 +176,10 @@ export function newConversation() {
 // into the assistant message that asked for them.
 export async function openConversation(id: string) {
   stop();
+  const seq = ++openSeq;
   const out = await api.get<{ conversation: AIConversation; messages: StoredMessage[] }>(`/ai/conversations/${encodeURIComponent(id)}`);
+  // Another conversation was opened, or a new one started, meanwhile.
+  if (seq !== openSeq) return;
   // What each tool call was answered with, by call id.
   const answers = new Map<string, string>();
   for (const m of out.messages) if (m.role === 'tool' && m.tool_call_id) answers.set(m.tool_call_id, m.content);
@@ -354,6 +364,7 @@ export function retry() {
 export async function send(message: string, again = false) {
   const text = message.trim();
   if (!text || assistant.busy) return;
+  openSeq++;
   // A message answers the questions still open.
   for (const e of assistant.entries) for (const q of e.questions ?? []) q.answered ??= text;
   const tabId = activeTab()?.id ?? '';
@@ -383,20 +394,7 @@ export async function send(message: string, again = false) {
       throw new Error((data as { message?: string }).message || resp.statusText);
     }
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      let nl: number;
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, nl).trim();
-        buf = buf.slice(nl + 1);
-        if (line) handle(answer, JSON.parse(line), tabId, range);
-      }
-    }
+    await readNdjson<Event>(resp.body, (e) => handle(answer, e, tabId, range));
   } catch (e) {
     if (!signal.aborted) answer.error = e instanceof Error ? e.message : String(e);
   } finally {
@@ -430,7 +428,7 @@ function handle(answer: AIEntry, e: Event, tabId: string, range?: AIProposal['ra
       assistant.current = e.conversation.id;
       break;
     case 'question':
-      (answer.questions ??= []).push({ id: e.id, question: e.question, choices: e.choices ?? [] });
+      answer.questions = [...(answer.questions ?? []), { id: e.id, question: e.question, choices: e.choices ?? [] }];
       break;
     case 'navigate':
       answer.links.push(navigateOf(e.id, e.target ?? {}));

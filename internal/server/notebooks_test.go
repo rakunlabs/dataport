@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/dataport/internal/auth"
+	"github.com/rakunlabs/dataport/internal/engine"
 	"github.com/rakunlabs/dataport/internal/notebook"
 	"github.com/rakunlabs/dataport/internal/store"
 )
@@ -408,5 +409,159 @@ func TestNotebookSharingDeduplicates(t *testing.T) {
 	access, err := env.st.NotebookAccess(ctx, n.ID)
 	if err != nil || len(access) != 1 || access[0].Permission != "edit" {
 		t.Fatalf("%+v %v", access, err)
+	}
+}
+
+// A published endpoint follows its user's agent policy like MCP does, and a
+// template cell is checked once rendered: "write" lets an agent change data
+// but not run DDL hidden in a template.
+func TestNotebookEndpointFollowsAgentPolicy(t *testing.T) {
+	env := newMCPEnv(t, "")
+	ctx := context.Background()
+	grants, _ := env.st.ListGrants(ctx, env.alice)
+	var shop string
+	for _, g := range grants {
+		if g.Connection.Name == "shop" {
+			shop = g.Connection.ID
+		}
+	}
+
+	raw, hash, _ := auth.NewAccessToken()
+	if err := env.st.CreateAccessToken(ctx, &store.AccessToken{UserID: env.alice.ID, Name: "endpoint", TokenHash: hash}); err != nil {
+		t.Fatal(err)
+	}
+	request := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/v1/run/"+path, strings.NewReader(`{}`))
+		r.Header.Set("Authorization", "Bearer "+raw)
+		w := httptest.NewRecorder()
+		env.srv.mux.ServeHTTP(w, r)
+		return w
+	}
+	publish := func(path string, cell notebook.Cell) {
+		t.Helper()
+		n := &store.Notebook{OwnerID: env.alice.ID, Name: path, Path: path, Document: notebook.Document{Cells: []notebook.Cell{cell}}}
+		if err := env.st.SaveNotebook(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+		if err := env.st.PublishNotebook(ctx, n.ID, n.Version, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	publish("update", notebook.Cell{ID: "u", Path: "u", ConnectionID: shop, SQL: "UPDATE customers SET name = name WHERE id = 1", Enabled: true, Write: true, Output: true})
+	publish("ddl", notebook.Cell{ID: "d", Path: "d", ConnectionID: shop, SQL: "{{ if true }}DROP TABLE customers{{ end }}", Enabled: true, Write: true, Output: true, Template: true})
+
+	// A user who lets agents only read.
+	if err := env.st.SetMCPPolicy(ctx, env.alice.ID, &store.MCPPolicy{DefaultMode: store.MCPRead}); err != nil {
+		t.Fatal(err)
+	}
+	if w := request("update"); w.Code != http.StatusForbidden {
+		t.Fatalf("write with a read policy: %d %s", w.Code, w.Body.String())
+	}
+
+	if err := env.st.SetMCPPolicy(ctx, env.alice.ID, &store.MCPPolicy{DefaultMode: store.MCPWrite}); err != nil {
+		t.Fatal(err)
+	}
+	if w := request("update"); w.Code != http.StatusOK {
+		t.Fatalf("write with a write policy: %d %s", w.Code, w.Body.String())
+	}
+	if w := request("ddl"); w.Code == http.StatusOK || !strings.Contains(w.Body.String(), "not the schema") {
+		t.Fatalf("DDL in a template with a write policy: %d %s", w.Code, w.Body.String())
+	}
+
+	// The table is still there.
+	g, _ := env.st.GetGrant(ctx, env.alice, shop)
+	res, err := env.srv.engine.Execute(ctx, g.Connection, "", engine.ExecRequest{UserID: env.alice.ID, SQL: "SELECT COUNT(*) FROM customers", MaxRows: 1})
+	if err != nil || res.FirstError() != "" {
+		t.Fatalf("customers dropped: %v %s", err, res.FirstError())
+	}
+}
+
+// An editor who may only read a database cannot add a write cell on it,
+// which would later run with the write grant of whoever runs the notebook;
+// write cells they leave as they were still save.
+func TestNotebookEditorCannotAddWritesWhereReadOnly(t *testing.T) {
+	env := newMCPEnv(t, "")
+	ctx := context.Background()
+
+	ro := &store.Connection{Name: "shop-ro", DBType: "sqlite", Database: "shop.db", Access: []store.Access{
+		{SubjectType: "user", SubjectID: env.alice.ID},
+		{SubjectType: "user", SubjectID: env.bob.ID, ReadOnly: true},
+	}}
+	if err := env.st.CreateConnection(ctx, ro); err != nil {
+		t.Fatal(err)
+	}
+
+	write := notebook.Cell{ID: "w", Path: "w", ConnectionID: ro.ID, SQL: "DELETE FROM customers WHERE id = 1", Enabled: true, Write: true}
+	read := notebook.Cell{ID: "r", Path: "r", ConnectionID: ro.ID, SQL: "SELECT 1", Enabled: true, Output: true}
+
+	n := &store.Notebook{OwnerID: env.alice.ID, Name: "shared", Path: "shared", Document: notebook.Document{Cells: []notebook.Cell{write, read}}}
+	if err := env.st.SaveNotebook(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.st.SetNotebookAccess(ctx, n.ID, []store.NotebookAccess{{SubjectType: "user", SubjectID: env.bob.ID, Permission: "edit"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	save := func(cells ...notebook.Cell) error {
+		existing, err := env.st.GetNotebook(ctx, env.bob, n.ID, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = env.srv.storeNotebook(ctx, env.bob, existing, saveNotebookRequest{Name: existing.Name, Path: existing.Path, Version: existing.Version, Document: notebook.Document{Cells: cells}})
+		return err
+	}
+
+	// Changing the read cell keeps the write cell as it was: allowed.
+	read.SQL = "SELECT 2"
+	if err := save(write, read); err != nil {
+		t.Fatalf("unchanged write cell: %v", err)
+	}
+
+	changed := write
+	changed.SQL = "DELETE FROM customers"
+	if err := save(changed, read); err == nil || !strings.Contains(err.Error(), "read-only for you") {
+		t.Fatalf("changed write cell: %v", err)
+	}
+
+	added := notebook.Cell{ID: "x", Path: "x", ConnectionID: ro.ID, SQL: "UPDATE customers SET name = 'x' WHERE id = 1", Enabled: true, Write: true}
+	if err := save(write, read, added); err == nil {
+		t.Fatal("a read-only editor added a write cell")
+	}
+
+	// Turning a disabled write cell on is a change too.
+	off := write
+	off.Enabled = false
+	n2 := &store.Notebook{OwnerID: env.alice.ID, Name: "off", Path: "off", Document: notebook.Document{Cells: []notebook.Cell{off, read}}}
+	if err := env.st.SaveNotebook(ctx, n2); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.st.SetNotebookAccess(ctx, n2.ID, []store.NotebookAccess{{SubjectType: "user", SubjectID: env.bob.ID, Permission: "edit"}}); err != nil {
+		t.Fatal(err)
+	}
+	n = n2
+	if err := save(write, read); err == nil {
+		t.Fatal("a read-only editor enabled a write cell")
+	}
+
+	// A template write cell renders from the cells it reads: changing what
+	// one of them returns changes which rows it writes.
+	seed := notebook.Cell{ID: "s", Path: "seed", ConnectionID: ro.ID, SQL: "SELECT 1 AS id", Enabled: true}
+	tmpl := notebook.Cell{ID: "t", Path: "t", ConnectionID: ro.ID, SQL: "DELETE FROM customers WHERE id = {{ param (index .cells.seed 0).id }}",
+		Enabled: true, Write: true, Template: true, Dependencies: []string{"seed"}}
+	n3 := &store.Notebook{OwnerID: env.alice.ID, Name: "tmpl", Path: "tmpl", Document: notebook.Document{Cells: []notebook.Cell{seed, tmpl}}}
+	if err := env.st.SaveNotebook(ctx, n3); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.st.SetNotebookAccess(ctx, n3.ID, []store.NotebookAccess{{SubjectType: "user", SubjectID: env.bob.ID, Permission: "edit"}}); err != nil {
+		t.Fatal(err)
+	}
+	n = n3
+	if err := save(seed, tmpl); err != nil {
+		t.Fatalf("unchanged template and its input: %v", err)
+	}
+	seed.SQL = "SELECT id FROM customers"
+	if err := save(seed, tmpl); err == nil {
+		t.Fatal("a read-only editor changed the input of a template write cell")
 	}
 }

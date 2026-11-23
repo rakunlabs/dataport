@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { HTMLInputAttributes } from 'svelte/elements';
-  import { Eye, EyeOff } from 'lucide-svelte';
+  import { Eye, EyeOff } from '@lucide/svelte';
   import { t } from '@/lib/i18n/index.svelte';
 
   // A password input with a button that shows or hides what was typed.

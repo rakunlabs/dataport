@@ -91,9 +91,14 @@ func (m *Manager) Export(ctx context.Context, c *store.Connection, password stri
 
 	stats := &ExportStats{}
 
-	err := m.Session(ctx, c, password, req.Timeout, func(ctx context.Context, d Driver, conn *sql.Conn) error {
+	err := m.Session(ctx, c, password, req.Timeout, func(ctx context.Context, d Driver, conn *sql.Conn) (err error) {
 		bw := bufio.NewWriterSize(w, 64<<10)
-		defer func() { _ = bw.Flush() }()
+		// A failed flush cuts the file short: report it.
+		defer func() {
+			if ferr := bw.Flush(); err == nil {
+				err = ferr
+			}
+		}()
 
 		if req.Format == "sql" {
 			return exportSQL(ctx, d, conn, req, bw, stats)

@@ -1,7 +1,7 @@
 <script lang="ts">
   import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, UserRound, UsersRound, Lock, Plus, KeyRound, ShieldCheck, ShieldOff, Trash2, LockOpen } from 'lucide-svelte';
+  import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, UserRound, UsersRound, Lock, Plus, KeyRound, ShieldCheck, ShieldOff, Trash2, LockOpen } from '@lucide/svelte';
   import { api, qs } from '@/lib/api/client';
   import type { DbUser, ExecResult } from '@/lib/api/types';
   import { connection, loadSchemas, openQueryTab, ws, type Tab } from '@/lib/stores/workspace.svelte';
@@ -60,16 +60,22 @@
     }
   }
 
+  // Only the grants of the user picked last are shown.
+  let grantsSeq = 0;
+
   async function loadGrants(u: DbUser) {
+    const seq = ++grantsSeq;
     grantsLoading = true;
     grantsError = '';
     try {
-      grants = await withCredentials(tab.connectionId, () => api.get<string[]>(`/connections/${tab.connectionId}/grants${qs({ name: u.name, host: u.host })}`));
+      const got = await withCredentials(tab.connectionId, () => api.get<string[]>(`/connections/${tab.connectionId}/grants${qs({ name: u.name, host: u.host })}`));
+      if (seq === grantsSeq) grants = got;
     } catch (e) {
+      if (seq !== grantsSeq) return;
       grants = [];
       grantsError = errorMessage(e);
     } finally {
-      grantsLoading = false;
+      if (seq === grantsSeq) grantsLoading = false;
     }
   }
 

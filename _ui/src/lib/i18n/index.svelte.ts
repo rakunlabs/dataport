@@ -113,8 +113,13 @@ function detect(): Locale {
 
 export const i18n = $state({ locale: 'en' as Locale, messages: en as Messages });
 
+// The language asked for last wins, even when an earlier one loads later.
+let wanted: Locale | undefined;
+
 export async function setLocale(locale: Locale, persist = true) {
+  wanted = locale;
   const mod = await loaders[locale]();
+  if (wanted !== locale) return;
   i18n.messages = mod.default;
   i18n.locale = locale;
   document.documentElement.lang = locale;
@@ -170,12 +175,19 @@ export function t(path: string, params: Record<string, string | number> = {}): s
     msg = forms[Math.min(i, forms.length - 1)];
   }
 
+  // A numeric count shows in the language's digits; the plural above is
+  // picked from the number itself, as "1.000" would read as one.
+  if (typeof params.count === 'number') params = { ...params, count: fmtNumber(params.count) };
+
   return msg.replace(/\{(\w+)\}/g, (m, name) => (name in params ? String(params[name]) : m));
 }
 
-/** Formats numbers and dates for the current locale. */
-export function fmtNumber(n: number): string {
-  return new Intl.NumberFormat(i18n.locale).format(n);
+/**
+ * Formats numbers and dates for the current locale. maxDecimals raises the
+ * default of three, for statistics of small values.
+ */
+export function fmtNumber(n: number, maxDecimals?: number): string {
+  return new Intl.NumberFormat(i18n.locale, maxDecimals === undefined ? undefined : { maximumFractionDigits: maxDecimals }).format(n);
 }
 
 export function fmtDateTime(ts: number): string {

@@ -380,8 +380,10 @@ func nestedComments(dialect Dialect) bool {
 	return dialect == DialectPostgres || dialect == DialectMSSQL
 }
 
+// skipLine skips a line comment. PostgreSQL also ends one at a carriage return;
+// stopping there too never hides a statement boundary from the splitter.
 func skipLine(s string, i int) int {
-	end := strings.IndexByte(s[i:], '\n')
+	end := strings.IndexAny(s[i:], "\r\n")
 	if end < 0 {
 		return len(s)
 	}
@@ -423,7 +425,7 @@ func skipBlock(s string, i int, nested bool) int {
 func dollarTag(s string, i int) (string, bool) {
 	if i > 0 {
 		prev := rune(s[i-1])
-		if unicode.IsLetter(prev) || unicode.IsDigit(prev) || prev == '_' {
+		if prev >= 0x80 || prev == '$' || unicode.IsLetter(prev) || unicode.IsDigit(prev) || prev == '_' {
 			return "", false
 		}
 	}

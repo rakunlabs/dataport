@@ -90,6 +90,7 @@ const ja: Messages = {
     closeOthers: '他を閉じる',
     closeTab: 'タブを閉じる',
     query: 'クエリ {n}',
+    rename: '名前を変更',
   },
   conn: {
     limitsHint: '1 つの文で返される行数と、実行にかけられる時間',

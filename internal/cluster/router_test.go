@@ -13,6 +13,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/rakunlabs/dataport/internal/config"
 	"github.com/rakunlabs/dataport/internal/crypto"
 	"github.com/rakunlabs/dataport/internal/engine"
 	"github.com/rakunlabs/dataport/internal/notebook"
@@ -440,5 +441,13 @@ func TestProxyReachesTheOwner(t *testing.T) {
 
 	if len(seen) == 0 {
 		t.Fatal("no replica read the proxy")
+	}
+}
+
+// Without a security key any host reaching the port could forward calls, so
+// the cluster refuses to start.
+func TestNewNeedsSecurityKey(t *testing.T) {
+	if _, err := New(config.Cluster{Enabled: true, Port: 7946}, nil, nil); !errors.Is(err, ErrNoSecurityKey) {
+		t.Fatalf("New without a key: %v", err)
 	}
 }

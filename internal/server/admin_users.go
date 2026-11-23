@@ -155,8 +155,9 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Omitted groups stay as they are; [] removes the user from every group.
 	if u.GroupIDs == nil {
-		u.GroupIDs = []string{}
+		u.GroupIDs = existing.GroupIDs
 	}
 
 	if err := s.store.UpdateUser(ctx, u); err != nil {
@@ -193,10 +194,24 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The user's own pools and transactions go with them: their personal
+	// connections and their accounts on shared ones. Read before deleting,
+	// as the rows go with the user.
+	personal, _ := s.store.PersonalConnections(ctx, id)
+	creds, _ := s.store.UserCredentials(ctx, id)
+
 	if err := s.store.DeleteUser(ctx, id); err != nil {
 		writeStoreError(w, err)
 
 		return
+	}
+
+	for _, c := range personal {
+		s.engine.Forget(c.ID)
+	}
+
+	for connID := range creds {
+		s.engine.ForgetUser(connID, id)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

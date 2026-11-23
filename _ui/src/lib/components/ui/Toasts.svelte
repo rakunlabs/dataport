@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t as tr } from '@/lib/i18n/index.svelte';
-  import { X, CircleX, CircleCheck, Info } from 'lucide-svelte';
+  import { X, CircleX, CircleCheck, Info } from '@lucide/svelte';
   import { dismiss, toasts } from '@/lib/stores/toast.svelte';
 </script>
 

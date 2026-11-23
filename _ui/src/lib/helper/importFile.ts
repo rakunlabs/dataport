@@ -77,7 +77,8 @@ export function parseCSV(text: string, delimiter: string): string[][] {
 
 // unique numbers repeated column names (a, a → a, a_2): a table cannot
 // hold the same column twice.
-function unique(names: string[]): string[] {
+// uniqueNames numbers names that repeat, ignoring case: a, a_2, a_3.
+export function uniqueNames(names: string[]): string[] {
   const seen = new Set<string>();
   return names.map((n) => {
     let name = n;
@@ -90,7 +91,7 @@ function unique(names: string[]): string[] {
 export function fromCSV(text: string, delimiter: string, header: boolean): ParsedFile {
   const all = parseCSV(text, delimiter);
   const width = Math.max(0, ...all.map((r) => r.length));
-  const columns = header && all.length ? unique(all[0].map((c, i) => c.trim() || `column${i + 1}`)) : Array.from({ length: width }, (_, i) => `column${i + 1}`);
+  const columns = header && all.length ? uniqueNames(all[0].map((c, i) => c.trim() || `column${i + 1}`)) : Array.from({ length: width }, (_, i) => `column${i + 1}`);
   while (columns.length < width) columns.push(`column${columns.length + 1}`);
   const rows = (header ? all.slice(1) : all).map((r) => columns.map((_, i) => r[i] ?? ''));
   return { columns, rows };
@@ -99,7 +100,11 @@ export function fromCSV(text: string, delimiter: string, header: boolean): Parse
 // fromJSON reads an array of objects, or of arrays with a first row of
 // names; objects nested in a value are kept as JSON text.
 export function fromJSON(text: string): ParsedFile {
-  let data = JSON.parse(text);
+  // A number JSON.parse would round keeps its digits as text; the server
+  // converts it for the column.
+  let data = JSON.parse(text, function (_key: string, v: unknown, ctx?: { source?: string }) {
+    return typeof v === 'number' && ctx?.source !== undefined && String(v) !== ctx.source && /^-?\d+$/.test(ctx.source) ? ctx.source : v;
+  } as (this: unknown, key: string, value: unknown) => unknown);
   if (!Array.isArray(data)) {
     const inner = data && typeof data === 'object' ? Object.values(data).find(Array.isArray) : undefined;
     if (!inner) throw new Error('expected an array of rows');
@@ -108,7 +113,7 @@ export function fromJSON(text: string): ParsedFile {
   if (!data.length) return { columns: [], rows: [] };
   if (Array.isArray(data[0])) {
     const [head, ...rest] = data as unknown[][];
-    const columns = unique(head.map((c, i) => String(c ?? `column${i + 1}`)));
+    const columns = uniqueNames(head.map((c, i) => String(c ?? `column${i + 1}`)));
     return { columns, rows: rest.map((r) => columns.map((_, i) => r[i] ?? null)) };
   }
   const columns: string[] = [];
@@ -143,8 +148,10 @@ export function guessType(values: unknown[]): string {
     else if (typeof v === 'object') widen('text');
     else {
       const s = String(v).trim();
-      if (/^-?\d{1,18}$/.test(s)) widen('bigint');
-      else if (/^-?\d+\.\d+$/.test(s)) widen('decimal');
+      // A leading zero (a zip or phone code) is text, not a number.
+      if (/^-?(0|[1-9]\d{0,17})$/.test(s)) widen('bigint');
+      // Past what a bigint holds, a whole number still needs a number column.
+      else if (/^-?\d+\.\d+$/.test(s) || /^-?[1-9]\d{18,}$/.test(s)) widen('decimal');
       else if (/^(true|false)$/i.test(s)) widen('bool');
       else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) widen('date');
       else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/.test(s)) widen('timestamp');

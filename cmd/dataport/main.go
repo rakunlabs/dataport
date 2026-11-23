@@ -138,10 +138,6 @@ func joinCluster(ctx context.Context, cfg *config.Config, en *engine.Manager, ci
 		slog.Warn("cluster enabled without DATAPORT_CLUSTER_DNS_ADDR; this replica finds no peers")
 	}
 
-	if cfg.Cluster.SecurityKey == "" {
-		slog.Warn("cluster without DATAPORT_CLUSTER_SECURITY_KEY; any host that reaches the cluster port can join")
-	}
-
 	rt, err := cluster.New(cfg.Cluster, en, cipher)
 	if err != nil {
 		return nil, err

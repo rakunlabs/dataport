@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Download, Info } from 'lucide-svelte';
+  import { Download, Info } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import TablePicker from '@/lib/components/table/TablePicker.svelte';
   import { connection } from '@/lib/stores/workspace.svelte';

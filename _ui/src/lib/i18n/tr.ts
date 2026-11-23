@@ -103,6 +103,7 @@ const tr: Messages = {
     closeOthers: 'Diğerlerini kapat',
     closeTab: 'Sekmeyi kapat',
     query: 'Sorgu {n}',
+    rename: 'Yeniden adlandır',
   },
   conn: {
     useReadOnly: 'Salt okunur kullan',

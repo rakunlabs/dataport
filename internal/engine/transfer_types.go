@@ -42,9 +42,74 @@ func MapType(from, to string, typ string) string {
 		return targetType(to, "text", "")
 	}
 
+	switch {
+	// An Oracle DATE holds the time of day too.
+	case from == "oracle" && base == "date":
+		return targetType(to, "timestamp", "")
+	// Oracle LONG is long text, not a number.
+	case from == "oracle" && base == "long":
+		return targetType(to, "text", "")
+	// MySQL BIT(n) is a number; only BIT(1) is a flag. The values follow the
+	// same rule in sourceValue.
+	case from == "mysql" && base == "bit" && args != "" && args != "1":
+		return targetType(to, "bigint", "")
+	// PostgreSQL writes "timestamp without time zone": no zone, despite the
+	// word.
+	case strings.Contains(base, "without time zone"):
+		return targetType(to, typeFamily(strings.TrimSpace(strings.ReplaceAll(base, "without time zone", ""))), args)
+	}
+
+	// Unsigned and wide integers need the next larger type, or a decimal
+	// with enough digits, to hold every value.
+	if w, ok := widerInt(base); ok {
+		return targetType(to, w.family, w.args)
+	}
+
 	family := typeFamily(base)
 
 	return targetType(to, family, args)
+}
+
+type intWidth struct{ family, args string }
+
+// widerInt is the type of the target that holds every value of an unsigned
+// or wider than 64-bit integer type; ok is false for other types.
+func widerInt(t string) (intWidth, bool) {
+	w, unsigned := strings.CutSuffix(t, " unsigned")
+	w, _, _ = strings.Cut(strings.TrimSpace(w), " ")
+
+	switch w {
+	case "int128", "hugeint", "uhugeint", "uint128":
+		return intWidth{"decimal", "39,0"}, true
+	case "int256", "uint256":
+		return intWidth{"decimal", "78,0"}, true
+	case "uint8", "utinyint":
+		return intWidth{"smallint", ""}, true
+	case "uint16", "usmallint":
+		return intWidth{"int", ""}, true
+	case "uint32", "uinteger":
+		return intWidth{"bigint", ""}, true
+	case "uint64", "ubigint":
+		return intWidth{"decimal", "20,0"}, true
+	}
+
+	if !unsigned {
+		return intWidth{}, false
+	}
+
+	// MySQL: tinyint unsigned and the like.
+	switch w {
+	case "tinyint":
+		return intWidth{"smallint", ""}, true
+	case "smallint", "mediumint":
+		return intWidth{"int", ""}, true
+	case "int", "integer":
+		return intWidth{"bigint", ""}, true
+	case "bigint":
+		return intWidth{"decimal", "20,0"}, true
+	}
+
+	return intWidth{}, false
 }
 
 func typeFamily(t string) string {
@@ -392,6 +457,12 @@ func CreateTableSQL(from string, to Driver, schema, table string, cols []ColumnI
 		typ := MapType(from, to.Type(), c.Type)
 		notNull := !c.Nullable || c.PrimaryKey
 
+		// An unbounded text type cannot be a key in MySQL, SQL Server or
+		// Oracle; a key column gets the longest one that can.
+		if c.PrimaryKey {
+			typ = keyType(to.Type(), typ)
+		}
+
 		// ClickHouse columns hold no NULL unless wrapped in Nullable.
 		if to.Type() == "clickhouse" {
 			if !notNull {
@@ -430,4 +501,24 @@ func CreateTableSQL(from string, to Driver, schema, table string, cols []ColumnI
 	b.WriteString("\n)")
 
 	return b.String()
+}
+
+// keyType bounds an unbounded text type of a primary key column.
+func keyType(db, typ string) string {
+	switch db {
+	case "mysql":
+		if strings.HasSuffix(typ, "text") {
+			return "varchar(255)"
+		}
+	case "mssql":
+		if typ == "nvarchar(max)" || typ == "varchar(max)" {
+			return "nvarchar(450)"
+		}
+	case "oracle":
+		if typ == "CLOB" || typ == "NCLOB" {
+			return "VARCHAR2(4000 CHAR)"
+		}
+	}
+
+	return typ
 }

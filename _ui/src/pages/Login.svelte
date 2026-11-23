@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { storedGet, storedSet } from '@/lib/helper/storage';
   import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { push, router } from 'svelte-spa-router';
-  import { LogIn, ExternalLink, Languages, TriangleAlert, LoaderCircle, Sun, Moon, Monitor, KeyRound, ChevronDown, ChevronRight } from 'lucide-svelte';
+  import { LogIn, ExternalLink, Languages, TriangleAlert, LoaderCircle, Sun, Moon, Monitor, KeyRound, ChevronDown, ChevronRight } from '@lucide/svelte';
   import Logo from '@/lib/components/ui/Logo.svelte';
   import { login, pendingReturn, session, takeReturn } from '@/lib/stores/session.svelte';
-  import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
+  import { cycleTheme, theme, themeLabels } from '@/lib/stores/theme.svelte';
   import { api } from '@/lib/api/client';
   import type { AuthInfo } from '@/lib/api/types';
   import { i18n, locales, serverMessage, setLocale, t, type Locale } from '@/lib/i18n/index.svelte';
@@ -15,10 +16,8 @@
   // The provider the browser is being sent to, until the page unloads.
   let leaving = $state('');
   // The last choice is kept in this browser, as sign-in pages usually do.
-  let remember = $state(localStorage.getItem('dataport.remember') === '1');
-  $effect(() => {
-    localStorage.setItem('dataport.remember', remember ? '1' : '0');
-  });
+  let remember = $state(storedGet('dataport.remember') === '1');
+  $effect(() => storedSet('dataport.remember', remember ? '1' : '0'));
   let info = $state<AuthInfo | null>(null);
 
   // SSO failures come back as #/login?error=...
@@ -34,11 +33,7 @@
     .then((v) => (info = v))
     .catch(() => (info = { password: true, providers: [] }));
 
-  const themes: { mode: ThemeMode; icon: typeof Sun; key: string }[] = [
-    { mode: 'system', icon: Monitor, key: 'app.themeSystem' },
-    { mode: 'light', icon: Sun, key: 'app.themeLight' },
-    { mode: 'dark', icon: Moon, key: 'app.themeDark' },
-  ];
+  const themeIcons = { system: Monitor, light: Sun, dark: Moon };
   // As pika's "Collapse local login form": the username and password form
   // starts folded, and the "Local login" button reveals it.
   let localOpen = $state(false);
@@ -51,12 +46,7 @@
     if (localOpen) setTimeout(() => document.getElementById('username')?.focus());
   }
 
-  const currentTheme = $derived(themes.find((th) => th.mode === theme.mode) ?? themes[0]);
-
-  function nextTheme() {
-    const i = themes.findIndex((th) => th.mode === theme.mode);
-    setTheme(themes[(i + 1) % themes.length].mode);
-  }
+  const currentTheme = $derived({ icon: themeIcons[theme.mode], key: themeLabels[theme.mode] });
 
   function ssoHref(name: string) {
     return `./api/v1/auth/sso/${encodeURIComponent(name)}?remember=${remember && info?.remember_days ? 1 : 0}`;
@@ -122,7 +112,7 @@
       <button
         type="button"
         class="absolute top-3 right-3 flex size-7 cursor-pointer items-center justify-center rounded-md border border-line bg-bg text-muted transition-colors hover:bg-hover hover:text-fg"
-        onclick={nextTheme}
+        onclick={cycleTheme}
         title={t(currentTheme.key)}
         aria-label={t(currentTheme.key)}
       >

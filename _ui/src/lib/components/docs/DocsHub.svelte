@@ -3,7 +3,7 @@
   // connections, whether its documentation was built and when, and the
   // server's refresh schedule. Opening a schema shows its documentation tab.
   import { onMount } from 'svelte';
-  import { BookOpen, RefreshCw, LoaderCircle, TriangleAlert, ChevronRight, ChevronDown, Search, Settings, CircleCheck, Circle } from 'lucide-svelte';
+  import { BookOpen, RefreshCw, LoaderCircle, TriangleAlert, ChevronRight, ChevronDown, Search, Settings, CircleCheck, Circle } from '@lucide/svelte';
   import { api } from '@/lib/api/client';
   import type { DocInfo, DocList } from '@/lib/api/types';
   import { t, i18n } from '@/lib/i18n/index.svelte';

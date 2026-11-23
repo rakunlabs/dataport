@@ -140,9 +140,10 @@ WHERE s.name = @p1 AND t.name = @p2 ORDER BY tr.name`, schema, table))
 }
 
 func (oracleDriver) Comments(ctx context.Context, q Querier, schema, table string) (string, map[string]string, error) {
+	// go-ora binds by position: every placeholder takes a value of its own.
 	return scanComments(q.QueryContext(ctx, `SELECT NULL, comments FROM all_tab_comments WHERE owner = :1 AND table_name = :2
 UNION ALL
-SELECT column_name, comments FROM all_col_comments WHERE owner = :1 AND table_name = :2`, schema, table))
+SELECT column_name, comments FROM all_col_comments WHERE owner = :3 AND table_name = :4`, schema, table, schema, table))
 }
 
 func (oracleDriver) Triggers(ctx context.Context, q Querier, schema, table string) ([]TriggerInfo, error) {

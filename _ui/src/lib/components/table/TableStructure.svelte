@@ -3,7 +3,7 @@
   // The table's structure, editable as in DBX: columns, indexes, foreign keys
   // and triggers in tabs. Changes stay in a draft until saved; saving shows
   // the ALTER statements first and runs them like any other SQL.
-  import { Copy, RefreshCw, TriangleAlert, LoaderCircle, Code, Plus, Undo2, Save, Search, Eye, Info } from 'lucide-svelte';
+  import { Copy, RefreshCw, TriangleAlert, LoaderCircle, Code, Plus, Undo2, Save, Search, Eye, Info } from '@lucide/svelte';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
   import StructureColumns from '@/lib/components/table/StructureColumns.svelte';
   import StructureIndexes from '@/lib/components/table/StructureIndexes.svelte';

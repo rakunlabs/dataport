@@ -142,6 +142,8 @@ func (s *Server) docAccount(c *store.Connection, dc *store.DocConnection) (*stor
 		return nil, "", "", errSecret
 	}
 
+	// Not docVersion: this fingerprint has no Credential field, and changing
+	// its shape would make every stored system snapshot stale at once.
 	b, err := json.Marshal(struct {
 		Connection *store.Connection
 		Secret     string
@@ -682,7 +684,8 @@ func (s *Server) adminSetDocConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	next := &store.DocConnection{ConnectionID: c.ID, Enabled: in.Enabled, BlockExcluded: in.BlockExcluded, Username: strings.TrimSpace(in.Username)}
-	if current != nil {
+	// The stored password belongs to the account it was saved for.
+	if current != nil && current.Username == next.Username {
 		next.PasswordEnc = current.PasswordEnc
 	}
 

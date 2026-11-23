@@ -47,7 +47,7 @@ export function createSchemaSQL(dbType: string): string {
 }
 
 export function dropTableSQL(dbType: string, schema: string, table: string, kind: string): string {
-  const what = kind === 'view' ? 'VIEW' : kind === 'materialized_view' ? 'MATERIALIZED VIEW' : 'TABLE';
+  const what = kind === 'view' ? 'VIEW' : kind === 'materialized_view' ? 'MATERIALIZED VIEW' : kind === 'foreign_table' ? 'FOREIGN TABLE' : 'TABLE';
   return `DROP ${what} ${qualified(dbType, schema, table)};`;
 }
 

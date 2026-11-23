@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { readNdjson } from '@/lib/helper/ndjson';
+  import { storedGet, storedSet } from '@/lib/helper/storage';
   import { untrack } from 'svelte';
   import { t, fmtNumber, serverMessage } from '@/lib/i18n/index.svelte';
-  import { Sparkles, Info, LoaderCircle, TriangleAlert, RefreshCw, Dices, KeyRound, Link } from 'lucide-svelte';
+  import { Sparkles, Info, LoaderCircle, TriangleAlert, RefreshCw, Dices, KeyRound, Link } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import { api } from '@/lib/api/client';
   import { connection, refreshSchema } from '@/lib/stores/workspace.svelte';
@@ -27,11 +29,8 @@
 
   // Language of names, places and text; empty is the server's English.
   const localeKey = 'dataport.generate.locale';
-  let locale = $state(localStorage.getItem(localeKey) ?? '');
-  $effect(() => {
-    if (locale) localStorage.setItem(localeKey, locale);
-    else localStorage.removeItem(localeKey);
-  });
+  let locale = $state(storedGet(localeKey) ?? '');
+  $effect(() => storedSet(localeKey, locale || null));
   let columns = $state<GenColumn[]>([]);
   let generators = $state<string[]>([]);
   let sample = $state<unknown[][]>([]);
@@ -65,7 +64,9 @@
     const out = groups.map((g) => ({ key: g.key, names: g.names.filter((n) => !generators.length || known.has(n)) }));
     const listed = new Set(groups.flatMap((g) => g.names));
     const rest = generators.filter((g) => !listed.has(g));
-    if (rest.length) out.push({ key: 'values', names: rest });
+    // They join the last group, as a second group under its key would
+    // repeat the key of the list.
+    if (rest.length) out[out.length - 1].names.push(...rest);
     return out;
   });
 
@@ -198,33 +199,21 @@
         running = false;
         if (res.status === 409 && data.confirmation_required) {
           const what = t('generate.what', { rows: fmtNumber(rows), table });
-          if (await confirmProduction({ connection: conn?.name ?? '', sql: what, risk: 'write' })) return start(true);
+          if (await confirmProduction({ connection: conn?.name ?? '', sql: what, risk: 'write' })) return await start(true);
           return;
         }
         if (res.status === 428 && data.credentials_required) {
-          if (await askCredentials(connectionId, serverMessage(data.message))) return start(confirm);
+          if (await askCredentials(connectionId, serverMessage(data.message))) return await start(confirm);
         }
         error = serverMessage(data.message || res.statusText);
         return;
       }
 
-      const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
-      let buf = '';
-      let final: GenerateProgress | null = null;
-      for (;;) {
-        const { value, done: end } = await reader.read();
-        if (end) break;
-        buf += value;
-        let nl: number;
-        while ((nl = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line) continue;
-          const p = JSON.parse(line) as GenerateProgress;
-          done = p.rows ?? done;
-          if (p.finished) final = p;
-        }
-      }
+      let final = null as GenerateProgress | null;
+      await readNdjson<GenerateProgress>(res.body!, (p) => {
+        done = p.rows ?? done;
+        if (p.finished) final = p;
+      });
       if (final?.error) {
         error = serverMessage(final.error);
       } else if (final) {

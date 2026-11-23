@@ -112,17 +112,9 @@ func (s *Store) SetMCPPolicy(ctx context.Context, userID string, p *MCPPolicy) e
 	return wrapWriteErr(s.inTx(ctx, func(tx *sql.Tx) error {
 		ts := now()
 
-		res, err := tx.ExecContext(ctx, s.q("UPDATE "+s.t("mcp_policies")+" SET default_mode = ?, updated_at = ? WHERE user_id = ?"), p.DefaultMode, ts, userID)
-		if err != nil {
+		if _, err := tx.ExecContext(ctx, s.q("INSERT INTO "+s.t("mcp_policies")+" (user_id, default_mode, updated_at) VALUES (?, ?, ?)"+
+			" ON CONFLICT (user_id) DO UPDATE SET default_mode = excluded.default_mode, updated_at = excluded.updated_at"), userID, p.DefaultMode, ts); err != nil {
 			return err
-		}
-
-		if n, err := res.RowsAffected(); err != nil {
-			return err
-		} else if n == 0 {
-			if _, err := tx.ExecContext(ctx, s.q("INSERT INTO "+s.t("mcp_policies")+" (user_id, default_mode, updated_at) VALUES (?, ?, ?)"), userID, p.DefaultMode, ts); err != nil {
-				return err
-			}
 		}
 
 		if _, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("mcp_access")+" WHERE user_id = ?"), userID); err != nil {

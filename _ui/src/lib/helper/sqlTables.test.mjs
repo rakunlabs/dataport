@@ -26,3 +26,9 @@ test('strings and comments are skipped', () => {
 test('qualifiers', () => {
   assert.deepEqual(qualifiers('select u. from sales.orders u'), ['u', 'sales']);
 });
+
+test('comment markers inside strings, and quotes inside comments', () => {
+  assert.deepEqual(tableRefs("SELECT 'a--b' AS x\nFROM users u"), [{ schema: '', table: 'users', alias: 'u' }]);
+  assert.deepEqual(tableRefs("SELECT * FROM t WHERE x = '/*' AND y IN (SELECT 1 FROM u)").map((r) => r.table), ['t', 'u']);
+  assert.deepEqual(tableRefs("-- it's here\nSELECT * FROM t").map((r) => r.table), ['t']);
+});

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -119,5 +120,41 @@ func TestMCPTokenFollowsAccessSetting(t *testing.T) {
 
 	if got := listed(created.Token); !slices.Equal(got, both) {
 		t.Fatalf("token from the page: %v", got)
+	}
+}
+
+// The server's token lifetime limit holds for any day count asked for: one
+// large enough to overflow a duration is refused rather than read as none,
+// and a limit under a day still expires the token.
+func TestTokenLifetimeLimit(t *testing.T) {
+	env := newMCPEnv(t, "")
+
+	create := func(body string) (int, store.AccessToken) {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/tokens", strings.NewReader(body))
+		r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, env.alice))
+		w := httptest.NewRecorder()
+		env.srv.createToken(w, r)
+
+		var out struct {
+			AccessToken store.AccessToken `json:"access_token"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+
+		return w.Code, out.AccessToken
+	}
+
+	env.srv.settingsMu.Lock()
+	env.srv.cfg.MCP.TokenTTL = time.Hour
+	env.srv.settingsMu.Unlock()
+
+	if code, _ := create(`{"name":"x","expires_in_days":106752}`); code != http.StatusBadRequest {
+		t.Fatalf("overflowing day count: %d", code)
+	}
+
+	code, tok := create(`{"name":"x","expires_in_days":30}`)
+	limit := time.Now().Add(time.Hour + time.Minute).UnixMilli()
+	if code != http.StatusCreated || tok.ExpiresAt == 0 || tok.ExpiresAt > limit {
+		t.Fatalf("30 days under a one-hour limit: %d expires %d", code, tok.ExpiresAt)
 	}
 }

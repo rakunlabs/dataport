@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { readNdjson } from '@/lib/helper/ndjson';
   import { untrack } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { ArrowRightLeft, Info, LoaderCircle, Check, TriangleAlert, ArrowRight } from 'lucide-svelte';
+  import { ArrowRightLeft, Info, LoaderCircle, Check, TriangleAlert, ArrowRight } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import TablePicker from '@/lib/components/table/TablePicker.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
@@ -74,11 +75,11 @@
         running = false;
         if (res.status === 409 && body.confirmation_required) {
           const what = t('transfer.what', { n: selected.length, target: target?.name ?? '', schema: targetSchema });
-          if (await confirmProduction({ connection: target?.name ?? '', sql: what, risk: 'write' })) return start(true);
+          if (await confirmProduction({ connection: target?.name ?? '', sql: what, risk: 'write' })) return await start(true);
           return;
         }
         if (res.status === 428 && body.credentials_required) {
-          if (await askCredentials(connectionId, serverMessage(body.message))) return start(confirm);
+          if (await askCredentials(connectionId, serverMessage(body.message))) return await start(confirm);
           error = serverMessage(body.message);
           return;
         }
@@ -86,26 +87,14 @@
         return;
       }
 
-      const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
-      let buf = '';
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += value;
-        let nl: number;
-        while ((nl = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line) continue;
-          const p = JSON.parse(line) as TransferProgress;
-          if (p.finished) {
-            finished = p;
-            if (p.error) error = serverMessage(p.error);
-          } else if (p.table) {
-            progress[p.table] = p;
-          }
+      await readNdjson<TransferProgress>(res.body!, (p) => {
+        if (p.finished) {
+          finished = p;
+          if (p.error) error = serverMessage(p.error);
+        } else if (p.table) {
+          progress[p.table] = p;
         }
-      }
+      });
     } catch (e) {
       if ((e as Error).name !== 'AbortError') error = e instanceof Error ? e.message : String(e);
     } finally {

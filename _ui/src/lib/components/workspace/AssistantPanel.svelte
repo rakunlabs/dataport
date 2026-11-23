@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { t, i18n, fmtDateTime } from '@/lib/i18n/index.svelte';
-  import { X, ChevronDown, ChevronUp, Plus, History, Send, Square, Trash2, LoaderCircle, Check, CircleX, Wrench, Copy, Replace, TextCursorInput, Sparkles, ChevronLeft, RotateCcw, Table2, ListTree, BookOpen, Network, FilePlus2, MessageCircleQuestion } from 'lucide-svelte';
+  import { X, ChevronDown, ChevronUp, Plus, History, Send, Square, Trash2, LoaderCircle, Check, CircleX, Wrench, Copy, Replace, TextCursorInput, Sparkles, ChevronLeft, RotateCcw, Table2, ListTree, BookOpen, Network, FilePlus2, MessageCircleQuestion } from '@lucide/svelte';
   import {
     assistant,
     closeAssistant,

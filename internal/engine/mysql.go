@@ -43,6 +43,9 @@ func (d mysqlDriver) Open(c *store.Connection, password string) (*sql.DB, error)
 	cfg.DBName = c.Database
 	cfg.ParseTime = true
 	cfg.Loc = time.UTC
+	// The driver reads and writes times as UTC; the session must agree, or
+	// TIMESTAMP columns are shifted by the server's own zone.
+	cfg.Params = map[string]string{"time_zone": "'+00:00'"}
 	cfg.Timeout = 10 * time.Second
 	cfg.Collation = "utf8mb4_general_ci"
 	// One statement per call; see the note on the PostgreSQL exec mode.

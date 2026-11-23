@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { ChevronRight, Folder, FolderOpen, Table2, KeyRound, Key, RefreshCw, Search, Lock, FilePlus2, LoaderCircle, TriangleAlert, X, ChevronsLeft } from 'lucide-svelte';
+  import { ChevronRight, Folder, FolderOpen, Table2, KeyRound, Key, RefreshCw, Search, Lock, FilePlus2, LoaderCircle, TriangleAlert, X, ChevronsLeft } from '@lucide/svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import TreeMenu, { type MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
   import {

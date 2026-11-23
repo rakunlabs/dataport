@@ -134,7 +134,7 @@ DATAPORT_AUTH_SECRET_KEY='…'                 # the same on every replica
 DATAPORT_CLUSTER_ENABLED=true
 DATAPORT_CLUSTER_DNS_ADDR=dataport-headless.default.svc.cluster.local
 DATAPORT_CLUSTER_REPLICAS=3
-DATAPORT_CLUSTER_SECURITY_KEY='…'            # admits only replicas with this key
+DATAPORT_CLUSTER_SECURITY_KEY='…'            # required; admits only replicas with this key
 ```
 
 | Variable | Default | Meaning |
@@ -144,7 +144,7 @@ DATAPORT_CLUSTER_SECURITY_KEY='…'            # admits only replicas with this 
 | `DATAPORT_CLUSTER_PORT` | `7946` | UDP port of the cluster, the same on every replica |
 | `DATAPORT_CLUSTER_BIND_ADDR` | `0.0.0.0` | Address the cluster listens on |
 | `DATAPORT_CLUSTER_REPLICAS` | `0` | Expected replicas, this one included. Owning a pool needs a majority; `0` turns the quorum off |
-| `DATAPORT_CLUSTER_SECURITY_KEY` | | Pre-shared key; without it any host reaching the port may join (a warning is logged) |
+| `DATAPORT_CLUSTER_SECURITY_KEY` | | Required. Pre-shared key, the same on every replica; only replicas with it can join. The cluster does not start without it |
 | `DATAPORT_CLUSTER_REFRESH_INTERVAL` | `30s` | How often the DNS name is resolved again to find new replicas |
 | `DATAPORT_CLUSTER_NAME` | host name | Name of this replica in *Settings → Cluster* |
 

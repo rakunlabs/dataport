@@ -90,6 +90,7 @@ const de: Messages = {
     closeOthers: 'Andere schließen',
     closeTab: 'Tab schließen',
     query: 'Abfrage {n}',
+    rename: 'Umbenennen',
   },
   conn: {
     limitsHint: 'Zurückgegebene Zeilen pro Anweisung und maximale Laufzeit',

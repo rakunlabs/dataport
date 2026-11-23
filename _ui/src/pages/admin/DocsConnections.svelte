@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, i18n } from '@/lib/i18n/index.svelte';
-  import { Play, LoaderCircle, CircleCheck, TriangleAlert, ChevronRight, ChevronDown, Eye, Ban } from 'lucide-svelte';
+  import { Play, LoaderCircle, CircleCheck, TriangleAlert, ChevronRight, ChevronDown, Eye, Ban } from '@lucide/svelte';
   import { api } from '@/lib/api/client';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';

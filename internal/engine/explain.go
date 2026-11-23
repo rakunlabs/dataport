@@ -161,6 +161,12 @@ func (m *Manager) Explain(ctx context.Context, c *store.Connection, password str
 	err = m.Session(ctx, c, password, req.Timeout, func(ctx context.Context, d Driver, conn *sql.Conn) error {
 		start := time.Now()
 
+		// Session prepares for writes; a read-only grant stays read-only on
+		// the server too, as in Count.
+		if cp, ok := d.(ContextPreparer); ok && req.ReadOnly && !sup.writesPlan {
+			ctx = cp.PrepareContext(ctx, req.Timeout, true)
+		}
+
 		var run Runner = conn
 
 		if !sup.session && transactional(d) && useTransaction(d, req.ReadOnly) {

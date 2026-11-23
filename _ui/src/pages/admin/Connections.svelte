@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { Plus, Pencil, Trash2, Lock, LockOpen, Users, UsersRound, KeyRound, NotebookPen, EyeOff, UserRound } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, Lock, LockOpen, Users, UsersRound, KeyRound, NotebookPen, EyeOff, UserRound } from '@lucide/svelte';
   import Page from '@/pages/admin/Page.svelte';
   import ConnectionForm from '@/pages/admin/ConnectionForm.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';

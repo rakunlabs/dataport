@@ -39,3 +39,11 @@ test('row colour rules', () => {
   assert.ok(p.row.includes('#ff0000'));
   assert.ok(p.cells[1].includes('#800080'));
 });
+
+test('calculator keeps values exact', () => {
+  assert.equal(calc('sum', [980202494.61]), 980202494.61);
+  assert.equal(calc('sum', [1e299, 1e299]), 2e299);
+  assert.equal(calc('max', ['9007199254740993', '9007199254740995']), '9007199254740995');
+  assert.equal(calc('min', ['9007199254740993', '9007199254740995']), '9007199254740993');
+  assert.equal(calc('max', [3, '12', 7]), '12');
+});

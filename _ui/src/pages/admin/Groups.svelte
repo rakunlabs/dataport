@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { Plus, Pencil, Trash2, UsersRound, Search, X } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, UsersRound, Search, X } from '@lucide/svelte';
   import Page from '@/pages/admin/Page.svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import Pager from '@/lib/components/ui/Pager.svelte';

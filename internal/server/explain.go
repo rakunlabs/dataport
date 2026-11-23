@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -142,11 +141,8 @@ func (s *Server) countQuery(w http.ResponseWriter, r *http.Request) {
 func (s *Server) logRun(r *http.Request, c *store.Connection, sql string, err error, rows int64, res any) {
 	user := currentUser(r)
 
-	entry := &store.QueryLog{
-		UserID: user.ID, Username: user.Username,
-		ConnectionID: c.ID, ConnectionName: c.Name, Database: c.Database,
-		SQL: engine.Redact(sql), Status: "ok", Source: "web", RowCount: rows,
-	}
+	entry := logEntry(user, c, engine.Redact(sql), "web")
+	entry.RowCount = rows
 
 	switch x := res.(type) {
 	case *engine.ExplainResult:
@@ -160,12 +156,7 @@ func (s *Server) logRun(r *http.Request, c *store.Connection, sql string, err er
 	}
 
 	if err != nil {
-		entry.Status, entry.Error = "rejected", err.Error()
-
-		var connErr *engine.ConnError
-		if errors.As(err, &connErr) {
-			entry.Status = "unreachable"
-		}
+		failed(entry, "rejected", err)
 	}
 
 	s.audit(r.Context(), entry)

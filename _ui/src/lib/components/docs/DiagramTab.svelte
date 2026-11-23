@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { RefreshCw, LoaderCircle, TriangleAlert, ZoomIn, ZoomOut, Maximize, Key, Link } from 'lucide-svelte';
+  import { RefreshCw, LoaderCircle, TriangleAlert, ZoomIn, ZoomOut, Maximize, Key, Link } from '@lucide/svelte';
   import { api, qs } from '@/lib/api/client';
   import type { Diagram, DiagramTable, SavedDoc } from '@/lib/api/types';
   import { connection, openTableTab, type Tab } from '@/lib/stores/workspace.svelte';

@@ -70,7 +70,7 @@ func (duckdbDriver) Query(ctx context.Context, tx Runner, stmt string, maxRows i
 	}
 	defer func() { _ = rows.Close() }()
 
-	return scanRows(rows, maxRows)
+	return scanRowsWith(rows, maxRows, duckdbValue)
 }
 
 // CheckReadOnly has nothing to add: writes on a grant that may not write

@@ -205,3 +205,57 @@ func TestViewHidesSecret(t *testing.T) {
 		t.Fatal("secret was dropped on save")
 	}
 }
+
+// A renamed provider keeps its users: their links follow the new name.
+func TestRenameKeepsLinks(t *testing.T) {
+	ctx := context.Background()
+	m, st := setup(t)
+	secret := "s"
+
+	p := Provider{Name: "idp", ClientID: "c", AuthURL: "https://a", TokenURL: "https://t", UserInfoURL: "https://u"}
+	if err := m.Save(ctx, "", p, &secret); err != nil {
+		t.Fatal(err)
+	}
+
+	u := &store.User{Username: "ayse", PasswordHash: "x"}
+	if err := st.CreateUser(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.LinkIdentity(ctx, &store.Identity{Provider: "idp", Subject: "s1", UserID: u.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	p.Name = "corp"
+	if err := m.Save(ctx, "idp", p, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if id, err := st.GetIdentity(ctx, "corp", "s1"); err != nil || id.UserID != u.ID {
+		t.Fatalf("link after the rename: %+v %v", id, err)
+	}
+}
+
+// A mapping to a group deleted since does not fail the sign-in; the groups
+// that exist are still synced.
+func TestDeletedMappedGroup(t *testing.T) {
+	ctx := context.Background()
+	m, st := setup(t)
+
+	ops := &store.Group{Name: "ops"}
+	_ = st.CreateGroup(ctx, ops)
+	gone := &store.Group{Name: "gone"}
+	_ = st.CreateGroup(ctx, gone)
+
+	u := &store.User{Username: "u", Email: "u@example.com", PasswordHash: "x"}
+	_ = st.CreateUser(ctx, u)
+
+	p := Provider{Name: "idp", LinkByEmail: true, GroupMapping: map[string]string{"dp-ops": ops.ID, "dp-gone": gone.ID}}
+	if err := st.DeleteGroup(ctx, gone.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := m.Resolve(ctx, p, &identity.Identity{Subject: "s", Email: "u@example.com", EmailVerified: true, Roles: []string{"dp-ops", "dp-gone"}})
+	if err != nil || !slices.Equal(got.GroupIDs, []string{ops.ID}) {
+		t.Fatalf("sign-in with a deleted mapped group: %+v %v", got, err)
+	}
+}

@@ -46,21 +46,39 @@ function storageKey(): string {
 export function persist() {
   if (!currentUser) return;
   clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => {
-    try {
-      const tabs: PersistedTab[] = ws.tabs.map((t) => ({
-        kind: t.kind, title: t.title, connectionId: t.connectionId,
-        ...(t.kind === 'notebook' ? { notebook: t.notebook, notebookInput: t.notebookInput, dirty: t.dirty } : {}),
-        schema: t.schema, table: t.table, sql: t.sql, savedId: t.savedId, maxRows: t.maxRows, timeoutSec: t.timeoutSec,
-        ...(t.kind === 'query' ? { manualTx: t.manualTx, txId: t.txId } : {}),
-        ...(t.kind === 'diagram' && t.fromDocs ? { fromDocs: true } : {}),
-      }));
-      const active = ws.tabs.findIndex((t) => t.id === ws.activeId);
-      localStorage.setItem(storageKey(), JSON.stringify({ tabs, active, open: openConnections() }));
-    } catch {
-      // Storage may be full or disabled.
-    }
-  }, 300);
+  persistTimer = setTimeout(write, 300);
+}
+
+function write() {
+  persistTimer = undefined;
+  if (!currentUser) return;
+  try {
+    const tabs: PersistedTab[] = ws.tabs.map((t) => ({
+      kind: t.kind, title: t.title, connectionId: t.connectionId,
+      ...(t.kind === 'notebook' ? { notebook: t.notebook, notebookInput: t.notebookInput, dirty: t.dirty } : {}),
+      schema: t.schema, table: t.table, sql: t.sql, savedId: t.savedId, maxRows: t.maxRows, timeoutSec: t.timeoutSec,
+      ...(t.kind === 'query' ? { manualTx: t.manualTx, txId: t.txId } : {}),
+      ...(t.kind === 'diagram' && t.fromDocs ? { fromDocs: true } : {}),
+    }));
+    const active = ws.tabs.findIndex((t) => t.id === ws.activeId);
+    localStorage.setItem(storageKey(), JSON.stringify({ tabs, active, open: openConnections() }));
+  } catch {
+    // Storage may be full or disabled.
+  }
+}
+
+// What was typed just before the page closes or reloads is kept too.
+function flush() {
+  if (persistTimer === undefined) return;
+  clearTimeout(persistTimer);
+  write();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flush();
+  });
 }
 
 // loadPersisted reads the user's saved tabs; corrupt state reads as none.

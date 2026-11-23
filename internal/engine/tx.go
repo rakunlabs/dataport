@@ -49,7 +49,7 @@ type openTx struct {
 
 	started    time.Time
 	lastUsed   atomic.Int64
-	statements int
+	statements atomic.Int64
 }
 
 // TxInfo describes an open transaction for its user.
@@ -217,7 +217,7 @@ func (m *Manager) executeTx(ctx context.Context, c *store.Connection, password s
 		for _, stmt := range stmts {
 			rs := m.runStatement(ctx, d, argumentRunner{Runner: otx.tx, args: req.Args}, stmt, req.MaxRows)
 			result.Results = append(result.Results, rs)
-			otx.statements++
+			otx.statements.Add(1)
 
 			if rs.Error != "" {
 				break
@@ -233,7 +233,10 @@ func (m *Manager) executeTx(ctx context.Context, c *store.Connection, password s
 
 	if killed.Load() || ctx.Err() != nil {
 		m.dropTx(otx)
-		otx.end(false)
+		// The run holds otx.mu; end would wait for it forever.
+		if !otx.closed {
+			_ = otx.endLocked(false)
+		}
 
 		result.TxRolledBack = true
 
@@ -241,7 +244,7 @@ func (m *Manager) executeTx(ctx context.Context, c *store.Connection, password s
 	}
 
 	result.TxOpen = true
-	result.TxStatements = otx.statements
+	result.TxStatements = int(otx.statements.Load())
 	result.TxStartedAt = otx.started.UnixMilli()
 
 	return result, nil
@@ -268,7 +271,7 @@ func (m *Manager) EndTx(_ context.Context, userID, txID, connID string, commit b
 	}
 
 	m.dropTx(otx)
-	out := &TxEnd{Statements: otx.statements}
+	out := &TxEnd{Statements: int(otx.statements.Load())}
 	err := otx.endLocked(commit)
 	otx.mu.Unlock()
 
@@ -290,7 +293,7 @@ func (m *Manager) Txs(_ context.Context, userID string) []TxInfo {
 
 	for k, o := range m.txs {
 		if k.userID == userID {
-			out = append(out, TxInfo{TxID: k.txID, ConnectionID: o.connID, StartedAt: o.started.UnixMilli(), LastUsedAt: o.lastUsed.Load(), Statements: o.statements})
+			out = append(out, TxInfo{TxID: k.txID, ConnectionID: o.connID, StartedAt: o.started.UnixMilli(), LastUsedAt: o.lastUsed.Load(), Statements: int(o.statements.Load())})
 		}
 	}
 

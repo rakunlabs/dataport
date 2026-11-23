@@ -44,7 +44,9 @@ func (sqliteDriver) Open(c *store.Connection, _ string) (*sql.DB, error) {
 		mode = "ro"
 	}
 
-	dsn := "file:" + path + "?mode=" + mode + "&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	// Times are written as SQLite's date functions read them; the driver's
+	// default is Go's own format ("... +0000 UTC").
+	dsn := "file:" + path + "?mode=" + mode + "&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_time_format=sqlite"
 
 	connector, err := sqlite.NewConnector(dsn)
 	if err != nil {

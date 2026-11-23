@@ -1,13 +1,11 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/rakunlabs/dataport/internal/engine"
-	"github.com/rakunlabs/dataport/internal/store"
 )
 
 // applyEdits saves row changes made in the table grid. Only grants that allow
@@ -47,24 +45,11 @@ func (s *Server) applyEdits(w http.ResponseWriter, r *http.Request) {
 		Timeout:    s.timeout(c),
 	})
 
-	entry := &store.QueryLog{
-		UserID:         user.ID,
-		Username:       user.Username,
-		ConnectionID:   c.ID,
-		ConnectionName: c.Name,
-		Database:       c.Database,
-		Status:         "ok",
-	}
+	entry := logEntry(user, c, "", "web")
 
 	if err != nil {
-		entry.Status = "error"
-		entry.Error = err.Error()
+		failed(entry, "error", err)
 		entry.SQL = "-- grid edit of " + req.Schema + "." + req.Table + ", " + plural(len(req.Edits), "change")
-
-		var connErr *engine.ConnError
-		if errors.As(err, &connErr) {
-			entry.Status = "unreachable"
-		}
 	} else {
 		entry.SQL = strings.Join(result.Statements, ";\n")
 		entry.RowCount = result.Affected

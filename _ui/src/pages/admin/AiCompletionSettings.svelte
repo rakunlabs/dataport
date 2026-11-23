@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { PlugZap, LoaderCircle } from 'lucide-svelte';
+  import { PlugZap, LoaderCircle } from '@lucide/svelte';
   import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { api } from '@/lib/api/client';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';

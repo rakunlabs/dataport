@@ -84,8 +84,17 @@ type served struct {
 	cancel context.CancelFunc
 }
 
+// ErrNoSecurityKey refuses a cluster without DATAPORT_CLUSTER_SECURITY_KEY.
+var ErrNoSecurityKey = errors.New("the cluster needs DATAPORT_CLUSTER_SECURITY_KEY, the same on every replica; without it any host that reaches the cluster port could run SQL")
+
 // New joins the cluster described by cfg. Start runs it.
 func New(cfg config.Cluster, m *engine.Manager, ci *crypto.Cipher) (*Router, error) {
+	// Forwarded calls carry connections and their secrets, so a replica
+	// admits only peers that hold the same key.
+	if cfg.SecurityKey == "" {
+		return nil, ErrNoSecurityKey
+	}
+
 	ac := alan.Config{
 		DNSAddr:         cfg.DNSAddr,
 		BindAddr:        cfg.BindAddr,
@@ -96,9 +105,7 @@ func New(cfg config.Cluster, m *engine.Manager, ci *crypto.Cipher) (*Router, err
 		MaxMessageSize: 32 << 20,
 	}
 
-	if cfg.SecurityKey != "" {
-		ac.Security = alan.SecurityConfig{Enabled: true, Key: []byte(cfg.SecurityKey)}
-	}
+	ac.Security = alan.SecurityConfig{Enabled: true, Key: []byte(cfg.SecurityKey)}
 
 	a, err := alan.New(ac)
 	if err != nil {

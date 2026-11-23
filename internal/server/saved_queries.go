@@ -16,6 +16,7 @@ func (s *Server) myHistory(w http.ResponseWriter, r *http.Request) {
 		ConnectionID: q.Get("connection_id"),
 		Search:       q.Get("search"),
 		Before:       parseInt64(q.Get("before")),
+		BeforeID:     q.Get("before_id"),
 		Limit:        int(parseInt64(q.Get("limit"))),
 	})
 	if err != nil {

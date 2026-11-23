@@ -90,6 +90,7 @@ const pl: Messages = {
     closeOthers: 'Zamknij pozostałe',
     closeTab: 'Zamknij kartę',
     query: 'Zapytanie {n}',
+    rename: 'Zmień nazwę',
   },
   conn: {
     limitsHint: 'Liczba wierszy zwracanych na instrukcję i maksymalny czas wykonania',

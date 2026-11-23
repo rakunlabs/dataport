@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { RefreshCw, CircleCheck, CircleX, Ban, Unplug } from 'lucide-svelte';
+  import { RefreshCw, CircleCheck, CircleX, Ban, Unplug } from '@lucide/svelte';
   import Page from '@/pages/admin/Page.svelte';
   import { api, qs } from '@/lib/api/client';
   import type { QueryLog } from '@/lib/api/types';
@@ -34,17 +34,24 @@
 
   void Promise.all([loadUsers(), loadConnections()]).catch(() => {});
 
+  // Only the page asked for last is shown, when filters change quickly.
+  let loadSeq = 0;
+
   async function load(append = false) {
+    const seq = ++loadSeq;
     loading = true;
     try {
-      const before = append ? logs[logs.length - 1]?.created_at : undefined;
-      const page = await api.get<QueryLog[]>('/admin/logs' + qs({ ...filter, ...timeWindow(), before, limit: pageSize }));
+      // The last entry shown, by time and id, so entries of its millisecond
+      // are not skipped.
+      const last = append ? logs[logs.length - 1] : undefined;
+      const page = await api.get<QueryLog[]>('/admin/logs' + qs({ ...filter, ...timeWindow(), before: last?.created_at, before_id: last?.id, limit: pageSize }));
+      if (seq !== loadSeq) return;
       logs = append ? [...logs, ...page] : page;
       more = page.length === pageSize;
     } catch (e) {
-      toast(errorMessage(e), 'error');
+      if (seq === loadSeq) toast(errorMessage(e), 'error');
     } finally {
-      loading = false;
+      if (seq === loadSeq) loading = false;
     }
   }
 

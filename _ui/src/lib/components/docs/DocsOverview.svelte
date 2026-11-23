@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { t, fmtNumber } from '@/lib/i18n/index.svelte';
-  import { TriangleAlert, Info } from 'lucide-svelte';
+  import { TriangleAlert, Info } from '@lucide/svelte';
   import type { Anomaly, AnomalyKind, SchemaDoc } from '@/lib/api/types';
   import { rows } from '@/lib/components/docs/docFormat';
   import type { Section } from '@/lib/components/docs/DocsTab.svelte';

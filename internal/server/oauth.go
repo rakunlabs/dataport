@@ -295,9 +295,7 @@ func (s *Server) oauthRegister(w http.ResponseWriter, r *http.Request) {
 		name = "MCP client"
 	}
 
-	if len(name) > 100 {
-		name = name[:100]
-	}
+	name = clip(name, 100)
 
 	// The same app registers again for every person and every sign-in; it
 	// joins the client registered first under its name and redirects, so

@@ -2,7 +2,7 @@
   // An MCP client asks to act as the user (OAuth). The user picks what it
   // may reach and approves; the browser then returns to the client.
   import { router } from 'svelte-spa-router';
-  import { Bot, Check, X, TriangleAlert, LoaderCircle } from 'lucide-svelte';
+  import { Bot, Check, X, TriangleAlert, LoaderCircle } from '@lucide/svelte';
   import Logo from '@/lib/components/ui/Logo.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { api } from '@/lib/api/client';

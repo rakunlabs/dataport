@@ -42,3 +42,10 @@ const order: ThemeMode[] = ['system', 'light', 'dark'];
 export function cycleTheme() {
   setTheme(order[(order.indexOf(theme.mode) + 1) % order.length]);
 }
+
+// The label of each mode, in the order a click moves through them.
+export const themeLabels: Record<ThemeMode, string> = {
+  system: 'app.themeSystem',
+  light: 'app.themeLight',
+  dark: 'app.themeDark',
+};

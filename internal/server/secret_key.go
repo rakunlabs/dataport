@@ -111,6 +111,14 @@ func (s *Server) adminRotateSecretKey(w http.ResponseWriter, r *http.Request) {
 	done := sync.OnceFunc(s.cipher.Rotating())
 	defer done()
 
+	// Values the rewrite commits are readable at once, before the new key
+	// becomes the one to seal with.
+	if err := s.cipher.Accept(in.Key); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+
+		return
+	}
+
 	// Read with every key the server knows, seal with the new one only.
 	count, err := s.store.RewriteSecrets(ctx, func(enc string) (string, error) {
 		plain, err := s.cipher.Decrypt(enc)

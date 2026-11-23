@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { drag } from '@/lib/helper/drag';
+  import { storedGet, storedSet } from '@/lib/helper/storage';
   import { t } from '@/lib/i18n/index.svelte';
-  import { FilePlus2, Lock, ChevronsRight } from 'lucide-svelte';
+  import { FilePlus2, Lock, ChevronsRight } from '@lucide/svelte';
   import TopBar from '@/lib/components/workspace/TopBar.svelte';
   import Sidebar from '@/lib/components/workspace/Sidebar.svelte';
   import TabBar from '@/lib/components/workspace/TabBar.svelte';
@@ -21,9 +23,9 @@
   import { session } from '@/lib/stores/session.svelte';
   import { activeTab, openQueryTab, startWorkspace, ws, workspaceConnections } from '@/lib/stores/workspace.svelte';
 
-  let sidebarWidth = $state(Number(localStorage.getItem('dataport.sidebar')) || 264);
+  let sidebarWidth = $state(Number(storedGet('dataport.sidebar')) || 264);
   // A collapsed sidebar leaves a thin strip with the button that opens it.
-  let collapsed = $state(localStorage.getItem('dataport.sidebar.collapsed') === '1');
+  let collapsed = $state(storedGet('dataport.sidebar.collapsed') === '1');
 
   function setCollapsed(v: boolean) {
     collapsed = v;
@@ -42,32 +44,14 @@
 
   // The assistant's panel is resized from its left edge.
   function resizeAssistant(e: PointerEvent) {
-    e.preventDefault();
-    const x0 = e.clientX;
     const w0 = assistant.width;
     let w = w0;
-    const move = (ev: PointerEvent) => (assistant.width = w = Math.min(760, Math.max(300, w0 - (ev.clientX - x0))));
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      setAssistantWidth(w);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    drag(e, (dx) => (assistant.width = w = Math.min(760, Math.max(300, w0 - dx))), () => setAssistantWidth(w));
   }
 
   function resize(e: PointerEvent) {
-    e.preventDefault();
-    const x0 = e.clientX;
     const w0 = sidebarWidth;
-    const move = (ev: PointerEvent) => (sidebarWidth = Math.min(560, Math.max(200, w0 + ev.clientX - x0)));
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      localStorage.setItem('dataport.sidebar', String(sidebarWidth));
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    drag(e, (dx) => (sidebarWidth = Math.min(560, Math.max(200, w0 + dx))), () => storedSet('dataport.sidebar', String(sidebarWidth)));
   }
 </script>
 

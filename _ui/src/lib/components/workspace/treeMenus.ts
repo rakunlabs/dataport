@@ -29,7 +29,7 @@ import {
   Trash2,
   Lock,
   LockOpen,
-} from 'lucide-svelte';
+} from '@lucide/svelte';
 import type { MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
 import {
   loadColumns,

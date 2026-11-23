@@ -355,7 +355,9 @@ func (s *Server) cellAccess(ctx context.Context, user *store.User, c notebook.Ce
 	if p.noProductionWrites && !c.Template && changesEveryRow(c, g) && !preview {
 		return g, refuse(http.StatusForbidden, "cell "+c.Path+" has an UPDATE or DELETE without WHERE, which needs a confirmation this caller cannot give")
 	}
-	if p.source == "mcp" && p.caller != nil {
+	// The user's agent policy holds for every bearer token, on published
+	// endpoints as on MCP.
+	if p.caller != nil {
 		if err := s.mcpCellAccess(ctx, p.caller, c, g.src, false); err != nil {
 			return g, err
 		}
@@ -365,7 +367,7 @@ func (s *Server) cellAccess(ctx context.Context, user *store.User, c notebook.Ce
 		if err != nil || g.dst.ReadOnly || g.dst.Connection.HideNotebooks {
 			return g, refuse(http.StatusForbidden, "cell "+c.Path+": transfer target unavailable or read-only")
 		}
-		if p.source == "mcp" && p.caller != nil {
+		if p.caller != nil {
 			if err := s.mcpCellAccess(ctx, p.caller, c, g.dst, true); err != nil {
 				return g, err
 			}

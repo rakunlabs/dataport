@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { KeyRound, TriangleAlert, Copy, Check, Dices } from 'lucide-svelte';
+  import { KeyRound, TriangleAlert, Copy, Check, Dices } from '@lucide/svelte';
   import Page from '@/pages/admin/Page.svelte';
   import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { api } from '@/lib/api/client';

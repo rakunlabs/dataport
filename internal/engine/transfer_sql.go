@@ -113,12 +113,12 @@ func bytesLiteral(d Driver, b []byte) string {
 func timeLiteral(d Driver, typ string, t time.Time) string {
 	switch {
 	case strings.Contains(typ, "date") && !strings.Contains(typ, "time"):
-		s := "'" + t.Format("2006-01-02") + "'"
+		// An Oracle DATE holds the time of day too.
 		if d.Type() == "oracle" {
-			return "DATE " + s
+			return "TO_DATE('" + t.Format("2006-01-02 15:04:05") + "', 'YYYY-MM-DD HH24:MI:SS')"
 		}
 
-		return s
+		return "'" + t.Format("2006-01-02") + "'"
 	case typ == "time" || strings.HasPrefix(typ, "time ") || strings.HasPrefix(typ, "time("):
 		return "'" + t.Format("15:04:05.999999") + "'"
 	}
@@ -133,6 +133,11 @@ func timeLiteral(d Driver, typ string, t time.Time) string {
 	case "mssql":
 		if strings.Contains(typ, "offset") {
 			return "'" + t.Format("2006-01-02 15:04:05.9999999 -07:00") + "'"
+		}
+
+		// datetime takes three fractional digits, datetime2 seven.
+		if strings.Contains(typ, "datetime2") {
+			return "'" + t.Format("2006-01-02T15:04:05.9999999") + "'"
 		}
 
 		return "'" + t.Format("2006-01-02T15:04:05.999") + "'"

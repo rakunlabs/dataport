@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Trash2 } from 'lucide-svelte';
+  import { Trash2 } from '@lucide/svelte';
   import * as nb from '@/lib/api/notebooks';
   import type { Notebook, NotebookAccess, NotebookSubject } from '@/lib/api/notebooks';
   import { t } from '@/lib/i18n/index.svelte';

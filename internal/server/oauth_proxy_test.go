@@ -178,3 +178,34 @@ func TestOAuthSignInFirst(t *testing.T) {
 		t.Fatalf("remembered: %v", p)
 	}
 }
+
+// The resource of an authorization names a connection by the path the
+// client was given, with a proxy prefix, and an unknown resource is refused
+// rather than read as every connection.
+func TestOAuthResourceConnection(t *testing.T) {
+	env := newMCPEnv(t, "")
+
+	r := httptest.NewRequest(http.MethodGet, "/oauth/authorize", nil)
+	r.Header.Set("X-Forwarded-Host", "tools.example.com")
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Prefix", "/dataport")
+
+	tests := []struct {
+		resource string
+		conn     string
+		ok       bool
+	}{
+		{"", "", true},
+		{"https://tools.example.com/dataport/mcp", "", true},
+		{"https://tools.example.com/dataport/mcp/shop", "shop", true},
+		{"https://tools.example.com/dataport/mcp/orders%20db/", "orders db", true},
+		{"https://tools.example.com/mcp/shop", "shop", true},
+		{"https://tools.example.com/elsewhere/shop", "", false},
+	}
+
+	for _, tt := range tests {
+		if conn, ok := env.srv.resourceConnection(r, tt.resource); conn != tt.conn || ok != tt.ok {
+			t.Errorf("resourceConnection(%q) = %q, %v; want %q, %v", tt.resource, conn, ok, tt.conn, tt.ok)
+		}
+	}
+}

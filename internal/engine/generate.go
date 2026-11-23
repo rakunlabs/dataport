@@ -706,6 +706,11 @@ var generators = map[string]genFunc{
 	},
 	"int": func(g *generator, o genOptions) any {
 		dlo, dhi := intRange(o.family)
+		// An 8-bit column (MySQL and SQL Server tinyint, ClickHouse Int8 or
+		// UInt8) holds at most 127.
+		if tinyInt(o.col.Type) {
+			dhi = 100
+		}
 		lo, hi := o.bounds(dlo, dhi)
 		a, b := int64(math.Ceil(lo)), int64(math.Floor(hi))
 
@@ -765,6 +770,22 @@ func intRange(family string) (float64, float64) {
 	}
 
 	return 1, 1_000_000
+}
+
+// tinyInt reports an 8-bit integer column. PostgreSQL's int8 is 8 bytes;
+// ClickHouse writes its 8-bit Int8 and UInt8 capitalised.
+func tinyInt(typ string) bool {
+	t := strings.TrimSpace(typ)
+	for _, w := range []string{"Nullable(", "LowCardinality("} {
+		for strings.HasPrefix(t, w) && strings.HasSuffix(t, ")") {
+			t = strings.TrimSpace(t[len(w) : len(t)-1])
+		}
+	}
+
+	t = strings.TrimSpace(typeArgs.ReplaceAllString(t, ""))
+	lower := strings.ToLower(t)
+
+	return strings.HasPrefix(lower, "tinyint") || lower == "utinyint" || t == "Int8" || t == "UInt8"
 }
 
 func round(f float64, dec int) float64 {
@@ -1212,6 +1233,12 @@ func maxOf(ctx context.Context, d Driver, q Querier, schema, table, column strin
 		if err := rows.Scan(&v); err != nil {
 			return 0, err
 		}
+	}
+
+	// A failed read must not look like an empty table: the sequence would
+	// start again at 1 and collide with the keys there.
+	if err := rows.Err(); err != nil {
+		return 0, err
 	}
 
 	if b, ok := v.([]byte); ok {

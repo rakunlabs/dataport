@@ -233,11 +233,12 @@ FROM dba_users WHERE oracle_maintained = 'N' ORDER BY username`))
 }
 
 func (oracleDriver) Grants(ctx context.Context, q Querier, name, _ string) ([]string, error) {
+	// go-ora binds by position: every placeholder takes a value of its own.
 	list, err := linesOf(q.QueryContext(ctx, `SELECT 'Role ' || granted_role || CASE WHEN admin_option = 'YES' THEN ' WITH ADMIN OPTION' END FROM dba_role_privs WHERE grantee = :1
 UNION ALL
-SELECT 'System ' || privilege || CASE WHEN admin_option = 'YES' THEN ' WITH ADMIN OPTION' END FROM dba_sys_privs WHERE grantee = :1
+SELECT 'System ' || privilege || CASE WHEN admin_option = 'YES' THEN ' WITH ADMIN OPTION' END FROM dba_sys_privs WHERE grantee = :2
 UNION ALL
-SELECT privilege || ' ON ' || owner || '.' || table_name || CASE WHEN grantable = 'YES' THEN ' (grantable)' END FROM dba_tab_privs WHERE grantee = :1`, name))
+SELECT privilege || ' ON ' || owner || '.' || table_name || CASE WHEN grantable = 'YES' THEN ' (grantable)' END FROM dba_tab_privs WHERE grantee = :3`, name, name, name))
 	if err == nil {
 		return list, nil
 	}
@@ -245,7 +246,7 @@ SELECT privilege || ' ON ' || owner || '.' || table_name || CASE WHEN grantable 
 	// Without DBA views, what is visible to the account itself.
 	return linesOf(q.QueryContext(ctx, `SELECT 'Role ' || granted_role FROM user_role_privs WHERE username = :1
 UNION ALL
-SELECT privilege || ' ON ' || owner || '.' || table_name FROM all_tab_privs WHERE grantee = :1`, name))
+SELECT privilege || ' ON ' || owner || '.' || table_name FROM all_tab_privs WHERE grantee = :2`, name, name))
 }
 
 func (clickhouseDriver) Users(ctx context.Context, q Querier) ([]DBUser, error) {

@@ -191,7 +191,7 @@ func (a *Auth) CreateSession(ctx context.Context, userID, ip, userAgent string, 
 	ts := time.Now()
 
 	if len(userAgent) > 256 {
-		userAgent = userAgent[:256]
+		userAgent = strings.ToValidUTF8(userAgent[:256], "")
 	}
 
 	if err := a.store.CreateSession(ctx, &store.Session{
@@ -210,18 +210,11 @@ func (a *Auth) CreateSession(ctx context.Context, userID, ip, userAgent string, 
 	return token, nil
 }
 
-// Authenticate resolves a session token to its user. A remembered session
-// slides: each use more than a minute after the last one extends its expiry
-// by the idle window, never past its maximum lifetime.
-func (a *Auth) Authenticate(ctx context.Context, token string) (*store.User, error) {
-	user, _, err := a.AuthenticateSession(ctx, token)
-
-	return user, err
-}
-
-// AuthenticateSession is Authenticate that also returns the session, whose
-// Remember decides the cookie's lifetime. LastSeenAt is the previous use and
-// ExpiresAt the extended expiry.
+// AuthenticateSession resolves a session token to its user and session,
+// whose Remember decides the cookie's lifetime. A remembered session slides:
+// each use more than a minute after the last one extends its expiry by the
+// idle window, never past its maximum lifetime. LastSeenAt is the previous
+// use and ExpiresAt the extended expiry.
 func (a *Auth) AuthenticateSession(ctx context.Context, token string) (*store.User, *store.Session, error) {
 	if token == "" {
 		return nil, nil, store.ErrNotFound

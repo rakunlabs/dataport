@@ -220,9 +220,18 @@ func (m *Manager) sync(ctx context.Context, p Provider, user *store.User, roles 
 		managed := map[string]bool{}
 		wanted := map[string]bool{}
 
+		// A group deleted since the mapping was made is skipped: adding the
+		// user to it would fail every sign-in.
+		existing := map[string]bool{}
+		if all, err := m.store.ListGroups(ctx); err == nil {
+			for _, g := range all {
+				existing[g.ID] = true
+			}
+		}
+
 		for claim, group := range p.GroupMapping {
 			managed[group] = true
-			if slices.Contains(roles, claim) {
+			if slices.Contains(roles, claim) && existing[group] {
 				wanted[group] = true
 			}
 		}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/rakunlabs/dataport/internal/engine"
@@ -82,19 +83,34 @@ func (s *Server) docAccess(ctx context.Context, k store.DocKey) (*store.Grant, s
 			return nil, "", "", err
 		}
 	}
-	connection := *g.Connection
-	// Access is rechecked separately; SQL does not promise its row order.
+	version, err := docVersion(g.Connection, g.Connection.PasswordEnc, cred)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return g, password, version, nil
+}
+
+// docVersion fingerprints what a snapshot was built against: the
+// connection's settings, its sealed secret and the user's sealed account,
+// never a password in the clear. A change to any of them makes the snapshot
+// stale. Access is rechecked separately, and SQL does not promise its row
+// order, so it is left out.
+func docVersion(c *store.Connection, secret string, cred *store.Credential) (string, error) {
+	connection := *c
 	connection.Access = nil
+
 	b, err := json.Marshal(struct {
 		Connection *store.Connection
 		Secret     string
 		Credential *store.Credential
-	}{&connection, g.Connection.PasswordEnc, cred})
+	}{&connection, secret, cred})
 	if err != nil {
-		return nil, "", "", err
+		return "", err
 	}
+
 	h := sha256.Sum256(b)
-	return g, password, hex.EncodeToString(h[:]), nil
+
+	return hex.EncodeToString(h[:]), nil
 }
 
 // errDocsReadOnly is returned to users who may only read documentation when
@@ -182,9 +198,21 @@ func (s *Server) sharedDocumentation(ctx context.Context, k store.DocKey, force,
 }
 
 func (s *Server) ownDocumentation(ctx context.Context, k store.DocKey, force bool) (*docResponse, error) {
-	_, _, version, err := s.docAccess(ctx, k)
+	g, password, version, err := s.docAccess(ctx, k)
 	if err != nil {
 		return nil, err
+	}
+	// A schema is kept for documentation, and rebuilt by every scheduled
+	// run, only when the database has it: any name asked for would grow the
+	// list without bound.
+	if _, err := s.store.GetDoc(ctx, k); errors.Is(err, store.ErrNotFound) {
+		schemas, err := s.engine.Schemas(ctx, g.Connection, password)
+		if err != nil {
+			return nil, err
+		}
+		if !slices.Contains(schemas, k.Schema) {
+			return nil, store.ErrNotFound
+		}
 	}
 	if err := s.store.EnsureDoc(ctx, k); err != nil {
 		return nil, err

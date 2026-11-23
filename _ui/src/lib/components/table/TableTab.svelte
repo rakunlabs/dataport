@@ -23,7 +23,7 @@
     TableProperties,
     Palette,
     Calculator,
-  } from 'lucide-svelte';
+  } from '@lucide/svelte';
   import TableStructure from '@/lib/components/table/TableStructure.svelte';
   import ConditionInput from '@/lib/components/table/ConditionInput.svelte';
   import ExportMenu from '@/lib/components/result/ExportMenu.svelte';
@@ -357,7 +357,7 @@
       <span class="tabular-nums">
         {#if rowCount}
           {t('table.rowsRange', { from: fmtNumber(tab.offset + 1), to: fmtNumber(tab.offset + rowCount) })}
-          {#if !tab.hasMore}<span class="ml-1 text-faint">· {t('table.total', { count: fmtNumber(tab.offset + rowCount) })}</span>{:else if totalOf(tab, current)?.count === undefined}<span class="ml-1 text-faint">· {t('table.more')}</span>{/if}
+          {#if !tab.hasMore}<span class="ml-1 text-faint">· {t('table.total', { count: tab.offset + rowCount })}</span>{:else if totalOf(tab, current)?.count === undefined}<span class="ml-1 text-faint">· {t('table.more')}</span>{/if}
         {:else}
           {t('table.noRows')}
         {/if}

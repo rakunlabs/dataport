@@ -124,8 +124,8 @@ type Cluster struct {
 	// Replicas is the expected number of replicas, this one included. Locks
 	// need a majority of them; zero turns the quorum off.
 	Replicas int `cfg:"replicas"`
-	// SecurityKey admits only replicas with the same key; empty lets any
-	// replica that can reach the port join.
+	// SecurityKey admits only replicas with the same key. It is required:
+	// the cluster does not start without it.
 	SecurityKey     string        `cfg:"security_key" log:"-"`
 	RefreshInterval time.Duration `cfg:"refresh_interval"`
 	// Name is shown for this replica in Settings → Cluster; empty uses the

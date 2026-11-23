@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, i18n, locales, setLocale } from '@/lib/i18n/index.svelte';
-  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, LockKeyhole, Sparkles, Moon, Sun, Monitor, Check, Info, SlidersHorizontal, PlugZap, Network, RotateCcw } from 'lucide-svelte';
+  import { Palette, Code2, UserRound, Bot, Database, Users, UsersRound, KeyRound, ScrollText, BookOpen, Timer, LockKeyhole, Sparkles, Moon, Sun, Monitor, Check, Info, SlidersHorizontal, PlugZap, Network, RotateCcw } from '@lucide/svelte';
   import { session } from '@/lib/stores/session.svelte';
   import { setTheme, theme, type ThemeMode } from '@/lib/stores/theme.svelte';
   import { ws } from '@/lib/stores/workspace.svelte';

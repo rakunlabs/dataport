@@ -6,7 +6,7 @@
 
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Plus, Play, Save, Trash2, RefreshCw, Square, Download } from 'lucide-svelte';
+  import { Plus, Play, Save, Trash2, RefreshCw, Square, Download } from '@lucide/svelte';
   import { ApiError } from '@/lib/api/client';
   import * as nb from '@/lib/api/notebooks';
   import { newCell, type NotebookCell, type NotebookResult } from '@/lib/api/notebooks';
@@ -205,7 +205,7 @@
           {@const cellResult = tab.notebookResult.cells.find((c) => c.path === selected)}
           {#if cellResult?.error}<p class="p-3 text-sm text-danger">{cellResult.error}</p>{/if}
           {#if cellResult?.sql}<pre class="overflow-auto p-3 font-mono text-xs">{cellResult.sql}{cellResult.args?.length ? '\n' + JSON.stringify(cellResult.args, null, 2) : ''}</pre>{/if}
-          {#if resultTab}<div class="h-80 min-h-0 border-b border-line"><ResultPanel tab={resultTab} /></div>{/if}
+          {#if resultTab}<div class="h-80 min-h-0 border-b border-line"><ResultPanel tab={resultTab} detached /></div>{/if}
         {:else}<p class="p-4 text-xs text-muted">{t('notebook.noResults')}</p>{/if}
       {:else if section === 'parameters'}
         <div class="max-w-4xl space-y-4 p-4">

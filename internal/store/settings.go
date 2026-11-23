@@ -18,19 +18,11 @@ func (s *Store) GetSetting(ctx context.Context, name string) (string, error) {
 	return value, err
 }
 
+// SetSetting stores a value in one statement, so two replicas saving the
+// same setting for the first time do not race into a duplicate key.
 func (s *Store) SetSetting(ctx context.Context, name, value string) error {
-	ts := now()
-
-	res, err := s.exec(ctx, "UPDATE "+s.t("settings")+" SET value = ?, updated_at = ? WHERE name = ?", value, ts, name)
-	if err != nil {
-		return err
-	}
-
-	if n, _ := res.RowsAffected(); n > 0 {
-		return nil
-	}
-
-	_, err = s.exec(ctx, "INSERT INTO "+s.t("settings")+" (name, value, updated_at) VALUES (?, ?, ?)", name, value, ts)
+	_, err := s.exec(ctx, "INSERT INTO "+s.t("settings")+" (name, value, updated_at) VALUES (?, ?, ?)"+
+		" ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at", name, value, now())
 
 	return err
 }

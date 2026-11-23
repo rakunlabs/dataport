@@ -92,7 +92,9 @@ async function execute(t: Tab, sql: string, confirm = false, mode: RunMode = 're
       sql,
       query_id: t.queryId,
       confirm,
-      max_rows: t.kind === 'query' ? t.maxRows : 0,
+      // A table page reads one row more than it shows, to tell whether a
+      // next page exists; the connection's row cap would cut it off.
+      max_rows: t.kind === 'query' ? t.maxRows : t.kind === 'table' ? t.limit + 1 : 0,
       timeout_sec: t.kind === 'query' && t.timeoutSec >= 0 ? t.timeoutSec : undefined,
       ...(inTx ? { tx_id: t.txId, tx_continue: t.txOpen } : {}),
     });
@@ -103,7 +105,8 @@ async function execute(t: Tab, sql: string, confirm = false, mode: RunMode = 're
     }
     if (t.kind === 'table') {
       const rs = res.results[0];
-      t.hasMore = !!rs?.rows && rs.rows.length > t.limit;
+      // Cut by the server's row ceiling, the page may be short but not last.
+      t.hasMore = !!rs?.rows && (rs.rows.length > t.limit || !!rs.truncated);
       if (t.hasMore) rs.rows = rs.rows!.slice(0, t.limit);
       t.edit.clear();
       t.result = res;
@@ -383,11 +386,21 @@ function declarationsBefore(doc: string, part: string, dbType: string): string {
   return declarationLines(at > 0 ? doc.slice(0, at) : doc, dbType);
 }
 
-export async function runTable(id: string) {
+// A table tab whose filter, sort or page changed while it was reading runs
+// again when that read ends, so the rows match what the tab shows.
+const rerunTables = new Set<string>();
+
+export async function runTable(id: string): Promise<ResultSet[] | undefined> {
   const t = findTab(id);
   if (!t) return;
+  if (t.running) {
+    rerunTables.add(id);
+    return;
+  }
   await loadColumns(t.connectionId, t.schema, t.table, 'failed');
-  return execute(t, tableSQL(t));
+  const out = await execute(t, tableSQL(t));
+  if (rerunTables.delete(id)) return runTable(id);
+  return out;
 }
 
 export async function cancel(id: string) {

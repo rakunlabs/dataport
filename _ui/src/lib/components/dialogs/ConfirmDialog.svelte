@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { TriangleAlert } from 'lucide-svelte';
+  import { TriangleAlert } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import { answer, confirmState } from '@/lib/stores/confirm.svelte';
   import { t } from '@/lib/i18n/index.svelte';

@@ -1,7 +1,7 @@
 <script lang="ts">
   import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { PlugZap, LoaderCircle, CircleCheck, CircleX, ChevronRight, ChevronLeft } from 'lucide-svelte';
+  import { PlugZap, LoaderCircle, CircleCheck, CircleX, ChevronRight, ChevronLeft } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import DbPicker from '@/lib/components/ui/DbPicker.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';

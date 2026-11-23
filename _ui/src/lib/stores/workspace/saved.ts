@@ -23,6 +23,21 @@ export async function saveTab(id: string, name?: string) {
   await loadSaved();
 }
 
+// renameTab gives a query tab a new title. A saved query takes the new name
+// too, with its saved SQL, so unsaved edits in the tab stay unsaved.
+export async function renameTab(id: string, name: string) {
+  const t = findTab(id);
+  name = name.trim();
+  if (!t || !name || name === t.title) return;
+  const saved = t.savedId ? ws.saved.find((q) => q.id === t.savedId) : undefined;
+  if (saved) {
+    await api.put(`/saved/${saved.id}`, { connection_id: saved.connection_id, name, sql: saved.sql });
+  }
+  t.title = name;
+  persist();
+  if (saved) await loadSaved();
+}
+
 export async function deleteSaved(id: string) {
   await api.del(`/saved/${id}`);
   for (const t of ws.tabs) if (t.savedId === id) t.savedId = '';

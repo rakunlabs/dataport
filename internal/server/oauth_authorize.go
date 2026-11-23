@@ -65,7 +65,12 @@ func (s *Server) checkAuthorize(r *http.Request, user *store.User, p authorizePa
 		return out, &errRedirect{"invalid_request", "PKCE with S256 is required"}
 	}
 
-	if conn := s.resourceConnection(r, p.Resource); conn != "" {
+	conn, known := s.resourceConnection(r, p.Resource)
+	if !known {
+		return out, &errRedirect{"invalid_target", "the resource is not an MCP endpoint of this server"}
+	}
+
+	if conn != "" {
 		g, err := s.grantByName(r, user, conn)
 		if err != nil {
 			return out, &errRedirect{"invalid_target", "you have no access to connection " + conn}
@@ -78,23 +83,33 @@ func (s *Server) checkAuthorize(r *http.Request, user *store.User, p authorizePa
 }
 
 // resourceConnection returns the connection named by a resource URL such
-// as https://host/base/mcp/shop; empty for the whole /mcp endpoint.
-func (s *Server) resourceConnection(r *http.Request, resource string) string {
+// as https://host/base/mcp/shop; empty for the whole /mcp endpoint. The
+// path is matched as the client sees it, with a proxy prefix or the path of
+// the external URL, and as dataport serves it. ok is false for a resource
+// that is neither, which must not widen into every connection.
+func (s *Server) resourceConnection(r *http.Request, resource string) (string, bool) {
 	if resource == "" {
-		return ""
+		return "", true
 	}
 
 	u, err := url.Parse(resource)
 	if err != nil {
-		return ""
+		return "", false
 	}
 
-	rest, ok := strings.CutPrefix(u.Path, s.cfg.Server.BasePath+"/mcp/")
-	if !ok {
-		return ""
+	for _, base := range []string{s.publicPath(r), s.cfg.Server.BasePath} {
+		p := strings.TrimRight(u.Path, "/")
+		if p == base+"/mcp" {
+			return "", true
+		}
+
+		// url.Parse has unescaped the path already.
+		if rest, ok := strings.CutPrefix(p, base+"/mcp/"); ok {
+			return strings.Trim(rest, "/"), true
+		}
 	}
 
-	return strings.Trim(rest, "/")
+	return "", false
 }
 
 // grantByName finds a connection of the user by name or id.

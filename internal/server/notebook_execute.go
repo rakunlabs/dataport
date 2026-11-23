@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -77,14 +78,18 @@ func (s *Server) executeNotebook(ctx context.Context, user *store.User, n *store
 				return errNotebooksOff
 			}
 			if caller != nil {
-				// Recheck authentication between cells. Revocation does not
-				// retroactively undo a cell already running on the database.
-				if caller.token.ExpiresAt > 0 && time.Now().UnixMilli() >= caller.token.ExpiresAt {
-					return errors.New("access token expired")
-				}
-				t, err := s.store.GetAccessTokenByHash(ctx, caller.token.TokenHash)
-				if err != nil || t.ID != caller.token.ID {
+				// Recheck authentication between cells, by the token's row:
+				// an OAuth client refreshing gives it a new hash and expiry,
+				// which a long run must not read as a revocation. The run goes
+				// on while the token or its refresh is still valid. Revocation
+				// does not retroactively undo a cell already running.
+				t, err := s.store.GetAccessToken(ctx, user.ID, caller.token.ID)
+				if err != nil {
 					return errors.New("access token revoked")
+				}
+				now := time.Now().UnixMilli()
+				if t.ExpiresAt > 0 && now >= t.ExpiresAt && (t.RefreshExpiresAt == 0 || now >= t.RefreshExpiresAt) {
+					return errors.New("access token expired")
 				}
 			}
 			current, err := s.store.GetNotebook(ctx, fresh, n.ID, false)
@@ -113,6 +118,17 @@ func (s *Server) executeNotebook(ctx context.Context, user *store.User, n *store
 			}
 			if _, err := engine.Validate(d, sql, !cell.Write || cell.Transfer != nil || g.ReadOnly); err != nil {
 				return err
+			}
+			// A template is classified as written, before rendering; what it
+			// renders to must fit the caller's agent policy too.
+			if cell.Template && cell.Write && cell.Transfer == nil && p.caller != nil {
+				mode, err := s.mcpMode(ctx, p.caller, g)
+				if err != nil {
+					return err
+				}
+				if err := mcpAllows(mode, g, sql); err != nil {
+					return refuse(http.StatusForbidden, "cell "+cell.Path+": "+err.Error())
+				}
 			}
 			if cell.Transfer != nil {
 				dst := access.dst

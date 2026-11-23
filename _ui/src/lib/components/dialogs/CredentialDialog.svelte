@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';
-  import { KeyRound, LoaderCircle, ChevronRight, RotateCcw } from 'lucide-svelte';
+  import { KeyRound, LoaderCircle, ChevronRight, RotateCcw } from '@lucide/svelte';
   import LimitsFields from '@/lib/components/ui/LimitsFields.svelte';
   import type { Limits } from '@/lib/api/types';
   import Modal from '@/lib/components/ui/Modal.svelte';
@@ -21,12 +22,16 @@
 
   // Start from the saved account, so a changed password or limit is one
   // field. With a saved account, an empty password keeps it.
+  // Only a new request resets the form: the connection list reloading
+  // while it is open must not clear what the user typed.
   $effect(() => {
     if (req) {
-      username = conn?.credential_user ?? '';
-      password = '';
-      limits = { ...(conn?.my_limits ?? {}) };
-      error = '';
+      untrack(() => {
+        username = conn?.credential_user ?? '';
+        password = '';
+        limits = { ...(conn?.my_limits ?? {}) };
+        error = '';
+      });
     }
   });
 

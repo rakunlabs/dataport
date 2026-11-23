@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Download, Copy, Check } from 'lucide-svelte';
+  import { Download, Copy, Check } from '@lucide/svelte';
   import type { Column } from '@/lib/api/types';
   import { download, toCSV, toJSON } from '@/lib/helper/format';
   import { formatRows, type CopyFormat } from '@/lib/helper/copy';

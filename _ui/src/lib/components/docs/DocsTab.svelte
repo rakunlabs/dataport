@@ -8,7 +8,7 @@
   // page per table. It reads only the catalog and can be downloaded as one
   // HTML file to share.
   import { t, i18n } from '@/lib/i18n/index.svelte';
-  import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, Download, ArrowRight, Table2, Wrench, Lock } from 'lucide-svelte';
+  import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, Download, ArrowRight, Table2, Wrench, Lock } from '@lucide/svelte';
   import { api, qs } from '@/lib/api/client';
   import type { Anomaly, AnomalyKind, SchemaDoc, DocStatus, SavedDoc } from '@/lib/api/types';
   import { connection, openQueryTab, persist, type Tab } from '@/lib/stores/workspace.svelte';

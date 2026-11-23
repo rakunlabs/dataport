@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { Info, Variable } from 'lucide-svelte';
+  import { Info, Variable } from '@lucide/svelte';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
   import { fontFamilies, prefs, savePrefs } from '@/lib/stores/prefs.svelte';
   import { editorOptions } from '@/lib/helper/editorOptions';

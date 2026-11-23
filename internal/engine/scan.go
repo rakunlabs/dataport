@@ -94,9 +94,21 @@ func converterFor(d Driver) ValueConverter {
 		return mssqlValue
 	case "odbc":
 		return trimChar
+	case "duckdb":
+		return duckdbValue
 	}
 
 	return nil
+}
+
+// duckdbValue shows a UUID, which the driver reads as 16 bytes, as text.
+func duckdbValue(dbType string, v any) (any, bool) {
+	b, ok := v.([]byte)
+	if !ok || dbType != "uuid" || len(b) != 16 {
+		return nil, false
+	}
+
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), true
 }
 
 // columnTypeName is the lower-case type of a result column. PostgreSQL
@@ -111,9 +123,13 @@ func columnTypeName(t *sql.ColumnType) string {
 	return name
 }
 
+// binaryTypes are the result column types, as drivers report them in lower
+// case, whose bytes are data rather than text: go-ora says raw, longraw and
+// ociblob locator, SQL Server image.
 var binaryTypes = map[string]bool{
 	"bytea": true, "blob": true, "tinyblob": true, "mediumblob": true, "longblob": true,
 	"binary": true, "varbinary": true, "geometry": true, "bit": true,
+	"raw": true, "longraw": true, "longvarraw": true, "varraw": true, "ocibloblocator": true, "image": true,
 }
 
 const maxSafeInt = 1<<53 - 1

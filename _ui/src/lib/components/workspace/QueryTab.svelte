@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { drag } from '@/lib/helper/drag';
   import { keepEdits } from '@/lib/stores/edits.svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity, WrapText, Sparkles, AlignLeft, ListVideo, SlidersHorizontal, LoaderCircle } from 'lucide-svelte';
+  import { Play, Square, Save, Lock, SquareArrowOutUpRight, CopyPlus, Check, Undo2, Activity, WrapText, Sparkles, AlignLeft, ListVideo, SlidersHorizontal, LoaderCircle } from '@lucide/svelte';
   import ExplainDialog from '@/lib/components/dialogs/ExplainDialog.svelte';
   import type { SQLNamespace } from '@codemirror/lang-sql';
   import SqlEditor from '@/lib/components/editor/SqlEditor.svelte';
@@ -206,17 +207,8 @@
   }
 
   function startDrag(e: PointerEvent) {
-    e.preventDefault();
     const rect = container.getBoundingClientRect();
-    const move = (ev: PointerEvent) => {
-      split = Math.min(85, Math.max(15, ((ev.clientY - rect.top) / rect.height) * 100));
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    drag(e, (_dx, _dy, ev) => (split = Math.min(85, Math.max(15, ((ev.clientY - rect.top) / rect.height) * 100))));
   }
 
   // A statement's run button runs it here or in a new tab, as the settings

@@ -2,7 +2,7 @@
   // The time a run has taken so far, ticking while it runs, with a button
   // to stop it. It follows a tab's run, or one given by its start, as for a
   // run into a new result.
-  import { LoaderCircle, Square } from 'lucide-svelte';
+  import { LoaderCircle, Square } from '@lucide/svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { formatElapsed } from '@/lib/helper/format';
   import { cancel, type Tab } from '@/lib/stores/workspace.svelte';

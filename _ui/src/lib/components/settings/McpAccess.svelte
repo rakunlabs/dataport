@@ -2,7 +2,7 @@
   // Which connections MCP agents may use, and how: drag a connection between
   // the two lists, then choose read, write or schema changes for it.
   import { t } from '@/lib/i18n/index.svelte';
-  import { GripVertical, ArrowRight, ArrowLeft, Factory } from 'lucide-svelte';
+  import { GripVertical, ArrowRight, ArrowLeft, Factory } from '@lucide/svelte';
   import { api } from '@/lib/api/client';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';

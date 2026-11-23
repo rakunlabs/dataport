@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { X, Search, RefreshCw, Trash2, CircleCheck, CircleX, Ban, Unplug } from 'lucide-svelte';
+  import { X, Search, RefreshCw, Trash2, CircleCheck, CircleX, Ban, Unplug } from '@lucide/svelte';
   import { api, qs } from '@/lib/api/client';
   import type { QueryLog } from '@/lib/api/types';
   import { connection, deleteSaved, loadSaved, openQueryTab, ws, workspaceConnections } from '@/lib/stores/workspace.svelte';

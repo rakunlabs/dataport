@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Trash2, Undo2, ArrowUpRight } from 'lucide-svelte';
+  import { Trash2, Undo2, ArrowUpRight } from '@lucide/svelte';
   import { loadColumns, loadObjects, openTableTab, ws, type Tab } from '@/lib/stores/workspace.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { fkActions, supported, type Draft } from '@/lib/helper/structureSql';
@@ -47,7 +47,7 @@
         <td><input class="{inputCls} w-full {fk.dropped ? 'line-through' : ''}" bind:value={fk.name} oninput={() => (fk.changed = true)} disabled={ro} placeholder={t('structureEdit.autoName')} /></td>
         <td>
           <div class="flex flex-wrap gap-1 py-0.5">
-            {#each columnNames as name (name)}
+            {#each columnNames as name, i (i)}
               <button
                 class="rounded border px-1.5 py-0.5 font-mono text-xs {fk.columns.includes(name) ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:bg-hover'}"
                 disabled={ro}

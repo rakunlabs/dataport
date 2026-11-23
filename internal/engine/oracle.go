@@ -184,8 +184,19 @@ func oracleBlock(s string) bool {
 	case "BEGIN", "DECLARE":
 		return true
 	case "CREATE":
-		for _, w := range words[1:min(len(words), 6)] {
-			switch w {
+		// Only the object type after CREATE [OR REPLACE] [EDITIONABLE |
+		// NONEDITIONABLE] counts; TYPE may be a column of a table.
+		i := 1
+		if i+1 < len(words) && words[i] == "OR" && words[i+1] == "REPLACE" {
+			i += 2
+		}
+
+		if i < len(words) && (words[i] == "EDITIONABLE" || words[i] == "NONEDITIONABLE") {
+			i++
+		}
+
+		if i < len(words) {
+			switch words[i] {
 			case "PROCEDURE", "FUNCTION", "PACKAGE", "TRIGGER", "TYPE":
 				return true
 			}
@@ -196,10 +207,13 @@ func oracleBlock(s string) bool {
 }
 
 // Reset rolls back anything left open and resets package state.
-func (oracleDriver) Reset(ctx context.Context, conn *sql.Conn) error {
-	_, err := conn.ExecContext(ctx, "BEGIN DBMS_SESSION.RESET_PACKAGE; END;")
+var errOracleNoReset = errors.New("oracle sessions are not reused")
 
-	return err
+// Reset always drops the connection. DBMS_SESSION.RESET_PACKAGE clears only
+// package state: ALTER SESSION settings such as CURRENT_SCHEMA or NLS, and
+// rows in session temporary tables, would reach the next user.
+func (oracleDriver) Reset(context.Context, *sql.Conn) error {
+	return errOracleNoReset
 }
 
 func (oracleDriver) Placeholder(n int) string {
@@ -250,7 +264,8 @@ func (oracleDriver) Objects(ctx context.Context, db Querier, schema string) ([]O
 func (oracleDriver) Columns(ctx context.Context, db Querier, schema, table string) ([]ColumnInfo, error) {
 	rows, err := db.QueryContext(ctx, `SELECT c.column_name,
 c.data_type || CASE
-  WHEN c.data_type IN ('VARCHAR2', 'NVARCHAR2', 'CHAR', 'NCHAR', 'RAW') THEN '(' || c.char_length || ')'
+  WHEN c.data_type IN ('VARCHAR2', 'NVARCHAR2', 'CHAR', 'NCHAR') THEN '(' || c.char_length || ')'
+  WHEN c.data_type = 'RAW' THEN '(' || c.data_length || ')'
   WHEN c.data_type = 'NUMBER' AND c.data_precision IS NOT NULL THEN '(' || c.data_precision || ',' || NVL(c.data_scale, 0) || ')'
   ELSE '' END,
 CASE c.nullable WHEN 'Y' THEN 1 ELSE 0 END,

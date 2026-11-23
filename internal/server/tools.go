@@ -20,9 +20,10 @@ import (
 // list, users and privileges, export, import and transfer between
 // connections. Each writes the query log like a run does.
 
-// log writes an entry of the query log; failures are only logged.
-func (s *Server) log(ctx context.Context, user *store.User, c *store.Connection, sql string, err error, rows, ms int64, source ...string) {
-	entry := &store.QueryLog{
+// logEntry starts an entry of the query log: who ran what where, so far
+// with success.
+func logEntry(user *store.User, c *store.Connection, sql, source string) *store.QueryLog {
+	return &store.QueryLog{
 		UserID:         user.ID,
 		Username:       user.Username,
 		ConnectionID:   c.ID,
@@ -30,22 +31,32 @@ func (s *Server) log(ctx context.Context, user *store.User, c *store.Connection,
 		Database:       c.Database,
 		SQL:            sql,
 		Status:         "ok",
-		Source:         "web",
-		RowCount:       rows,
-		DurationMS:     ms,
+		Source:         source,
 	}
+}
+
+// failed records err on the entry with status, or as unreachable when the
+// database could not be reached.
+func failed(entry *store.QueryLog, status string, err error) {
+	entry.Status, entry.Error = status, err.Error()
+
+	var connErr *engine.ConnError
+	if errors.As(err, &connErr) {
+		entry.Status = "unreachable"
+	}
+}
+
+// log writes an entry of the query log; failures are only logged.
+func (s *Server) log(ctx context.Context, user *store.User, c *store.Connection, sql string, err error, rows, ms int64, source ...string) {
+	entry := logEntry(user, c, sql, "web")
+	entry.RowCount, entry.DurationMS = rows, ms
+
 	if len(source) > 0 {
 		entry.Source = source[0]
 	}
 
 	if err != nil {
-		entry.Status = "error"
-		entry.Error = err.Error()
-
-		var connErr *engine.ConnError
-		if errors.As(err, &connErr) {
-			entry.Status = "unreachable"
-		}
+		failed(entry, "error", err)
 	}
 
 	s.audit(ctx, entry)

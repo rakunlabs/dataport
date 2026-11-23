@@ -4,11 +4,11 @@
   // panel: JSON is formatted and coloured, long text wraps, and in an
   // editable table the value can be changed here.
   import { t } from '@/lib/i18n/index.svelte';
-  import { Copy, X, Braces, WrapText, Check, Undo2, ChevronsUpDown, ChevronsDownUp, FileText } from 'lucide-svelte';
+  import { Copy, X, Braces, WrapText, Check, Undo2, ChevronsUpDown, ChevronsDownUp, FileText } from '@lucide/svelte';
   import { toast } from '@/lib/stores/toast.svelte';
   import JsonTree from '@/lib/components/result/json/JsonTree.svelte';
   import JsonEditor from '@/lib/components/editor/JsonEditor.svelte';
-  import { isContainer, parseJson, type TreeControl } from '@/lib/components/result/json/jsonTree';
+  import { formatJson, isContainer, parseJson, type TreeControl } from '@/lib/components/result/json/jsonTree';
 
   let {
     column,
@@ -54,14 +54,13 @@
   // JSON columns, or values that are JSON, edit as JSON.
   const isJsonValue = $derived(json !== undefined || /json/i.test(type));
 
+  // Formatted from the text itself, never through JSON.parse, which would
+  // round large numbers in what is shown, copied and saved back.
   const text = $derived.by(() => {
     if (isNull) return '';
     if (json !== undefined) {
-      try {
-        return JSON.stringify(typeof value === 'object' ? value : JSON.parse(String(value)), null, 2);
-      } catch {
-        return String(value);
-      }
+      const raw = typeof value === 'object' ? JSON.stringify(value) : String(value);
+      return formatJson(raw) ?? raw;
     }
     return String(value);
   });
@@ -83,12 +82,12 @@
     if (draft === null) return;
     let v: unknown = draft;
     if (isJsonValue) {
-      try {
-        v = JSON.stringify(JSON.parse(draft));
-      } catch (e) {
-        toast(t('valuePanel.invalidJson', { error: e instanceof Error ? e.message : String(e) }), 'error');
+      const compact = formatJson(draft, 0);
+      if (compact === undefined) {
+        toast(t('valuePanel.invalidJson', { error: jsonError(draft) }), 'error');
         return;
       }
+      v = compact;
     }
     onchange?.(v);
     draft = null;
@@ -96,10 +95,18 @@
 
   function format() {
     if (draft === null) return;
+    const pretty = formatJson(draft);
+    if (pretty === undefined) toast(t('valuePanel.invalidJson', { error: jsonError(draft) }), 'error');
+    else draft = pretty;
+  }
+
+  // The parser's message for text that is not JSON.
+  function jsonError(s: string): string {
     try {
-      draft = JSON.stringify(JSON.parse(draft), null, 2);
+      JSON.parse(s);
+      return '';
     } catch (e) {
-      toast(t('valuePanel.invalidJson', { error: e instanceof Error ? e.message : String(e) }), 'error');
+      return e instanceof Error ? e.message : String(e);
     }
   }
 </script>

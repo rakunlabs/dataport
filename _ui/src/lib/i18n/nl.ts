@@ -90,6 +90,7 @@ const nl: Messages = {
     closeOthers: 'Andere sluiten',
     closeTab: 'Tabblad sluiten',
     query: 'Query {n}',
+    rename: 'Hernoemen',
   },
   conn: {
     limitsHint: 'Rijen per statement, en hoe lang een uitvoering mag duren',

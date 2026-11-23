@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { CircleCheck, CircleX, TriangleAlert, Info, Copy, ChevronRight, Rows3, X, PanelRight, RefreshCw, Square, LoaderCircle, Ban, Plus, Trash2, Eye, Undo2, Save, Pencil, KeyRound, Palette, Calculator, TableProperties, Table2, Eraser, Sparkles } from 'lucide-svelte';
+  import { drag } from '@/lib/helper/drag';
+  import { CircleCheck, CircleX, TriangleAlert, Info, Copy, ChevronRight, Rows3, X, PanelRight, RefreshCw, Square, LoaderCircle, Ban, Plus, Trash2, Eye, Undo2, Save, Pencil, KeyRound, Palette, Calculator, TableProperties, Table2, Eraser, Sparkles } from '@lucide/svelte';
   import type { Snippet } from 'svelte';
   import { formatRows, sqlFormats, type CopyFormat } from '@/lib/helper/copy';
   import { copyText } from '@/lib/helper/clipboard';
@@ -29,7 +30,7 @@
   import { api, qs } from '@/lib/api/client';
   import { withCredentials } from '@/lib/stores/credentials.svelte';
   import { ask, assistantAvailable } from '@/lib/stores/assistant.svelte';
-  import { fmtNumber, t } from '@/lib/i18n/index.svelte';
+  import { t } from '@/lib/i18n/index.svelte';
   import { overlayScroll } from '@/lib/helper/overlayScroll';
   import { fillOf, firstToFill, quickValues, type Quick } from '@/lib/helper/cellValues';
   import { tick } from 'svelte';
@@ -43,6 +44,7 @@
     edit: tableEdit,
     editable: tableEditable = false,
     menuItems,
+    detached = false,
   }: {
     tab: Tab;
     sortColumn?: string;
@@ -53,6 +55,9 @@
     editable?: boolean;
     // Extra context menu entries, such as the editing actions of a table tab.
     menuItems?: Snippet;
+    // A copy of a result that no workspace tab holds, such as a notebook
+    // cell's: it can neither be read again nor have its edits saved.
+    detached?: boolean;
   } = $props();
 
   let gridRef: DataGrid | undefined = $state();
@@ -89,16 +94,8 @@
   }
 
   function resizePanel(e: PointerEvent) {
-    const startX = e.clientX;
     const start = valuePanel.width;
-    const move = (ev: PointerEvent) => (valuePanel.width = Math.min(900, Math.max(220, start - (ev.clientX - startX))));
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      saveValuePanel();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    drag(e, (dx) => (valuePanel.width = Math.min(900, Math.max(220, start - dx))), saveValuePanel);
   }
 
   const results = $derived(tab.result?.results ?? []);
@@ -178,7 +175,7 @@
   // can be edited like the table: the source table is found from the SQL
   // and must have a primary key, or a virtual key, the result includes.
   const queryConn = $derived(connection(tab.connectionId));
-  const canWrite = $derived(tab.kind === 'query' && !!queryConn && !queryConn.read_only && queryConn.editable !== false);
+  const canWrite = $derived(!detached && tab.kind === 'query' && !!queryConn && !queryConn.read_only && queryConn.editable !== false);
   const source = $derived.by(() => {
     if (!canWrite || current?.kind !== 'rows' || current.pending || current.error) return null;
     const found = sourceTable(current.statement, queryConn?.db_type ?? '');
@@ -539,7 +536,7 @@
   // statement that also wrote, such as INSERT … RETURNING, must not run twice
   // from one click. In a manual transaction the run would read outside it.
   const refreshable = $derived.by(() => {
-    if (tab.kind !== 'query' || current?.kind !== 'rows' || current.plan || current.pending || tab.txOpen) return false;
+    if (detached || tab.kind !== 'query' || current?.kind !== 'rows' || current.plan || current.pending || tab.txOpen) return false;
     const sql = current.statement
       .replace(/\/\*[\s\S]*?\*\//g, ' ')
       .replace(/--[^\n]*/g, ' ')
@@ -832,7 +829,7 @@
       {/if}
       {#if current?.kind === 'rows'}
         <span class="tabular-nums">
-          {t('result.rows', { count: fmtNumber(current.rows?.length ?? 0) })}
+          {t('result.rows', { count: current.rows?.length ?? 0 })}
           {#if current.truncated && totalOf(tab, current)?.count === undefined}<span class="ml-1 text-warn">· {t('result.truncated')}</span>{/if}
         </span>
         <TotalCount {tab} index={tab.activeResult} />

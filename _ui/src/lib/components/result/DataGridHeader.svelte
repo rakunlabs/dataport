@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-svelte';
+  import { ArrowDown, ArrowUp, ArrowUpDown } from '@lucide/svelte';
   import type { Column } from '@/lib/api/types';
   import { t } from '@/lib/i18n/index.svelte';
   import { typeColor } from '@/lib/components/result/grid';

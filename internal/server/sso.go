@@ -34,10 +34,12 @@ const rememberCookie = "dataport_remember"
 // setRememberCookie keeps the "remember me" choice while the browser is at
 // the SSO provider; on false it is cleared.
 func (s *Server) setRememberCookie(w http.ResponseWriter, r *http.Request, on bool) {
+	// The browser sees the public path, with any proxy prefix, as the SSO
+	// flow cookie does.
 	c := &http.Cookie{
 		Name:     rememberCookie,
 		Value:    "1",
-		Path:     s.cfg.Server.BasePath + "/api/v1/auth/sso/",
+		Path:     s.publicPath(r) + "/api/v1/auth/sso/",
 		HttpOnly: true,
 		Secure:   s.isSecure(r),
 		SameSite: http.SameSiteLaxMode,

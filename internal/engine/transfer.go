@@ -364,10 +364,32 @@ func transferTable(ctx context.Context, src TableSource, dd Driver, dconn *sql.C
 // sourceValue keeps what any target can bind as it is and turns the rest,
 // such as driver-specific types, into text. Binary columns stay bytes.
 func sourceValue(typ string, convert ValueConverter, v any) any {
+	// A driver's own form comes first: a UUID read as 16 bytes is text.
+	if _, ok := v.([]byte); ok && convert != nil {
+		if out, ok := convert(typ, v); ok {
+			return out
+		}
+	}
+
 	switch x := v.(type) {
 	case nil, int64, float64, string, time.Time, int32, int, float32, bool:
 		return x
 	case []byte:
+		// MySQL BIT arrives as big-endian bytes: one bit is a flag, wider it
+		// is the number the target column now holds.
+		if typ == "bit" && len(x) <= 8 {
+			if len(x) == 1 && x[0] <= 1 {
+				return x[0] != 0
+			}
+
+			var n int64
+			for _, b := range x {
+				n = n<<8 | int64(b)
+			}
+
+			return n
+		}
+
 		if binaryTypes[typ] {
 			return append([]byte(nil), x...)
 		}

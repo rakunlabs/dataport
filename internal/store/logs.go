@@ -37,7 +37,8 @@ func (s *Store) AddQueryLog(ctx context.Context, l *QueryLog) error {
 	}
 
 	if len(l.SQL) > maxLoggedSQL {
-		l.SQL = l.SQL[:maxLoggedSQL]
+		// A cut inside a character is invalid UTF-8, which PostgreSQL refuses.
+		l.SQL = strings.ToValidUTF8(l.SQL[:maxLoggedSQL], "")
 	}
 
 	_, err := s.exec(ctx, "INSERT INTO "+s.t("query_log")+
@@ -55,6 +56,10 @@ type QueryLogFilter struct {
 	Search       string
 	Source       string
 	Before       int64
+	// BeforeID, with Before, continues after the entry with that id and
+	// time, so entries of the same millisecond are not skipped between
+	// pages. Without it every entry of the Before millisecond is skipped.
+	BeforeID string
 	// From and To keep entries made in [From, To), in Unix milliseconds;
 	// zero leaves that side open.
 	From  int64
@@ -88,7 +93,11 @@ func (s *Store) ListQueryLog(ctx context.Context, f QueryLogFilter) ([]*QueryLog
 		args = append(args, f.Source)
 	}
 
-	if f.Before > 0 {
+	switch {
+	case f.Before > 0 && f.BeforeID != "":
+		where = append(where, "(created_at < ? OR (created_at = ? AND id < ?))")
+		args = append(args, f.Before, f.Before, f.BeforeID)
+	case f.Before > 0:
 		where = append(where, "created_at < ?")
 		args = append(args, f.Before)
 	}
@@ -113,7 +122,7 @@ func (s *Store) ListQueryLog(ctx context.Context, f QueryLogFilter) ([]*QueryLog
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
 
-	query += " ORDER BY created_at DESC LIMIT ?"
+	query += " ORDER BY created_at DESC, id DESC LIMIT ?"
 	args = append(args, f.Limit)
 
 	rows, err := s.query(ctx, query, args...)

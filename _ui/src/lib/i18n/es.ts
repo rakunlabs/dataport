@@ -90,6 +90,7 @@ const es: Messages = {
     closeOthers: 'Cerrar las demás',
     closeTab: 'Cerrar pestaña',
     query: 'Consulta {n}',
+    rename: 'Renombrar',
   },
   conn: {
     limitsHint: 'Filas devueltas por sentencia y tiempo máximo de ejecución',

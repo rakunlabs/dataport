@@ -90,6 +90,7 @@ const ko: Messages = {
     closeOthers: '다른 탭 닫기',
     closeTab: '탭 닫기',
     query: '쿼리 {n}',
+    rename: '이름 변경',
   },
   conn: {
     limitsHint: '문장당 반환되는 행 수와 실행 허용 시간',

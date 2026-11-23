@@ -161,26 +161,11 @@ func (s *Server) execute(ctx context.Context, user *store.User, g *store.Grant, 
 		TxContinue: in.TxContinue,
 	})
 
-	entry := &store.QueryLog{
-		UserID:         user.ID,
-		Username:       user.Username,
-		ConnectionID:   c.ID,
-		ConnectionName: c.Name,
-		Database:       c.Database,
-		// Passwords of CREATE USER and the like stay out of the log.
-		SQL:    engine.Redact(in.SQL),
-		Status: "ok",
-		Source: in.Source,
-	}
+	// Passwords of CREATE USER and the like stay out of the log.
+	entry := logEntry(user, c, engine.Redact(in.SQL), in.Source)
 
 	if err != nil {
-		entry.Status = "rejected"
-		entry.Error = err.Error()
-
-		var connErr *engine.ConnError
-		if errors.As(err, &connErr) {
-			entry.Status = "unreachable"
-		}
+		failed(entry, "rejected", err)
 	} else {
 		entry.RowCount = result.TotalRows()
 		entry.DurationMS = result.DurationMS
@@ -286,24 +271,14 @@ func (s *Server) endTx(w http.ResponseWriter, r *http.Request) {
 
 	end, err := s.engine.EndTx(r.Context(), user.ID, req.TxID, g.Connection.ID, req.Commit)
 
-	entry := &store.QueryLog{
-		UserID:         user.ID,
-		Username:       user.Username,
-		ConnectionID:   g.Connection.ID,
-		ConnectionName: g.Connection.Name,
-		Database:       g.Connection.Database,
-		SQL:            "ROLLBACK",
-		Status:         "ok",
-		Source:         "web",
-	}
+	entry := logEntry(user, g.Connection, "ROLLBACK", "web")
 
 	if req.Commit {
 		entry.SQL = "COMMIT"
 	}
 
 	if err != nil {
-		entry.Status = "error"
-		entry.Error = err.Error()
+		failed(entry, "error", err)
 	}
 
 	// A transaction that was already gone has nothing to log.

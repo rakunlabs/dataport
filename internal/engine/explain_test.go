@@ -78,6 +78,23 @@ func TestCountSQL(t *testing.T) {
 		t.Fatalf("oracle: %q", q)
 	}
 
+	// SQL Server takes no ORDER BY in a derived table without TOP or OFFSET,
+	// and no CTE at all.
+	ms, _ := GetDriver("mssql")
+	if q, _ := CountSQL(ms, "SELECT * FROM t ORDER BY a"); !strings.Contains(q, "ORDER BY a\nOFFSET 0 ROWS\n)") {
+		t.Fatalf("mssql order by: %q", q)
+	}
+
+	for _, keep := range []string{"SELECT * FROM t WHERE a IN (SELECT a FROM u ORDER BY a OFFSET 0 ROWS)", "SELECT TOP 5 * FROM t ORDER BY a", "SELECT * FROM t ORDER BY a OFFSET 5 ROWS"} {
+		if q, _ := CountSQL(ms, keep); strings.Contains(q, "OFFSET 0 ROWS\n)") {
+			t.Fatalf("mssql %q: %q", keep, q)
+		}
+	}
+
+	if _, err := CountSQL(ms, "WITH x AS (SELECT 1 AS a) SELECT * FROM x"); !errors.Is(err, ErrNotCountable) {
+		t.Fatalf("mssql cte: %v", err)
+	}
+
 	for _, bad := range []string{"DELETE FROM t", "SHOW TABLES", "SELECT 1; SELECT 2", "WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x"} {
 		if _, err := CountSQL(pg, bad); err == nil {
 			t.Errorf("%q: want an error", bad)

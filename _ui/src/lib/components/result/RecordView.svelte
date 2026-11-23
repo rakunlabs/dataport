@@ -3,7 +3,7 @@
   // with its value, a cell to edit as in the grid, and arrows to the next
   // and previous rows.
   import { untrack } from 'svelte';
-  import { ChevronLeft, ChevronRight, ArrowDownAZ, Search, X } from 'lucide-svelte';
+  import { ChevronLeft, ChevronRight, ArrowDownAZ, Search, X } from '@lucide/svelte';
   import type { Column } from '@/lib/api/types';
   import type { EditState } from '@/lib/stores/edits.svelte';
   import type { Paint } from '@/lib/helper/rowColors';

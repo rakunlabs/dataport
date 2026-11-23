@@ -2,7 +2,7 @@
   // The row colour rules of one table or query, to add, change, turn off
   // and remove, as DBeaver's "Row colors…" window.
   import { untrack } from 'svelte';
-  import { Plus, Trash2 } from 'lucide-svelte';
+  import { Plus, Trash2 } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { ops, palette, type ColorRule } from '@/lib/helper/rowColors';

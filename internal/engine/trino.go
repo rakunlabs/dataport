@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -60,7 +61,7 @@ func (trinoDriver) Open(c *store.Connection, password string) (*sql.DB, error) {
 		scheme = "https"
 	}
 
-	u := url.URL{Scheme: scheme, Host: c.Host + ":" + strconv.Itoa(port)}
+	u := url.URL{Scheme: scheme, Host: net.JoinHostPort(c.Host, strconv.Itoa(port))}
 	if password != "" {
 		u.User = url.UserPassword(c.Username, password)
 	} else {

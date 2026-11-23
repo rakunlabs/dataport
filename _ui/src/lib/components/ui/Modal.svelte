@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
   import type { Snippet } from 'svelte';
-  import { X } from 'lucide-svelte';
+  import { X } from '@lucide/svelte';
 
   let {
     title,

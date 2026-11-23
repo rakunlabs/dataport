@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { TriangleAlert, KeyRound, Link, ArrowLeft, ArrowRight, Table2, ListTree, Network } from 'lucide-svelte';
+  import { TriangleAlert, KeyRound, Link, ArrowLeft, ArrowRight, Table2, ListTree, Network } from '@lucide/svelte';
   import type { Anomaly, DocTable, IndexInfo } from '@/lib/api/types';
   import { openDiagram, openTableTab, type Tab } from '@/lib/stores/workspace.svelte';
   import { kindLabel, rows, td, th } from '@/lib/components/docs/docFormat';

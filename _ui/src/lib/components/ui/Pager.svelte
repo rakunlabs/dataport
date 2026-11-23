@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronLeft, ChevronRight } from 'lucide-svelte';
+  import { ChevronLeft, ChevronRight } from '@lucide/svelte';
   import { t } from '@/lib/i18n/index.svelte';
 
   // Pages through a list held in full: shows "1–50 of 320" and moves

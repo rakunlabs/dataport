@@ -48,8 +48,13 @@ export function calc(fn: CalcFn, values: unknown[], numeric = true): unknown {
     }
     case 'min':
     case 'max': {
+      // The value itself, not its number: a large integer sent as text
+      // would come back as a nearby number that is not in the data.
       const sign = fn === 'min' ? -1 : 1;
-      if (nums.length && (numeric || nums.length === present.length)) return nums.reduce((a, b) => (sign * (b - a) > 0 ? b : a));
+      const numbered = present.filter((v) => toNumber(v) !== null);
+      if (numbered.length && (numeric || numbered.length === present.length)) {
+        return numbered.reduce((a, b) => (sign * compareNumbers(b, a) > 0 ? b : a));
+      }
       if (numeric || !present.length) return null;
       return present.map(key).reduce((a, b) => (sign * (b < a ? -1 : b > a ? 1 : 0) > 0 ? b : a));
     }
@@ -68,9 +73,20 @@ export function calc(fn: CalcFn, values: unknown[], numeric = true): unknown {
   }
 }
 
-// Float sums such as 0.1 + 0.2 are shown as written.
+// Float sums such as 0.1 + 0.2 are shown as written: 15 significant digits
+// are what a float holds exactly, at any size.
 function round(n: number): number {
-  return Math.round(n * 1e10) / 1e10;
+  return Number.isFinite(n) ? Number(n.toPrecision(15)) : n;
+}
+
+// compareNumbers orders two values by their numbers, whole numbers written
+// as text exactly, as BigInt.
+function compareNumbers(a: unknown, b: unknown): number {
+  const whole = (v: unknown) => (typeof v === 'string' && /^-?\d+$/.test(v.trim()) ? BigInt(v.trim()) : typeof v === 'bigint' ? v : null);
+  const x = whole(a);
+  const y = whole(b);
+  if (x !== null && y !== null) return x < y ? -1 : x > y ? 1 : 0;
+  return (toNumber(a) ?? 0) - (toNumber(b) ?? 0);
 }
 
 export interface GroupAgg {

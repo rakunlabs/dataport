@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, i18n } from '@/lib/i18n/index.svelte';
-  import { Send, LoaderCircle, CircleCheck, TriangleAlert, Plus, Trash2 } from 'lucide-svelte';
+  import { Send, LoaderCircle, CircleCheck, TriangleAlert, Plus, Trash2 } from '@lucide/svelte';
   import { api } from '@/lib/api/client';
   import { admin, loadConnections, loadUsers } from '@/pages/admin/admin.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';

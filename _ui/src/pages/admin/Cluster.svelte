@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, fmtDateTime } from '@/lib/i18n/index.svelte';
-  import { RefreshCw, Server, Unplug, ShieldCheck, ShieldAlert, CircleCheck, CircleAlert, LoaderCircle } from 'lucide-svelte';
+  import { RefreshCw, Server, Unplug, ShieldCheck, ShieldAlert, CircleCheck, CircleAlert, LoaderCircle } from '@lucide/svelte';
   import Page from '@/pages/admin/Page.svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { api } from '@/lib/api/client';

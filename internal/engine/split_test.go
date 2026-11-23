@@ -87,6 +87,12 @@ func TestSplit(t *testing.T) {
 			[]string{"create procedure p as begin begin tran; update t set a = 1; commit; begin transaction; commit; end", "select 4"}},
 		{"mssql try catch", DialectMSSQL, "create procedure p as begin begin try select 1; end try begin catch select 2; end catch; end; select 4",
 			[]string{"create procedure p as begin begin try select 1; end try begin catch select 2; end catch; end", "select 4"}},
+
+		// PostgreSQL ends a line comment at a carriage return too, and takes
+		// $ after a non-ASCII letter as part of the name: neither may hide a
+		// statement from the splitter.
+		{"line comment ends at CR", DialectPostgres, "select 1 --x\r; delete from t", []string{"select 1 --x", "delete from t"}},
+		{"dollar after non-ASCII name", DialectPostgres, "select 1 as é$$; delete from t", []string{"select 1 as é$$", "delete from t"}},
 	}
 
 	for _, tt := range tests {
@@ -172,6 +178,15 @@ func TestReturnsRows(t *testing.T) {
 		{pg, "insert into t values (1); drop table t", RiskDDL},
 		{pg, "set search_path = x", RiskWrite},
 		{my, "select * from t into outfile '/x'", RiskWrite},
+		{pg, "explain analyze delete from t where a = 1", RiskWrite},
+		{pg, "explain analyze select * from t", RiskRead},
+		{pg, "explain select * from t", RiskRead},
+		{pg, "select * into t2 from t", RiskDDL},
+		{pg, "select 'into' from t", RiskRead},
+		{pg, "do $$ begin drop table t; end $$", RiskDDL},
+		{pg, "do $$ begin update t set a = 1; end $$", RiskWrite},
+		{my, "prepare s from 'drop table t'", RiskDDL},
+		{my, "call p()", RiskWrite},
 	}
 
 	for _, tt := range risks {
@@ -190,5 +205,25 @@ func TestReturnsRows(t *testing.T) {
 
 	if returnsRows("create table t (a int)", "CREATE") {
 		t.Error("create should not return rows")
+	}
+}
+
+func TestOracleSplitTypeColumn(t *testing.T) {
+	ora, _ := GetDriver("oracle")
+
+	tests := []struct {
+		in   string
+		want int
+	}{
+		// A column named type is not a type declaration.
+		{"create table t (id number, type varchar2(5));\ninsert into t values (1, 'a');", 2},
+		{"create or replace type pt as object (x number);\n/\nselect 1 from dual", 2},
+		{"create or replace editionable procedure p as begin null; end;\n/\nselect 1 from dual", 2},
+	}
+
+	for _, tt := range tests {
+		if got := SplitScript(ora, tt.in); len(got) != tt.want {
+			t.Errorf("SplitScript(%q) = %#v, want %d statements", tt.in, got, tt.want)
+		}
 	}
 }

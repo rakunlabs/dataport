@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { PlugZap, LoaderCircle, TriangleAlert, ChevronRight } from 'lucide-svelte';
+  import { PlugZap, LoaderCircle, TriangleAlert, ChevronRight } from '@lucide/svelte';
   import Page from '@/pages/admin/Page.svelte';
   import AiCompletionSettings from '@/pages/admin/AiCompletionSettings.svelte';
   import PasswordInput from '@/lib/components/ui/PasswordInput.svelte';

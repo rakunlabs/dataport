@@ -111,7 +111,7 @@ DATAPORT_STORE_DSN='postgres://dataport:secret@db:5432/dataport'
 DATAPORT_CLUSTER_ENABLED=true
 DATAPORT_CLUSTER_DNS_ADDR=dataport-headless   # resolves to every replica
 DATAPORT_CLUSTER_REPLICAS=3
-DATAPORT_CLUSTER_SECURITY_KEY='…'
+DATAPORT_CLUSTER_SECURITY_KEY='…'          # required, the same on every replica
 ```
 
 ## Development

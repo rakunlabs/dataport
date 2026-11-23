@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, fmtNumber } from '@/lib/i18n/index.svelte';
-  import { Copy, RefreshCw, ListTree, FileText, Braces, ChevronRight } from 'lucide-svelte';
+  import { Copy, RefreshCw, ListTree, FileText, Braces, ChevronRight } from '@lucide/svelte';
   import type { ResultSet } from '@/lib/api/types';
   import JsonTree from '@/lib/components/result/json/JsonTree.svelte';
   import { LosslessNumber, parseJson } from '@/lib/components/result/json/jsonTree';

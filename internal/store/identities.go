@@ -116,3 +116,11 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error)
 
 	return found, nil
 }
+
+// RenameProvider moves the links of an SSO provider to its new name, so
+// users signed in through it keep their accounts.
+func (s *Store) RenameProvider(ctx context.Context, from, to string) error {
+	_, err := s.exec(ctx, "UPDATE "+s.t("user_identities")+" SET provider = ? WHERE provider = ?", to, from)
+
+	return err
+}

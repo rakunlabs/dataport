@@ -32,7 +32,7 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 		"tokens":        list,
 		"mcp_enabled":   s.mcpCfg().Enabled,
 		"mcp_path":      s.cfg.Server.BasePath + "/mcp",
-		"max_ttl_days":  int(s.mcpCfg().TokenTTL.Hours() / 24),
+		"max_ttl_days":  ttlDays(s.mcpCfg().TokenTTL),
 		"default_rows":  s.mcpCfg().MaxRows,
 		"external_base": s.externalURL(),
 		"base_url":      s.publicBase(r),
@@ -52,15 +52,22 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	maxDays := int(s.mcpCfg().TokenTTL.Hours() / 24)
+	ttl := s.mcpCfg().TokenTTL
 
-	switch {
-	case req.ExpiresInDays < 0:
-		writeError(w, http.StatusBadRequest, "expiry cannot be negative")
+	const maxTokenDays = 36500
+
+	if req.ExpiresInDays < 0 || req.ExpiresInDays > maxTokenDays {
+		writeError(w, http.StatusBadRequest, "expiry must be between 0 and 36500 days")
 
 		return
-	case maxDays > 0 && (req.ExpiresInDays == 0 || req.ExpiresInDays > maxDays):
-		req.ExpiresInDays = maxDays
+	}
+
+	// The lifetime asked for, capped by the server's limit, which may be
+	// shorter than a day; zero for both means no expiry. The day count is
+	// bounded above, so the product cannot overflow into a negative one.
+	life := time.Duration(req.ExpiresInDays) * 24 * time.Hour
+	if ttl > 0 && (life == 0 || life > ttl) {
+		life = ttl
 	}
 
 	raw, hash, err := dpauth.NewAccessToken()
@@ -71,8 +78,8 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t := &store.AccessToken{UserID: currentUser(r).ID, Name: req.Name, TokenHash: hash, ReadOnly: req.ReadOnly}
-	if req.ExpiresInDays > 0 {
-		t.ExpiresAt = time.Now().Add(time.Duration(req.ExpiresInDays) * 24 * time.Hour).UnixMilli()
+	if life > 0 {
+		t.ExpiresAt = time.Now().Add(life).UnixMilli()
 	}
 
 	if err := s.store.CreateAccessToken(r.Context(), t); err != nil {
@@ -100,4 +107,14 @@ func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ttlDays is the token lifetime limit in whole days for the form, rounded up
+// so a limit under a day does not read as none.
+func ttlDays(ttl time.Duration) int {
+	if ttl <= 0 {
+		return 0
+	}
+
+	return int((ttl + 24*time.Hour - 1) / (24 * time.Hour))
 }

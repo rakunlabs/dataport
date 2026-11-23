@@ -46,10 +46,23 @@ func TestMapType(t *testing.T) {
 		{"postgres", "mysql", "interval", "longtext"},
 		{"postgres", "mysql", "point", "longtext"},
 		{"postgres", "mysql", "geometry(multipoint, 4326)", "longtext"},
-		{"mysql", "postgres", "int(11) unsigned", "integer"},
+		// Unsigned and wide integers take a type that holds every value.
+		{"mysql", "postgres", "int(11) unsigned", "bigint"},
+		{"mysql", "postgres", "bigint unsigned", "numeric(20,0)"},
+		{"mysql", "postgres", "tinyint unsigned", "smallint"},
 		{"clickhouse", "postgres", "UInt8", "smallint"},
+		{"clickhouse", "postgres", "UInt64", "numeric(20,0)"},
 		{"duckdb", "postgres", "usmallint", "integer"},
-		{"clickhouse", "postgres", "Int128", "integer"},
+		{"duckdb", "postgres", "hugeint", "numeric(39,0)"},
+		{"clickhouse", "postgres", "Int128", "numeric(39,0)"},
+		{"clickhouse", "postgres", "Int64", "bigint"},
+		// An Oracle DATE has a time of day; LONG is text.
+		{"oracle", "postgres", "DATE", "timestamp"},
+		{"oracle", "mssql", "DATE", "datetime2"},
+		{"oracle", "postgres", "LONG", "text"},
+		{"postgres", "mssql", "timestamp without time zone", "datetime2"},
+		{"postgres", "duckdb", "timestamp(3) without time zone", "timestamp"},
+		{"postgres", "mssql", "timestamp with time zone", "datetimeoffset"},
 	}
 
 	for _, c := range cases {
@@ -120,6 +133,15 @@ func TestCreateTableSQL(t *testing.T) {
 	want := "CREATE TABLE `db`.`t` (\n  `id` Int64,\n  `n` Nullable(String)\n) ENGINE = MergeTree ORDER BY (`id`)"
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+
+	// A text key gets a type that can be a key.
+	for db, want := range map[string]string{"mysql": "varchar(255)", "mssql": "nvarchar(450)", "oracle": "VARCHAR2(4000 CHAR)"} {
+		d, _ := GetDriver(db)
+		got := CreateTableSQL("postgres", d, "s", "t", []ColumnInfo{{Name: "code", Type: "text", PrimaryKey: true}, {Name: "note", Type: "text", Nullable: true}})
+		if !strings.Contains(got, " "+want+" NOT NULL") || strings.Count(got, want) != 1 {
+			t.Errorf("%s text key:\n%s", db, got)
+		}
 	}
 }
 

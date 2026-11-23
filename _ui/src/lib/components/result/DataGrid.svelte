@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { drag } from '@/lib/helper/drag';
   import { untrack } from 'svelte';
   import type { Column } from '@/lib/api/types';
   import type { EditState } from '@/lib/stores/edits.svelte';
@@ -226,19 +227,9 @@
   }
 
   function startResize(e: PointerEvent, i: number) {
-    e.preventDefault();
     e.stopPropagation();
-    const x0 = e.clientX;
     const w0 = widths[i];
-    const move = (ev: PointerEvent) => {
-      widths[i] = Math.max(48, w0 + ev.clientX - x0);
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    drag(e, (dx) => (widths[i] = Math.max(48, w0 + dx)));
   }
 
   // ////////////////////////////////////////////

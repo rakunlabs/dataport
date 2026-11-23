@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { UsersRound } from 'lucide-svelte';
+  import { UsersRound } from '@lucide/svelte';
   import { api } from '@/lib/api/client';
   import { admin, loadGroups } from '@/pages/admin/admin.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';

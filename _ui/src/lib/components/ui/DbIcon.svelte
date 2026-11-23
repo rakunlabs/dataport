@@ -2,7 +2,7 @@
   // Database logos, drawn from SVG files the way DBX does
   // (public/icons/database, from DBX under Apache-2.0; see NOTICE.md there).
   // Types without a logo get a generic database mark.
-  import { Database } from 'lucide-svelte';
+  import { Database } from '@lucide/svelte';
 
   let { type, size = 14, dialect = '' }: { type: string; size?: number; dialect?: string } = $props();
 

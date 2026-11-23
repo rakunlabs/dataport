@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { KeyRound, TriangleAlert } from 'lucide-svelte';
+  import { KeyRound, TriangleAlert } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import { connection, loadStructure } from '@/lib/stores/workspace.svelte';
   import { comparable } from '@/lib/stores/virtualKeys.svelte';

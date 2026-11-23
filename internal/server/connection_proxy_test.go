@@ -161,3 +161,155 @@ func TestConnectionProxy(t *testing.T) {
 		t.Fatal("the proxy was not removed")
 	}
 }
+
+// The stored password stays with the server it was saved for: changing the
+// host without entering it again leaves the connection without one, as Test
+// already refuses to send it there.
+func TestConnectionPasswordFollowsTarget(t *testing.T) {
+	ctx := context.Background()
+	env := newMCPEnv(t, "")
+	s := env.srv
+	s.base.Auth.SecretKey = "k"
+
+	hash, _ := auth.HashPassword("x-password")
+	admin := &store.User{Username: "root", PasswordHash: hash, Role: store.RoleAdmin}
+	if err := env.st.CreateUser(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+
+	session, _ := s.auth.CreateSession(ctx, admin.ID, "", "", false)
+	call := func(method, path string, body any) (int, map[string]any) {
+		t.Helper()
+
+		data, _ := json.Marshal(body)
+		r := httptest.NewRequest(method, "/api/v1"+path, strings.NewReader(string(data)))
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(&http.Cookie{Name: cookieName, Value: session})
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, r)
+
+		var out map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+
+		return w.Code, out
+	}
+
+	form := func(host string, password any) map[string]any {
+		return map[string]any{"name": "pg", "db_type": "postgres", "host": host, "port": 5432, "database": "app",
+			"username": "u", "password": password, "access": []any{}}
+	}
+
+	code, created := call("POST", "/admin/connections", form("db.internal", "p"))
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %v", code, created)
+	}
+
+	id := created["id"].(string)
+
+	// The same server keeps the password.
+	if code, out := call("PUT", "/admin/connections/"+id, form("db.internal", nil)); code != http.StatusOK || out["has_password"] != true {
+		t.Fatalf("same host: %d %v", code, out)
+	}
+
+	// So do a user's own account and the documentation account; a new host
+	// drops both too.
+	if err := env.st.SetCredential(ctx, &store.Credential{ConnectionID: id, UserID: env.alice.ID, Username: "a", PasswordEnc: "sealed"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.st.SaveDocConnection(ctx, &store.DocConnection{ConnectionID: id, Username: "docs", PasswordEnc: "sealed"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, out := call("PUT", "/admin/connections/"+id, form("evil.example", nil)); code != http.StatusOK || out["has_password"] == true {
+		t.Fatalf("changed host kept the password: %d %v", code, out)
+	}
+
+	if c, _ := env.st.GetConnection(ctx, id); c.PasswordEnc != "" {
+		t.Fatal("the password is still stored for the new host")
+	}
+
+	if _, err := env.st.GetCredential(ctx, id, env.alice.ID); err == nil {
+		t.Fatal("a user's own password is still stored for the new host")
+	}
+
+	if dc, err := env.st.GetDocConnection(ctx, id); err != nil || dc.PasswordEnc != "" || dc.Username != "docs" {
+		t.Fatalf("documentation account after the move: %+v %v", dc, err)
+	}
+}
+
+// An update that leaves out a list keeps it: a connection's access, a user's
+// groups, a group's members. An empty list clears it.
+func TestAdminUpdateKeepsOmittedLists(t *testing.T) {
+	ctx := context.Background()
+	env := newMCPEnv(t, "")
+	s := env.srv
+	s.base.Auth.SecretKey = "k"
+
+	hash, _ := auth.HashPassword("x-password")
+	admin := &store.User{Username: "root", PasswordHash: hash, Role: store.RoleAdmin}
+	if err := env.st.CreateUser(ctx, admin); err != nil {
+		t.Fatal(err)
+	}
+
+	session, _ := s.auth.CreateSession(ctx, admin.ID, "", "", false)
+	call := func(method, path string, body any) (int, map[string]any) {
+		t.Helper()
+
+		data, _ := json.Marshal(body)
+		r := httptest.NewRequest(method, "/api/v1"+path, strings.NewReader(string(data)))
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(&http.Cookie{Name: cookieName, Value: session})
+		w := httptest.NewRecorder()
+		s.mux.ServeHTTP(w, r)
+
+		var out map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+
+		return w.Code, out
+	}
+
+	// A group with alice in it.
+	code, g := call("POST", "/admin/groups", map[string]any{"name": "team", "member_ids": []string{env.alice.ID}})
+	if code != http.StatusCreated {
+		t.Fatalf("create group: %d %v", code, g)
+	}
+	groupID := g["id"].(string)
+
+	if code, out := call("PUT", "/admin/groups/"+groupID, map[string]any{"name": "team-renamed"}); code != http.StatusOK || len(out["member_ids"].([]any)) != 1 {
+		t.Fatalf("group without member_ids: %d %v", code, out)
+	}
+
+	// Alice keeps her group when her update leaves the groups out.
+	user := map[string]any{"username": env.alice.Username, "role": "user"}
+	if code, out := call("PUT", "/admin/users/"+env.alice.ID, user); code != http.StatusOK {
+		t.Fatalf("update user: %d %v", code, out)
+	}
+	if u, _ := env.st.GetUser(ctx, env.alice.ID); len(u.GroupIDs) != 1 {
+		t.Fatalf("groups after an update without group_ids: %v", u.GroupIDs)
+	}
+
+	user["group_ids"] = []string{}
+	if code, _ := call("PUT", "/admin/users/"+env.alice.ID, user); code != http.StatusOK {
+		t.Fatal("clear groups")
+	}
+	if u, _ := env.st.GetUser(ctx, env.alice.ID); len(u.GroupIDs) != 0 {
+		t.Fatalf("groups after group_ids []: %v", u.GroupIDs)
+	}
+
+	// A connection keeps who may use it.
+	form := map[string]any{"name": "pg", "db_type": "postgres", "host": "db.internal", "port": 5432, "database": "app", "username": "u", "password": "p",
+		"access": []map[string]any{{"subject_type": "user", "subject_id": env.alice.ID}}}
+	code, created := call("POST", "/admin/connections", form)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %v", code, created)
+	}
+	id := created["id"].(string)
+
+	delete(form, "access")
+	if code, out := call("PUT", "/admin/connections/"+id, form); code != http.StatusOK || len(out["access"].([]any)) != 1 {
+		t.Fatalf("connection without access: %d %v", code, out)
+	}
+	if c, _ := env.st.GetConnection(ctx, id); len(c.Access) != 1 {
+		t.Fatalf("stored access: %v", c.Access)
+	}
+}

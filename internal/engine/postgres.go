@@ -74,7 +74,9 @@ func (postgresDriver) Open(c *store.Connection, password string) (*sql.DB, error
 	}
 
 	// The extended protocol refuses several statements in one string, so a
-	// statement the splitter got wrong cannot smuggle a second one through.
+	// statement the splitter got wrong cannot smuggle a second one through a
+	// query. pgx still sends an Exec without arguments over the simple
+	// protocol; reads therefore go through Query (see queryCursor).
 	// Exec mode also skips the per-connection prepared statement cache, which
 	// arbitrary user SQL would otherwise grow without bound.
 	cfg.DefaultQueryExecMode = pgx.QueryExecModeExec
@@ -222,10 +224,24 @@ func queryCursor(ctx context.Context, tx Runner, stmt string, maxRows int) (rs *
 		return nil, nil, false
 	}
 
-	if _, err := tx.ExecContext(ctx, "DECLARE "+cursorName+" NO SCROLL CURSOR FOR "+strings.TrimRight(strings.TrimSpace(stmt), "; \t\r\n")); err != nil {
+	// pgx sends an Exec without arguments over the simple protocol, which runs
+	// every statement in the string; Query keeps to the extended protocol, so
+	// the user's SQL in the cursor cannot carry a second statement.
+	declare := func() error {
+		rows, err := tx.QueryContext(ctx, "DECLARE "+cursorName+" NO SCROLL CURSOR FOR "+strings.TrimRight(strings.TrimSpace(stmt), "; \t\r\n"))
+		if err != nil {
+			return err
+		}
+
+		return errors.Join(rows.Close(), rows.Err())
+	}
+
+	if err := declare(); err != nil {
 		if _, rbErr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT dataport_cursor"); rbErr != nil {
 			return nil, err, true
 		}
+
+		_, _ = tx.ExecContext(ctx, "RELEASE SAVEPOINT dataport_cursor")
 
 		return nil, nil, false
 	}

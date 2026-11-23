@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
-  import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, CircleStop, Power, ArrowDown, ArrowUp } from 'lucide-svelte';
+  import { RefreshCw, LoaderCircle, TriangleAlert, Search, X, CircleStop, Power, ArrowDown, ArrowUp } from '@lucide/svelte';
   import { api } from '@/lib/api/client';
   import type { ProcessList } from '@/lib/api/types';
   import { connection, openQueryTab, type Tab } from '@/lib/stores/workspace.svelte';
@@ -16,7 +16,11 @@
   // The list and filters live on the tab, so switching to another tab and
   // back shows them as they were; only opening the tab or Refresh reads it.
   // The workspace mounts this anew for each tab, so its tab never changes.
-  const view = untrack(() => (tab.processes ??= { data: null, filter: '', hideIdle: true, mine: false, every: 0, sort: { col: -1, desc: true } }));
+  const view = untrack(() => {
+    // ??= returns the plain object, not the reactive copy the tab keeps.
+    tab.processes ??= { data: null, filter: '', hideIdle: true, mine: false, every: 0, sort: { col: -1, desc: true } };
+    return tab.processes;
+  });
 
   let loading = $state(false);
   let error = $state('');

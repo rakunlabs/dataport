@@ -698,3 +698,41 @@ CREATE INDEX ev_part_3_linked ON dp_p.ev_part_3 (linked_event_id);`, false)
 		t.Fatal("values read from a partitioned table")
 	}
 }
+
+// A read-only run cannot carry a second statement past the splitter: pgx
+// sends an Exec without arguments over the simple protocol, which runs every
+// statement in the string, so a statement the splitter took for one SELECT
+// could end the read-only transaction and write.
+func TestIntegrationPostgresReadOnlySmuggling(t *testing.T) {
+	m := NewManager(store.Limits{MaxOpen: 2}, time.Minute)
+	defer m.Close()
+
+	c := &store.Connection{ID: "pg-ro", DBType: "postgres", Host: "127.0.0.1", Port: 55432, Database: "postgres", Username: "postgres",
+		Options: map[string]string{"sslmode": "disable"}, UpdatedAt: 1}
+	pw := env("PG_PASSWORD", "pw")
+
+	if err := m.Test(context.Background(), c, pw); err != nil {
+		t.Skip("postgres is not reachable:", err)
+	}
+
+	run(t, m, c, pw, "DROP TABLE IF EXISTS dp_smuggle; CREATE TABLE dp_smuggle (id int); INSERT INTO dp_smuggle VALUES (1)", false)
+
+	for _, sql := range []string{
+		"SELECT 1 --x\r; COMMIT; DELETE FROM dp_smuggle",
+		"SELECT 1 AS é$$; COMMIT; DELETE FROM dp_smuggle; SELECT $$",
+	} {
+		res, err := m.Execute(context.Background(), c, pw, ExecRequest{SQL: sql, ReadOnly: true, MaxRows: 10, Timeout: 10 * time.Second})
+		if err == nil && res.FirstError() == "" {
+			t.Errorf("%q ran on a read-only grant", sql)
+		}
+	}
+
+	if got := run(t, m, c, pw, "SELECT COUNT(*) FROM dp_smuggle", true).Results[0].Rows[0][0]; got != int64(1) {
+		t.Fatalf("rows left: %v", got)
+	}
+
+	// The cursor still reads, without arguments as with them.
+	if got := run(t, m, c, pw, "SELECT id FROM dp_smuggle", true).Results[0].Rows[0][0]; got != int32(1) && got != int64(1) {
+		t.Fatalf("cursor read: %v", got)
+	}
+}

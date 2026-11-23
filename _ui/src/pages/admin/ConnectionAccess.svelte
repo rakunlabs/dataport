@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { X, Users, UsersRound } from 'lucide-svelte';
+  import { X, Users, UsersRound } from '@lucide/svelte';
   import type { Access } from '@/lib/api/types';
   import { admin, groupName, userName } from '@/pages/admin/admin.svelte';
 

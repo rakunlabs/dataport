@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { LoaderCircle, Sigma } from 'lucide-svelte';
-  import { fmtNumber, t } from '@/lib/i18n/index.svelte';
+  import { LoaderCircle, Sigma } from '@lucide/svelte';
+  import { t } from '@/lib/i18n/index.svelte';
   import { countResult, totalOf, type Tab } from '@/lib/stores/workspace.svelte';
 
   // The footer button that counts every row of a result, as DBeaver's
@@ -15,7 +15,7 @@
   {#if total?.count !== undefined}
     <button class="flex h-[22px] items-center gap-1 rounded px-1 tabular-nums text-fg-2 hover:bg-hover" onclick={() => countResult(tab.id, index)} title={t('result.countAgain')}>
       <Sigma size={12} class="text-accent" />
-      {t('result.total', { count: fmtNumber(total.count) })}
+      {t('result.total', { count: total.count })}
     </button>
   {:else if total?.running}
     <button class="flex h-[22px] items-center gap-1 rounded px-1 text-muted hover:bg-hover" onclick={() => countResult(tab.id, index)} title={t('result.countStop')}>

@@ -565,20 +565,6 @@ func aiCleanCompletion(text, prefix, suffix string, chat bool) string {
 }
 
 // clipStart keeps the last n bytes of s, on a rune boundary.
-func clipStart(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-
-	s = s[len(s)-n:]
-	for len(s) > 0 && !utf8RuneStart(s[0]) {
-		s = s[1:]
-	}
-
-	return s
-}
-
-func utf8RuneStart(b byte) bool { return b&0xC0 != 0x80 }
 
 // aiURL puts the endpoint path after the address, keeping the address's
 // own path (a proxy's base path such as /llm/v1) and joining the query of

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { KeyRound, Link, Trash2, Undo2 } from 'lucide-svelte';
+  import { KeyRound, Link, Trash2, Undo2 } from '@lucide/svelte';
   import type { TableStructure } from '@/lib/api/types';
   import type { Tab } from '@/lib/stores/workspace.svelte';
   import { t } from '@/lib/i18n/index.svelte';

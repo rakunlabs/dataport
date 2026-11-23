@@ -2,7 +2,7 @@
   // Picks a schema of a connection and some of its tables, for the export
   // and transfer dialogs.
   import { t } from '@/lib/i18n/index.svelte';
-  import { LoaderCircle, Search, Table2, Eye, Layers } from 'lucide-svelte';
+  import { LoaderCircle, Search, Table2, Eye, Layers } from '@lucide/svelte';
   import { loadObjects, loadSchemas, ws } from '@/lib/stores/workspace.svelte';
 
   let {

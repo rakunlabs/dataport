@@ -80,6 +80,17 @@ func (m *Manager) QuerySource(src *store.Connection, srcPassword string, req Que
 			if err != nil {
 				return err
 			}
+			// Values go over as a table transfer sends them: text columns as
+			// text, binary ones as bytes, driver types converted.
+			colTypes, err := rows.ColumnTypes()
+			if err != nil {
+				return err
+			}
+			types := make([]string, len(colTypes))
+			for i, t := range colTypes {
+				types[i] = columnTypeName(t)
+			}
+			convert := converterFor(sd)
 			mappings, err := transferMappings(req.Target, columns)
 			if err != nil {
 				return err
@@ -127,7 +138,13 @@ func (m *Manager) QuerySource(src *store.Connection, srcPassword string, req Que
 					}
 					row := make([]any, len(mappings))
 					for i, mapping := range mappings {
-						v, err := mapTransferValue(values[indexes[i]], mapping, transforms[i])
+						// A mapping that decodes the bytes itself gets them as read.
+						j := indexes[i]
+						v := values[j]
+						if mapping.Encoding == "" {
+							v = sourceValue(types[j], convert, v)
+						}
+						v, err := mapTransferValue(v, mapping, transforms[i])
 						if err != nil {
 							return fmt.Errorf("column %s: %w", mapping.Source, err)
 						}

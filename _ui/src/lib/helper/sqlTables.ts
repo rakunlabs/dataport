@@ -21,12 +21,11 @@ function unquote(s: string): string {
   return s;
 }
 
-// Without comments and strings, so their text is not read as names.
+// Without comments and strings, so their text is not read as names. One
+// pass, left to right: whichever starts first wins, so a -- inside a string
+// is text and a quote inside a comment is too.
 function strip(sql: string): string {
-  return sql
-    .replace(/--[^\n]*/g, ' ')
-    .replace(/\/\*[\s\S]*?(\*\/|$)/g, ' ')
-    .replace(/'(?:[^']|'')*('|$)/g, "''");
+  return sql.replace(/'(?:[^']|'')*(?:'|$)|--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/g, (m) => (m.startsWith("'") ? "''" : ' '));
 }
 
 export function tableRefs(sql: string): TableRef[] {

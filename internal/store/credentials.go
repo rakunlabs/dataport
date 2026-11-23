@@ -69,25 +69,15 @@ func (s *Store) SetCredential(ctx context.Context, c *Credential) error {
 	ts := now()
 	c.UpdatedAt = ts
 
-	return s.inTx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, s.q("UPDATE "+s.t("user_credentials")+
-			" SET username = ?, password_enc = ?, limits = ?, updated_at = ? WHERE connection_id = ? AND user_id = ?"),
-			c.Username, c.PasswordEnc, limitsJSON(c.Limits), ts, c.ConnectionID, c.UserID)
-		if err != nil {
-			return err
-		}
+	// One statement, so two first saves at once do not race into a
+	// duplicate key; an existing row keeps its created_at.
+	_, err := s.exec(ctx, "INSERT INTO "+s.t("user_credentials")+
+		" (connection_id, user_id, username, password_enc, limits, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"+
+		" ON CONFLICT (connection_id, user_id) DO UPDATE SET username = excluded.username, password_enc = excluded.password_enc,"+
+		" limits = excluded.limits, updated_at = excluded.updated_at",
+		c.ConnectionID, c.UserID, c.Username, c.PasswordEnc, limitsJSON(c.Limits), ts, ts)
 
-		if n, _ := res.RowsAffected(); n > 0 {
-			return nil
-		}
-
-		c.CreatedAt = ts
-		_, err = tx.ExecContext(ctx, s.q("INSERT INTO "+s.t("user_credentials")+
-			" (connection_id, user_id, username, password_enc, limits, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"),
-			c.ConnectionID, c.UserID, c.Username, c.PasswordEnc, limitsJSON(c.Limits), ts, ts)
-
-		return err
-	})
+	return err
 }
 
 func (s *Store) DeleteCredential(ctx context.Context, connectionID, userID string) error {

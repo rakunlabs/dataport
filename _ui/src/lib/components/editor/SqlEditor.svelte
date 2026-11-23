@@ -1,7 +1,7 @@
 <script lang="ts">
   import { t as tr } from '@/lib/i18n/index.svelte';
   import { onDestroy, onMount } from 'svelte';
-  import { EditorState, EditorSelection, Compartment, type Extension, type SelectionRange } from '@codemirror/state';
+  import { EditorState, EditorSelection, Compartment, Transaction, type Extension, type SelectionRange } from '@codemirror/state';
   import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, placeholder } from '@codemirror/view';
   import { statementAt, statements, type Statement } from '@/lib/helper/statements';
 
@@ -13,7 +13,7 @@
   import { formatSql } from '@/lib/helper/formatSql';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import { defaultKeymap, history, historyKeymap, indentWithTab, toggleBlockComment, toggleLineComment } from '@codemirror/commands';
-  import { AlignLeft, CaseLower, CaseUpper, ClipboardPaste, Copy, List, MessageSquareCode, Pilcrow, Scissors, TextSelect, WrapText } from 'lucide-svelte';
+  import { AlignLeft, CaseLower, CaseUpper, ClipboardPaste, Copy, List, MessageSquareCode, Pilcrow, Scissors, TextSelect, WrapText } from '@lucide/svelte';
   import TreeMenu, { type MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
   import DelimitedListDialog from '@/lib/components/editor/DelimitedListDialog.svelte';
   import { trimSpans, type TrimMode } from '@/lib/helper/textMorph';
@@ -513,7 +513,8 @@
           look.of(lookExtension()),
           access.of(EditorState.readOnly.of(readonly)),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged) onchange?.(u.state.doc.toString());
+            // A value set from outside is no edit of the user.
+            if (u.docChanged && !u.transactions.some((tr) => tr.annotation(Transaction.remote))) onchange?.(u.state.doc.toString());
           }),
         ],
       }),
@@ -524,7 +525,7 @@
   $effect(() => {
     const v = value;
     if (view && v !== view.state.doc.toString()) {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } });
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v }, annotations: Transaction.remote.of(true) });
     }
   });
 

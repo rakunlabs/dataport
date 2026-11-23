@@ -50,4 +50,4 @@ auth:
 #   enabled: true
 #   dns_addr: dataport-headless   # resolves to every replica
 #   replicas: 3
-#   security_key: change-me
+#   security_key: change-me     # required, the same on every replica

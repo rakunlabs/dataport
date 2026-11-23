@@ -253,7 +253,10 @@ export function alterSQL(db: string, schema: string, table: string, loaded: Load
   for (const i of d.indexes) {
     if (i.dropped || (i.original && !i.changed) || !i.columns.length) continue;
     const name = i.name.trim() || `${table}_${i.columns.join('_')}_idx`;
-    out.push(`CREATE ${i.unique ? 'UNIQUE ' : ''}INDEX ${q(name)} ON ${T} (${i.columns.map(q).join(', ')});`);
+    // SQLite names the schema on the index and refuses it on the table.
+    const ix = db === 'sqlite' && schema ? `${q(schema)}.${q(name)}` : q(name);
+    const on = db === 'sqlite' ? q(table) : T;
+    out.push(`CREATE ${i.unique ? 'UNIQUE ' : ''}INDEX ${ix} ON ${on} (${i.columns.map(q).join(', ')});`);
   }
 
   for (const f of d.fks) {
@@ -275,9 +278,16 @@ function commentSQL(db: string, schema: string, table: string, column: string, t
   if (mysqlish(db)) return `ALTER TABLE ${T} COMMENT = ${stringLiteral(db, text)};`;
   if (db === 'clickhouse') return column ? `ALTER TABLE ${T} COMMENT COLUMN ${q(column)} ${stringLiteral(db, text)};` : `ALTER TABLE ${T} MODIFY COMMENT ${stringLiteral(db, text)};`;
   if (db === 'mssql') {
+    // A description is added once, then updated; an empty one is dropped.
     const s = stringLiteral(db, schema || 'dbo');
     const lvl2 = column ? `, 'COLUMN', ${stringLiteral(db, column)}` : '';
-    return `EXEC sys.sp_addextendedproperty 'MS_Description', ${stringLiteral(db, text)}, 'SCHEMA', ${s}, 'TABLE', ${stringLiteral(db, table)}${lvl2};`;
+    const level = `'SCHEMA', ${s}, 'TABLE', ${stringLiteral(db, table)}${lvl2}`;
+    // The function takes every level; a table's description has none below it.
+    const listed = column ? level : `${level}, NULL, NULL`;
+    const exists = `EXISTS (SELECT 1 FROM sys.fn_listextendedproperty('MS_Description', ${listed}))`;
+    if (!text) return `IF ${exists} EXEC sys.sp_dropextendedproperty 'MS_Description', ${level};`;
+    const value = stringLiteral(db, text);
+    return `IF ${exists} EXEC sys.sp_updateextendedproperty 'MS_Description', ${value}, ${level} ELSE EXEC sys.sp_addextendedproperty 'MS_Description', ${value}, ${level};`;
   }
   const target = column ? `COLUMN ${T}.${q(column)}` : `TABLE ${T}`;
   return `COMMENT ON ${target} IS ${text ? stringLiteral(db, text) : 'NULL'};`;

@@ -2,9 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -44,21 +41,15 @@ func (s *Server) sharedDocAccess(ctx context.Context, connectionID string) (*sto
 		return nil, "", "", errSecret
 	}
 
-	connection := *c
-	connection.Access = nil
-
-	b, err := json.Marshal(struct {
-		Connection *store.Connection
-		Secret     string
-		Credential *store.Credential
-	}{&connection, c.PasswordEnc, nil})
+	version, err := docVersion(c, c.PasswordEnc, nil)
 	if err != nil {
 		return nil, "", "", err
 	}
 
-	h := sha256.Sum256(b)
+	connection := *c
+	connection.Access = nil
 
-	return &store.Grant{Connection: &connection, ReadOnly: true}, password, hex.EncodeToString(h[:]), nil
+	return &store.Grant{Connection: &connection, ReadOnly: true}, password, version, nil
 }
 
 // sharedAccountDocumentation serves a schema of a connection whose users

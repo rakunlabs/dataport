@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Variable } from 'lucide-svelte';
+  import { Variable } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
   import { answerVariables, rememberedValue, variablesState } from '@/lib/stores/variables.svelte';
   import { t } from '@/lib/i18n/index.svelte';

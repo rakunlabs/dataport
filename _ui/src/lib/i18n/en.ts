@@ -101,6 +101,7 @@ const en = {
     closeOthers: 'Close others',
     closeTab: 'Close tab',
     query: 'Query {n}',
+    rename: 'Rename',
   },
   conn: {
     useReadOnly: 'Use read-only',

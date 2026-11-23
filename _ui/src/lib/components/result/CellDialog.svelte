@@ -1,22 +1,18 @@
 <script lang="ts">
   import { copyText } from '@/lib/helper/clipboard';
   import { t } from '@/lib/i18n/index.svelte';
-  import { Copy } from 'lucide-svelte';
+  import { Copy } from '@lucide/svelte';
   import Modal from '@/lib/components/ui/Modal.svelte';
+  import { formatJson } from '@/lib/components/result/json/jsonTree';
 
   let { column, type, value, onclose }: { column: string; type: string; value: unknown; onclose: () => void } = $props();
 
+  // JSON is indented from its text, so large numbers keep every digit.
   const text = $derived.by(() => {
     if (value === null || value === undefined) return '';
     if (typeof value === 'object') return JSON.stringify(value, null, 2);
     const s = String(value);
-    if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) {
-      try {
-        return JSON.stringify(JSON.parse(s), null, 2);
-      } catch {
-        return s;
-      }
-    }
+    if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) return formatJson(s) ?? s;
     return s;
   });
 

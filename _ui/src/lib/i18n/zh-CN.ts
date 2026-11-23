@@ -90,6 +90,7 @@ const zhCN: Messages = {
     closeOthers: '关闭其他',
     closeTab: '关闭标签页',
     query: '查询 {n}',
+    rename: '重命名',
   },
   conn: {
     limitsHint: '每条语句返回的行数，以及运行允许的最长时间',

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '@/lib/i18n/index.svelte';
-  import { RotateCcw, TriangleAlert } from 'lucide-svelte';
+  import { RotateCcw, TriangleAlert } from '@lucide/svelte';
   import Page from '@/pages/admin/Page.svelte';
   import NotebookAccess from '@/pages/admin/NotebookAccess.svelte';
   import { api } from '@/lib/api/client';

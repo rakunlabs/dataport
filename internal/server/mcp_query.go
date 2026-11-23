@@ -10,7 +10,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/rakunlabs/dataport/internal/engine"
-	"github.com/rakunlabs/dataport/internal/store"
 )
 
 func (s *Server) mcpRun(ctx context.Context, req *mcp.CallToolRequest, name, sqlText string, maxRows int, readOnly bool) (*mcp.CallToolResult, queryOut, error) {
@@ -128,18 +127,14 @@ func (s *Server) mcpExplain(ctx context.Context, req *mcp.CallToolRequest, in ex
 		UserID:   caller.user.ID,
 	})
 
-	entry := &store.QueryLog{
-		UserID: caller.user.ID, Username: caller.user.Username,
-		ConnectionID: g.Connection.ID, ConnectionName: g.Connection.Name, Database: g.Connection.Database,
-		SQL: engine.Redact(in.SQL), Status: "ok", Source: "mcp",
-	}
+	entry := logEntry(caller.user, g.Connection, engine.Redact(in.SQL), "mcp")
 
 	if res != nil {
 		entry.SQL = engine.Redact(res.SQL)
 	}
 
 	if err != nil {
-		entry.Status, entry.Error = "rejected", err.Error()
+		failed(entry, "rejected", err)
 	}
 
 	s.audit(ctx, entry)

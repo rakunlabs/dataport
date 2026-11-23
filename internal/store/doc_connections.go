@@ -229,3 +229,11 @@ func (s *Store) DeleteDoc(ctx context.Context, k DocKey) error {
 
 	return err
 }
+
+// ClearDocPassword forgets the password of a connection's documentation
+// account, keeping its other settings.
+func (s *Store) ClearDocPassword(ctx context.Context, connectionID string) error {
+	_, err := s.exec(ctx, "UPDATE "+s.t("doc_connections")+" SET password_enc = '', updated_at = ? WHERE connection_id = ?", now(), connectionID)
+
+	return err
+}

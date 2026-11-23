@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, fmtDateTime } from '@/lib/i18n/index.svelte';
-  import { Plus, Trash2, Copy, Check, Lock, LockOpen, TriangleAlert, Bot, KeyRound } from 'lucide-svelte';
+  import { Plus, Trash2, Copy, Check, Lock, LockOpen, TriangleAlert, Bot, KeyRound } from '@lucide/svelte';
   import { api } from '@/lib/api/client';
   import type { AccessToken, TokenList } from '@/lib/api/types';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';

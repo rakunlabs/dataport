@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Plus, RefreshCw, Upload, NotebookPen } from 'lucide-svelte';
+  import { Plus, RefreshCw, Upload, NotebookPen } from '@lucide/svelte';
   import { listNotebooks, type Notebook } from '@/lib/api/notebooks';
   import { importNotebook } from '@/lib/helper/notebookImport';
   import { openNotebook, persist, notebookConnections, ws } from '@/lib/stores/workspace.svelte';

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t, i18n } from '@/lib/i18n/index.svelte';
-  import { Play, LoaderCircle, CircleCheck, TriangleAlert, CircleSlash, Circle } from 'lucide-svelte';
+  import { Play, LoaderCircle, CircleCheck, TriangleAlert, CircleSlash, Circle } from '@lucide/svelte';
   import Page from '@/pages/admin/Page.svelte';
   import DocsExport from '@/pages/admin/DocsExport.svelte';
   import DocsConnections from '@/pages/admin/DocsConnections.svelte';

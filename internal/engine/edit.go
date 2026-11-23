@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -65,8 +66,8 @@ func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string
 		args []any
 	)
 
-	param := func(v any) string {
-		args = append(args, v)
+	param := func(col string, v any) string {
+		args = append(args, editValue(d, cols[col].Type, v))
 
 		return placeholder(d, len(args))
 	}
@@ -113,7 +114,7 @@ func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string
 				continue
 			}
 
-			b.WriteString(d.QuoteIdent(k) + " = " + param(v))
+			b.WriteString(d.QuoteIdent(k) + " = " + param(k, v))
 		}
 
 		return nil
@@ -137,7 +138,7 @@ func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string
 				b.WriteString(", ")
 			}
 
-			b.WriteString(d.QuoteIdent(k) + " = " + param(e.Values[k]))
+			b.WriteString(d.QuoteIdent(k) + " = " + param(k, e.Values[k]))
 		}
 
 		if err := where(); err != nil {
@@ -180,7 +181,7 @@ func editSQL(d Driver, qualified string, cols map[string]ColumnInfo, pk []string
 
 		for i, k := range keys {
 			quoted[i] = d.QuoteIdent(k)
-			params[i] = param(e.Values[k])
+			params[i] = param(k, e.Values[k])
 		}
 
 		b.WriteString("INSERT INTO " + qualified + " (" + strings.Join(quoted, ", ") + ") VALUES (" + strings.Join(params, ", ") + ")")
@@ -409,12 +410,49 @@ func describe(query string, args []any) string {
 		}
 
 		s := fmt.Sprint(a)
+		switch x := a.(type) {
+		case []byte:
+			s = `\x` + hex.EncodeToString(x)
+		case time.Time:
+			s = x.Format(time.RFC3339Nano)
+		}
+
 		if len(s) > 200 {
-			s = s[:200] + "…"
+			s = strings.ToValidUTF8(s[:200], "") + "…"
 		}
 
 		parts[i] = "$" + strconv.Itoa(i+1) + "=" + strconv.Quote(s)
 	}
 
 	return query + " -- " + strings.Join(parts, ", ")
+}
+
+// editValue fits a value from the grid to its column where the database
+// would not take the text the grid shows: binary values come as \x and hex,
+// which only PostgreSQL reads itself, and Oracle reads a date in its own
+// session format, not the RFC 3339 the grid sends.
+func editValue(d Driver, colType string, v any) any {
+	s, ok := v.(string)
+	if !ok {
+		return v
+	}
+
+	family := typeFamily(strings.ToLower(strings.TrimSpace(typeArgs.ReplaceAllString(colType, ""))))
+
+	switch {
+	case family == "binary":
+		if h, ok := strings.CutPrefix(s, `\x`); ok {
+			if b, err := hex.DecodeString(h); err == nil {
+				return b
+			}
+		}
+	case d.Type() == "oracle" && (family == "timestamp" || family == "timestamptz" || family == "date"):
+		for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999", "2006-01-02T15:04:05.999999999", "2006-01-02"} {
+			if t, err := time.Parse(layout, strings.TrimSpace(s)); err == nil {
+				return t
+			}
+		}
+	}
+
+	return v
 }

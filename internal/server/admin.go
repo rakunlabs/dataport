@@ -33,6 +33,7 @@ func (s *Server) adminLogs(w http.ResponseWriter, r *http.Request) {
 		Search:       q.Get("search"),
 		Source:       q.Get("source"),
 		Before:       parseInt64(q.Get("before")),
+		BeforeID:     q.Get("before_id"),
 		From:         parseInt64(q.Get("from")),
 		To:           parseInt64(q.Get("to")),
 		Limit:        int(parseInt64(q.Get("limit"))),

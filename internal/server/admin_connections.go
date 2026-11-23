@@ -135,10 +135,6 @@ func (req *connectionRequest) apply(c *store.Connection) {
 	c.HideNotebooks = req.HideNotebooks
 	c.HideMCP = req.HideMCP || req.NotebookOnly
 	c.NotebookOnly = req.NotebookOnly
-
-	if c.Access == nil {
-		c.Access = []store.Access{}
-	}
 }
 
 // adminListConnections lists the shared connections, then the personal
@@ -200,6 +196,10 @@ func (s *Server) adminCreateConnection(w http.ResponseWriter, r *http.Request) {
 	c := &store.Connection{}
 	req.apply(c)
 
+	if c.Access == nil {
+		c.Access = []store.Access{}
+	}
+
 	if c.UserCredentials {
 		c.Username = ""
 	}
@@ -254,7 +254,13 @@ func (s *Server) adminUpdateConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wasPerUser := c.UserCredentials
+	before := *c
 	req.apply(c)
+
+	// An omitted access list keeps who may use the connection; [] clears it.
+	if req.Access == nil {
+		c.Access = before.Access
+	}
 
 	if req.Password != nil {
 		if c.PasswordEnc, err = s.cipher.Encrypt(*req.Password); err != nil {
@@ -282,16 +288,33 @@ func (s *Server) adminUpdateConnection(w http.ResponseWriter, r *http.Request) {
 		c.ProxyEnc = ""
 	}
 
+	// Stored passwords only go to the server they were saved for, by the
+	// way they were saved for, as with Test: after a changed target or
+	// proxy, the connection's password without a new one, the users' own
+	// accounts and the documentation account's password are dropped.
+	moved := !sameTarget(&before, c) || !s.sameProxyEnc(before.ProxyEnc, c.ProxyEnc)
+	if moved && req.Password == nil {
+		c.PasswordEnc = ""
+	}
+
 	if err := s.store.UpdateConnection(ctx, c); err != nil {
 		writeStoreError(w, err)
 
 		return
 	}
 
-	// Users' own accounts are dropped when the connection goes back to a
-	// shared account.
-	if wasPerUser && !c.UserCredentials {
+	// Users' own accounts are dropped too when the connection goes back to
+	// a shared account.
+	if moved || wasPerUser && !c.UserCredentials {
 		if err := s.store.DeleteConnectionCredentials(ctx, c.ID); err != nil {
+			writeStoreError(w, err)
+
+			return
+		}
+	}
+
+	if moved {
+		if err := s.store.ClearDocPassword(ctx, c.ID); err != nil {
 			writeStoreError(w, err)
 
 			return
@@ -554,4 +577,21 @@ func (s *Server) sameProxy(stored *store.Connection, proxy string) bool {
 	saved, err := s.cipher.Decrypt(stored.ProxyEnc)
 
 	return err == nil && saved == proxy
+}
+
+// sameProxyEnc reports two sealed proxies that open to the same URL; each
+// sealing differs, so the ciphertexts alone cannot tell.
+func (s *Server) sameProxyEnc(a, b string) bool {
+	if a == b {
+		return true
+	}
+
+	if a == "" || b == "" {
+		return false
+	}
+
+	pa, errA := s.cipher.Decrypt(a)
+	pb, errB := s.cipher.Decrypt(b)
+
+	return errA == nil && errB == nil && pa == pb
 }

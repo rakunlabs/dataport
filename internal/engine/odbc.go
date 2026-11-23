@@ -124,10 +124,17 @@ func trimChar(dbType string, v any) (any, bool) {
 }
 
 // CheckReadOnly rejects procedure calls, which may change data out of reach
-// of the keyword check. With the mssql dialect it checks as SQL Server does.
+// of the keyword check. With the mssql or mysql dialect it also checks as
+// that database does.
 func (d odbcDriver) CheckReadOnly(stmt string) error {
 	if d.Dialect() == DialectMSSQL {
 		return mssqlDriver{}.CheckReadOnly(stmt)
+	}
+
+	if d.Dialect() == DialectMySQL {
+		if err := (mysqlDriver{}).CheckReadOnly(stmt); err != nil {
+			return err
+		}
 	}
 
 	upper := strings.ToUpper(codeOnly(stmt, d.Dialect()))

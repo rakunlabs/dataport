@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { RefreshCw, Square, ChevronRight } from 'lucide-svelte';
+  import { RefreshCw, Square, ChevronRight } from '@lucide/svelte';
   import * as nb from '@/lib/api/notebooks';
   import type { Notebook, NotebookRun } from '@/lib/api/notebooks';
   import { fmtDateTime, t } from '@/lib/i18n/index.svelte';
@@ -17,10 +17,14 @@
     return () => clearInterval(timer);
   });
 
+  // Only the page asked for last is shown: a poll of the first page must
+  // not land after the user moved to the next.
+  let loadSeq = 0;
   export async function loadRuns() {
     if (!note.id) return;
-    try { runs = await nb.listNotebookRuns(note.id, offset); }
-    catch (e) { onerror(errorMessage(e)); }
+    const seq = ++loadSeq;
+    try { const list = await nb.listNotebookRuns(note.id, offset); if (seq === loadSeq) runs = list; }
+    catch (e) { if (seq === loadSeq) onerror(errorMessage(e)); }
   }
   async function cancelRun(r: NotebookRun) {
     try { await nb.cancelNotebookRun(note.id, r.id); await loadRuns(); } catch (e) { onerror(errorMessage(e)); }

@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -297,7 +298,7 @@ func (m *Manager) get(ctx context.Context, name string) (*oauth2.Strategy, Provi
 	}
 
 	for _, p := range m.providers {
-		if p.Name == name {
+		if p.Name == name && p.Enabled {
 			return s, p, true
 		}
 	}
@@ -336,6 +337,12 @@ func (m *Manager) retry(ctx context.Context, name string) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// A save or reload while it was built wins: the provider may have been
+	// turned off, changed or built again since.
+	if i := slices.IndexFunc(m.providers, func(x Provider) bool { return x.Name == name && x.Enabled }); i < 0 || !reflect.DeepEqual(m.providers[i], p) || m.errs[name] == "" {
+		return
+	}
 
 	if err != nil {
 		slog.Error("sso provider is unavailable", "provider", name, "error", err)
@@ -532,7 +539,18 @@ func (m *Manager) Save(ctx context.Context, original string, p Provider, secret 
 		providers = append(providers, p)
 	}
 
-	return m.write(ctx, providers)
+	if err := m.write(ctx, providers); err != nil {
+		return err
+	}
+
+	// Users are linked by the provider's name; a renamed provider takes its
+	// links along, or they would no longer match and sign-in would create
+	// new accounts for them.
+	if idx >= 0 && original != p.Name {
+		return m.store.RenameProvider(ctx, original, p.Name)
+	}
+
+	return nil
 }
 
 func (m *Manager) Delete(ctx context.Context, name string) error {
