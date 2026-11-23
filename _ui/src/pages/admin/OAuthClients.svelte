@@ -53,7 +53,32 @@
         )
       : list;
   });
-  const shown = $derived(filtered.slice(page * pageSize, (page + 1) * pageSize));
+  // Each registration is a client of its own; those of one app, under one
+  // name, are listed together, with what they hold summed.
+  interface Group {
+    name: string;
+    clients: Client[];
+    tokens: number;
+    users: number;
+    created_at: number;
+    last_used_at: number;
+  }
+  const groups = $derived.by(() => {
+    const byName = new Map<string, Group>();
+    for (const c of filtered) {
+      let g = byName.get(c.name);
+      if (!g) byName.set(c.name, (g = { name: c.name, clients: [], tokens: 0, users: 0, created_at: c.created_at, last_used_at: 0 }));
+      g.clients.push(c);
+      g.tokens += c.tokens;
+      g.created_at = Math.min(g.created_at, c.created_at);
+      g.last_used_at = Math.max(g.last_used_at, c.last_used_at);
+    }
+    for (const g of byName.values()) g.users = new Set(g.clients.flatMap((c) => c.user_list?.map((u) => u.id) ?? [])).size;
+    return [...byName.values()];
+  });
+  // Groups opened to show their registrations.
+  let openGroup = $state<Record<string, boolean>>({});
+  const shown = $derived(groups.slice(page * pageSize, (page + 1) * pageSize));
   $effect(() => {
     void query;
     page = 0;
@@ -96,8 +121,26 @@
       </tr>
     </thead>
     <tbody>
-      {#each shown as c (c.id)}
-        <tr>
+      {#each shown as g (g.name)}
+        {#if g.clients.length > 1}
+          <tr>
+            <td class="py-1.5" colspan="2">
+              <button class="flex items-center gap-2 font-medium" onclick={() => (openGroup[g.name] = !openGroup[g.name])} aria-expanded={!!openGroup[g.name]}>
+                <ChevronRight size={12} class="text-faint transition-transform duration-100 {openGroup[g.name] ? 'rotate-90' : ''}" />
+                <Bot size={14} class="shrink-0 text-accent" />{g.name}
+                <span class="text-xs font-normal text-muted">{t('admin.oauthClients.registrations', { count: g.clients.length })}</span>
+              </button>
+            </td>
+            <td class="text-right text-xs tabular-nums">
+              {#if g.tokens}{t('admin.oauthClients.tokenCount', { count: g.tokens, users: g.users })}{:else}<span class="text-faint">{t('admin.oauthClients.unused')}</span>{/if}
+            </td>
+            <td class="text-xs text-muted">{fullTime(g.created_at)}</td>
+            <td class="text-xs text-muted">{fullTime(g.last_used_at)}</td>
+            <td></td>
+          </tr>
+        {/if}
+        {#each g.clients.length > 1 && !openGroup[g.name] ? [] : g.clients as c (c.id)}
+        <tr class={g.clients.length > 1 ? 'bg-sunken' : ''}>
           <td class="py-1.5">
             <div class="flex items-center gap-2 font-medium"><Bot size={14} class="shrink-0 text-accent" />{c.name}</div>
             <div class="pl-[22px] font-mono text-2xs text-faint">{c.id}</div>
@@ -141,10 +184,11 @@
             </td>
           </tr>
         {/if}
+        {/each}
       {:else}
         <tr><td colspan="6" class="h-24 text-center text-muted">{clients === null ? t('common.loading') : query ? t('admin.oauthClients.noMatch') : t('admin.oauthClients.empty')}</td></tr>
       {/each}
     </tbody>
   </table>
-  <Pager bind:page size={pageSize} total={filtered.length} />
+  <Pager bind:page size={pageSize} total={groups.length} />
 </Page>

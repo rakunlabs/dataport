@@ -1,58 +1,11 @@
 import en from '@/lib/i18n/en';
 
-// Sections a translation may leave out; t() falls back to English for them.
-type Optional = 'account' | 'assistant' | 'pager' | 'notebook' | 'generate' | 'docsHub' | 'tx' | 'myConn' | 'calc' | 'record' | 'rowColors' | 'morph';
-
-// Messages added after a translation was written may be missing from it;
-// t() falls back to English for them too. A string names leaf messages,
-// true a whole section.
-type Later = {
-  admin: {
-    server: { sections: 'docs'; fields: 'docs_disabled'; hints: 'docs_disabled' };
-    log: 'range' | 'from' | 'to' | 'ranges';
-    oauthClients: true;
-    docsExport: true;
-    docConn: true;
-    docAccess: true;
-    externalUrl: true;
-    secretKey: true;
-    ai: true;
-    aiComplete: true;
-    user: 'search' | 'searchGroups' | 'allGroups' | 'count' | 'noMatch' | 'allKinds' | 'ssoNoPassword';
-    group: 'search' | 'noMatch' | 'more' | 'allMembers' | 'selected' | 'onlyMembers' | 'addMatching' | 'removeMatching' | 'features' | 'featureNotebooks' | 'featureNotebooksHint' | 'featureDocs' | 'featureDocsHint' | 'featureOpen';
-    cluster: true;
-    conn: 'visibility' | 'visibilityHint' | 'showWorkspace' | 'showWorkspaceHint' | 'showNotebooks' | 'showNotebooksHint' | 'showMcp' | 'showMcpHint' | 'notebookOnly' | 'notebookOnlyHint' | 'notebookOnlyShared' | 'notebookOnlyChip' | 'personalTitle' | 'personalHint' | 'owner' | 'proxy' | 'proxyNone' | 'proxyUrl' | 'proxyHint' | 'viaProxy';
-    docs: 'history' | 'historyEmpty' | 'started' | 'trigger' | 'result' | 'duration' | 'scheduled' | 'manualBy' | 'manual' | 'status' | 'counts' | 'nothingDue' | 'snapshots' | 'snapshotsHint' | 'snapshotsEmpty' | 'owner' | 'schema' | 'generated' | 'notYet' | 'refreshFailed' | 'turnedOff' };
-  grid: 'sortBy' | 'fill';
-  diagram: 'fromDocs';
-  login: 'forClient';
-  conn: 'useReadOnly' | 'allowWrites' | 'selfReadOnlyOn' | 'selfReadOnlyOff' | 'selfReadOnlyHint' | 'writeToggleHint' | 'selfReadOnlyTx';
-  processes: 'mine' | 'mineHint';
-  docs: 'hubReadOnly' | 'snapshotReadOnly' | 'snapshotSystem' | 'partitioned' | 'partitionHint' | 'onPartitions' | 'indexWhere' | 'triggers' | 'disabled' | 'values';
-  result: 'elapsed' | 'cancelling' | 'runningFor' | 'refresh';
-  query: 'runParallel';
-  valuePanel: 'tab' | 'pick';
-  sidebar: 'state';
-  edit: 'quick';
-  editor: 'limits' | 'limitsReset' | 'aiComplete' | 'aiCompleteOn' | 'aiCompleteOff' | 'aiState' | 'menu';
-  settings: 'aiComplete' | 'aiCompleteHint';
-  mcp: 'tokenOnly' | 'tokenLimited';
-};
-
-type Sections<K> = { [P in keyof K]: K[P] extends true ? P : never }[keyof K];
-
-type Loosen<T, K> = {
-  [P in keyof T as P extends Sections<K> ? never : P]: P extends keyof K
-    ? K[P] extends string
-      ? T[P] extends object
-        ? Omit<T[P], K[P]> & Partial<Pick<T[P], K[P] & keyof T[P]>>
-        : T[P]
-      : Loosen<T[P], K[P]>
-    : T[P];
-} & { [P in keyof T & Sections<K>]?: T[P] };
-
-type Base = Omit<typeof en, Optional> & Partial<Pick<typeof en, Optional>>;
-export type Messages = Loosen<Base, Later>;
+// Every translation has every message: a missing one fails the type check
+// instead of falling back to English unseen. t() still falls back, for a
+// key looked up by a computed name.
+// serverErrors is keyed by the server's messages, which change on their own.
+type Deep<T> = { [P in keyof T]: T[P] extends string ? string : Deep<T[P]> };
+export type Messages = Deep<Omit<typeof en, 'serverErrors'>> & { serverErrors: Record<string, string> };
 export type Locale = 'en' | 'de' | 'es' | 'fr' | 'nl' | 'pl' | 'ru' | 'tr' | 'ja' | 'ko' | 'zh-CN' | 'zh-TW';
 
 // Each language names itself, so it can be found by someone who does not

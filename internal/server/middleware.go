@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -101,14 +104,41 @@ func limitBody(max int64) func(http.Handler) http.Handler {
 	}
 }
 
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
-		h.Set("Referrer-Policy", "same-origin")
-		next.ServeHTTP(w, r)
-	})
+// contentPolicy is what pages may load: only dataport's own scripts, and
+// the inline theme script of index.html by its hash. Styles may be inline,
+// as Svelte sets them on elements; images and fonts may be data URLs.
+func contentPolicy(index []byte) string {
+	scripts := "'self'"
+
+	for _, m := range inlineScript.FindAllSubmatch(index, -1) {
+		sum := sha256.Sum256(m[1])
+		scripts += " 'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+	}
+
+	return "default-src 'self'; script-src " + scripts + "; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; " +
+		"connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+}
+
+var inlineScript = regexp.MustCompile(`(?s)<script>(.*?)</script>`)
+
+func securityHeaders(policy string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := w.Header()
+			h.Set("X-Content-Type-Options", "nosniff")
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("Referrer-Policy", "same-origin")
+			h.Set("Content-Security-Policy", policy)
+
+			// Over HTTPS the browser keeps to it for a year; plain HTTP
+			// cannot ask for that.
+			if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+				h.Set("Strict-Transport-Security", "max-age=31536000")
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func clientIP(r *http.Request) string {

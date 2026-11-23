@@ -114,8 +114,9 @@
       // A write that may change every row (UPDATE or DELETE without WHERE)
       // asks first on any connection too; the preview tells which cells
       // need it, so no cell runs before the user has seen them.
+      // A transfer that empties its target first asks too.
       const prodWrite = note.document.cells.some(
-        (c) => c.write && c.enabled && !c.transfer && (connection(c.connection_id)?.production || /update|delete/i.test(c.sql)),
+        (c) => c.enabled && ((c.write && !c.transfer && (connection(c.connection_id)?.production || /update|delete/i.test(c.sql))) || !!c.transfer?.wipe),
       );
       if (previewOnly || prodWrite) {
         const out = await requestRun(cell, false, {}, true) as NotebookResult;

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { readNdjson } from '@/lib/helper/ndjson';
+  import { confirmedStream } from '@/lib/stores/tools.svelte';
   import { storedGet, storedSet } from '@/lib/helper/storage';
   import { untrack } from 'svelte';
   import { t, fmtNumber, serverMessage } from '@/lib/i18n/index.svelte';
@@ -8,8 +8,7 @@
   import { api } from '@/lib/api/client';
   import { connection, refreshSchema } from '@/lib/stores/workspace.svelte';
   import { closeToolDialog } from '@/lib/stores/dialogs.svelte';
-  import { confirmProduction } from '@/lib/stores/confirm.svelte';
-  import { askCredentials, withCredentials } from '@/lib/stores/credentials.svelte';
+  import { withCredentials } from '@/lib/stores/credentials.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import type { GenColumn, GeneratePlan, GenerateProgress } from '@/lib/api/types';
   import { fakeLocales, fakePools, localizable } from '@/lib/helper/fakeLocale';
@@ -181,39 +180,19 @@
     if ((g === 'list' || g === 'constant') && !c.values) c.values = [];
   }
 
-  async function start(confirm = false) {
+  async function start() {
     running = true;
     error = '';
     done = 0;
     abort = new AbortController();
     try {
-      const res = await fetch(`./api/v1/connections/${connectionId}/generate`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(await body({ confirm })),
-        signal: abort.signal,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        running = false;
-        if (res.status === 409 && data.confirmation_required) {
-          const what = t('generate.what', { rows: fmtNumber(rows), table });
-          if (await confirmProduction({ connection: conn?.name ?? '', sql: what, risk: 'write' })) return await start(true);
-          return;
-        }
-        if (res.status === 428 && data.credentials_required) {
-          if (await askCredentials(connectionId, serverMessage(data.message))) return await start(confirm);
-        }
-        error = serverMessage(data.message || res.statusText);
-        return;
-      }
-
       let final = null as GenerateProgress | null;
-      await readNdjson<GenerateProgress>(res.body!, (p) => {
+      const what = t('generate.what', { rows: fmtNumber(rows), table });
+      const ran = await confirmedStream<GenerateProgress>(connectionId, `/connections/${connectionId}/generate`, (confirm) => body({ confirm }), what, (p) => {
         done = p.rows ?? done;
         if (p.finished) final = p;
-      });
+      }, abort.signal);
+      if (!ran) return;
       if (final?.error) {
         error = serverMessage(final.error);
       } else if (final) {
@@ -221,13 +200,14 @@
         closeToolDialog();
       }
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') error = errorMessage(e);
+      if ((e as Error).name !== 'AbortError') error = serverMessage(errorMessage(e));
     } finally {
       running = false;
       abort = null;
       void refreshSchema(connectionId, schema);
     }
   }
+
 
   function stop() {
     abort?.abort();

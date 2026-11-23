@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/rakunlabs/dataport/internal/auth"
@@ -374,4 +376,21 @@ func mustConnection(t *testing.T, st *store.Store, u *store.User, name string) *
 	t.Fatalf("no connection %s", name)
 
 	return nil
+}
+
+// A read-only token may not change a notebook or the documentation push
+// even through tools its session did not list: the handlers check it.
+func TestMCPReadOnlyTokenWrites(t *testing.T) {
+	env := newMCPEnv(t, "")
+	ro := &mcpCaller{user: env.alice, token: &store.AccessToken{ReadOnly: true}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &sdkauth.TokenInfo{Extra: map[string]any{"caller": ro}}}}
+
+	if _, _, err := env.srv.mcpNotebook(context.Background(), req, "report", "edit"); !errors.Is(err, errMCPReadOnlyToken) {
+		t.Fatalf("edit with a read-only token: %v", err)
+	}
+
+	env.alice.Role = store.RoleAdmin
+	if _, err := env.srv.mcpAdminWriter(req); !errors.Is(err, errMCPReadOnlyToken) {
+		t.Fatalf("admin write with a read-only token: %v", err)
+	}
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { session } from '@/lib/stores/session.svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { ChevronRight, Folder, FolderOpen, Table2, KeyRound, Key, RefreshCw, Search, Lock, FilePlus2, LoaderCircle, TriangleAlert, X, ChevronsLeft } from '@lucide/svelte';
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
@@ -16,7 +17,7 @@
     showGroup as showGroupFor,
     type GroupKey,
   } from '@/lib/components/workspace/treeMenus';
-  import { loadColumns, loadObjects, loadRoutines, loadSchemas, openQueryTab, openTableTab, refreshConnection, toggle, ws, activeTab, workspaceConnections, persist } from '@/lib/stores/workspace.svelte';
+  import { loadColumns, loadObjects, loadRoutines, loadSchemas, openQueryTab, openTableTab, refreshConnection, toggle, ws, activeTab, workspaceConnections, startWorkspace, dropConnectionCache } from '@/lib/stores/workspace.svelte';
   import { askCredentials, forgetCredentials } from '@/lib/stores/credentials.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
   import type { ConnectionView, DbObject, Routine } from '@/lib/api/types';
@@ -108,9 +109,7 @@
     try {
       await forgetCredentials(id);
       // Drop the cached tree, so nothing loaded with the old account stays.
-      ws.expanded[id] = false;
-      delete ws.schemas[id];
-      persist();
+      dropConnectionCache(id);
       toast(t('credentials.forgotten'), 'success');
     } catch (e) {
       toast(errorMessage(e), 'error');
@@ -146,7 +145,11 @@
     {#if !ws.connectionsLoaded}
       <p class="flex items-center gap-2 px-3 py-2 text-xs text-muted"><LoaderCircle size={12} class="animate-spin" /> {t('common.loading')}</p>
     {:else if ws.connectionsError}
-      <p class="flex items-start gap-1.5 px-3 py-2 text-xs text-danger"><TriangleAlert size={12} class="mt-0.5 shrink-0" /> {ws.connectionsError}</p>
+      <div class="px-3 py-2">
+        <p class="flex items-start gap-1.5 text-xs text-danger"><TriangleAlert size={12} class="mt-0.5 shrink-0" /> {ws.connectionsError}</p>
+        <!-- Tabs come back once the connections load. -->
+        <button class="btn mt-2 h-6 text-xs" onclick={() => session.user && void startWorkspace(session.user.id)}>{t('sidebar.retry')}</button>
+      </div>
     {:else if workspaceConnections().length === 0}
       <div class="px-4 py-8 text-center">
         <Lock size={18} class="mx-auto mb-2 text-faint" />
@@ -327,7 +330,7 @@
   </div>
 </aside>
 
-<svelte:window onclick={() => (credMenu = null)} />
+<svelte:window onclick={() => (credMenu = null)} onkeydown={(e) => e.key === 'Escape' && (credMenu = null)} />
 
 {#if menu}
   <TreeMenu x={menu.x} y={menu.y} items={menu.items} onclose={() => (menu = null)} />

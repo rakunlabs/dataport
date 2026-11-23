@@ -134,11 +134,20 @@ func (s *Server) executeNotebook(ctx context.Context, user *store.User, n *store
 				dst := access.dst
 				config, _ := json.Marshal(cell.Transfer)
 				cr.Confirmation = confirmationDigest(cell.ConnectionID, sql+string(config), args)
+				shown := sql + "\n-- Transfer target: " + dst.Connection.Name + " / " + cell.Transfer.Schema + " / " + cell.Transfer.Table + "\n-- Settings: " + string(config)
+				// Wiping the target deletes every row there first, which asks
+				// as a DELETE without WHERE does.
+				cr.NeedsConfirmation = cell.Transfer.Wipe
 				if req.Preview {
 					cr.Status = "preview"
-					cr.SQL = sql + "\n-- Transfer target: " + dst.Connection.Name + " / " + cell.Transfer.Schema + " / " + cell.Transfer.Table + "\n-- Settings: " + string(config)
+					cr.SQL = shown
 					cr.Args = args
 					return nil
+				}
+				if cr.NeedsConfirmation && req.Confirmations[cell.Path] != cr.Confirmation {
+					cr.Status = "confirmation_required"
+					cr.SQL, cr.Args = shown, args
+					return errors.New("the transfer deletes every row of " + cell.Transfer.Table + " first; confirm it before running this cell")
 				}
 				tr, transferErr := s.engine.QueryTransfer(ctx, g.Connection, password, dst.Connection, access.dstPassword, engine.QueryTransferRequest{
 					SQL: sql, Args: args, Target: *cell.Transfer,

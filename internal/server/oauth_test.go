@@ -200,9 +200,16 @@ func TestMCPOAuth(t *testing.T) {
 	}
 
 	// A refresh token gives a new access token once.
-	refresh, access := oauthPair(t, env, base, browser)
+	refresh, access, clientID := oauthPair(t, env, base, browser)
 
 	form := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refresh}}
+
+	// Without the client's id the refresh token is refused, and stays valid.
+	if resp, err := http.PostForm(base+"/oauth/token", form); err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("refresh without client_id: %v %d", err, resp.StatusCode)
+	}
+
+	form.Set("client_id", clientID)
 
 	for i, want := range []int{http.StatusOK, http.StatusBadRequest} {
 		resp, err := http.PostForm(base+"/oauth/token", form)
@@ -217,8 +224,8 @@ func TestMCPOAuth(t *testing.T) {
 }
 
 // oauthPair runs the code flow by hand and returns the refresh and access
-// token.
-func oauthPair(t *testing.T, env *mcpEnv, base string, browser *http.Client) (string, string) {
+// token and the client's id.
+func oauthPair(t *testing.T, env *mcpEnv, base string, browser *http.Client) (string, string, string) {
 	t.Helper()
 
 	resp, err := http.Post(base+"/oauth/register", "application/json", strings.NewReader(`{"client_name":"test-cli","redirect_uris":["http://localhost:1/cb"]}`))
@@ -275,7 +282,7 @@ func oauthPair(t *testing.T, env *mcpEnv, base string, browser *http.Client) (st
 		t.Fatalf("token: %v", tok)
 	}
 
-	return tok["refresh_token"].(string), tok["access_token"].(string)
+	return tok["refresh_token"].(string), tok["access_token"].(string), client["client_id"].(string)
 }
 
 func pkceChallenge(verifier string) string {

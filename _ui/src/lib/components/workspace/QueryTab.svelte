@@ -218,7 +218,7 @@
   function runStatement(sql: string, e: MouseEvent) {
     const here = () => run(tab.id, sql);
     const beside = () => run(tab.id, sql, 'append');
-    const elsewhere = () => runInNewTab(tab.connectionId, sql, '', tab.maxRows);
+    const elsewhere = () => runInNewTab(tab.connectionId, sql, '', tab.maxRows, tab.timeoutSec);
 
     if (e.button === 2 || e.altKey) {
       stmtMenu = {
@@ -495,6 +495,7 @@
   <div class="min-h-0 {showResults ? '' : 'flex-1'}" style={showResults ? `height:${split}%` : ''}>
     <SqlEditor
       bind:this={editor}
+      stateKey={tab.id}
       value={tab.sql}
       dbType={conn?.db_type ?? 'postgres'}
       {schema}

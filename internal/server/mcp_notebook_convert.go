@@ -26,6 +26,12 @@ func (s *Server) mcpNotebook(ctx context.Context, req *mcp.CallToolRequest, ref,
 		return nil, nil, errNotebooksOff
 	}
 
+	// Changing a notebook is a write: a read-only token may not, whichever
+	// tools its session was given. A run checks its cells itself.
+	if caller.token != nil && caller.token.ReadOnly && (permission == "edit" || permission == "owner") {
+		return nil, nil, errMCPReadOnlyToken
+	}
+
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return nil, nil, errors.New("notebook is required; call dataport_list_notebooks")

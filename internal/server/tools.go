@@ -250,8 +250,15 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.engine.Export(r.Context(), g.Connection, password, req, lw)
 
 	what := fmt.Sprintf("-- export %s of %s: %s", req.Format, orAll(req.Schema), strings.Join(req.Tables, ", "))
+	// A failed export is logged too, also when a replica that ran it could
+	// not report how far it got.
+	var rows int64
 	if stats != nil {
-		s.log(r.Context(), currentUser(r), g.Connection, what, err, stats.Rows, time.Since(start).Milliseconds())
+		rows = stats.Rows
+	}
+
+	if stats != nil || err != nil {
+		s.log(r.Context(), currentUser(r), g.Connection, what, err, rows, time.Since(start).Milliseconds())
 	}
 
 	if err != nil {

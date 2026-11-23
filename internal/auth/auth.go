@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -35,13 +36,26 @@ var (
 	ErrWeakPassword       = fmt.Errorf("password must be at least %d characters", MinPasswordLength)
 )
 
+// hashSlots bounds how many password hashes run at once. Each takes
+// argonMemory KiB, so many sign-in attempts at the same time, even for
+// unknown names, would otherwise take the server's memory with them; the
+// rest wait their turn.
+var hashSlots = make(chan struct{}, max(2, min(runtime.NumCPU(), 8)))
+
+func idKey(password string, salt []byte, t, memory uint32, threads uint8, keyLen uint32) []byte {
+	hashSlots <- struct{}{}
+	defer func() { <-hashSlots }()
+
+	return argon2.IDKey([]byte(password), salt, t, memory, threads, keyLen)
+}
+
 func HashPassword(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
 
-	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	key := idKey(password, salt, argonTime, argonMemory, argonThreads, argonKeyLen)
 
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, argonMemory, argonTime, argonThreads,
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
@@ -73,7 +87,13 @@ func VerifyPassword(password, encoded string) bool {
 		return false
 	}
 
-	got := argon2.IDKey([]byte(password), salt, t, memory, threads, uint32(len(want)))
+	// A stored hash never asks for more than this server makes: a changed
+	// row must not make each check take gigabytes or minutes.
+	if memory == 0 || memory > argonMemory || t == 0 || t > 10 || threads == 0 || len(want) == 0 || len(want) > 64 {
+		return false
+	}
+
+	got := idKey(password, salt, t, memory, threads, uint32(len(want)))
 
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
@@ -142,7 +162,10 @@ func (a *Auth) Login(ctx context.Context, username, password, ip, userAgent stri
 	username = strings.TrimSpace(username)
 	key := strings.ToLower(username) + "|" + ip
 
-	if a.limiter.locked(key) {
+	// An attempt counts as it starts, so many sent at once are not all let
+	// through before the first fails. The address alone has a larger
+	// allowance, for guesses spread over many names.
+	if !a.limiter.try(key, a.limiter.max) || !a.limiter.try("ip|"+ip, a.limiter.max*4) {
 		return "", nil, ErrLocked
 	}
 
@@ -153,14 +176,11 @@ func (a *Auth) Login(ctx context.Context, username, password, ip, userAgent stri
 
 	if user == nil {
 		VerifyPassword(password, a.dummyHash)
-		a.limiter.fail(key)
 
 		return "", nil, ErrInvalidCredentials
 	}
 
 	if !VerifyPassword(password, user.PasswordHash) || user.Disabled {
-		a.limiter.fail(key)
-
 		return "", nil, ErrInvalidCredentials
 	}
 
@@ -310,11 +330,16 @@ func hashToken(token string) string {
 
 // ////////////////////////////////////////////
 
+// attempt counts the tries of one key in the window that began at start.
 type attempt struct {
 	failures    int
+	start       time.Time
 	lockedUntil time.Time
 	last        time.Time
 }
+
+// limitWindow is how long tries add up: older ones are forgotten.
+const limitWindow = 15 * time.Minute
 
 type limiter struct {
 	mu       sync.Mutex
@@ -327,32 +352,38 @@ func newLimiter(max int, lockFor time.Duration) *limiter {
 	return &limiter{max: max, lockFor: lockFor, attempts: map[string]*attempt{}}
 }
 
-func (l *limiter) locked(key string) bool {
+// try counts one attempt of key and reports whether it may go ahead: not
+// while the key is locked, and not past limit attempts in the window, which
+// locks it. A successful sign-in resets its key.
+func (l *limiter) try(key string, limit int) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	a := l.attempts[key]
-
-	return a != nil && time.Now().Before(a.lockedUntil)
-}
-
-func (l *limiter) fail(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	now := time.Now()
 
 	a := l.attempts[key]
-	if a == nil {
-		a = &attempt{}
+	if a == nil || now.Sub(a.start) > limitWindow && now.After(a.lockedUntil) {
+		a = &attempt{start: now}
 		l.attempts[key] = a
 	}
 
-	a.failures++
-	a.last = time.Now()
+	a.last = now
 
-	if a.failures >= l.max {
-		a.failures = 0
-		a.lockedUntil = time.Now().Add(l.lockFor)
+	if now.Before(a.lockedUntil) {
+		return false
 	}
+
+	if a.failures >= limit {
+		a.failures = 0
+		a.start = now
+		a.lockedUntil = now.Add(l.lockFor)
+
+		return false
+	}
+
+	a.failures++
+
+	return true
 }
 
 func (l *limiter) reset(key string) {

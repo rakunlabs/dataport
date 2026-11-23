@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rakunlabs/dataport/internal/store"
 )
@@ -66,13 +67,13 @@ func TestOAuthBehindPrefixProxy(t *testing.T) {
 		ids[out["client_id"].(string)] = true
 	}
 
-	// The same app on another loopback port joins its first registration,
-	// so admins see one client with all its users.
+	// Each registration is its own client, also under a name taken before:
+	// a program calling itself the same app gets nothing the first was given.
 	again := do(http.MethodPost, "/oauth/register", `{"client_name":"Claude Code (dataport)","redirect_uris":["http://localhost:61000/callback"]}`)
-	var joined map[string]any
-	_ = json.Unmarshal(again.Body.Bytes(), &joined)
-	if len(ids) != 1 || !ids[joined["client_id"].(string)] {
-		t.Fatalf("the same app registered twice: %v %v", ids, joined)
+	var second map[string]any
+	_ = json.Unmarshal(again.Body.Bytes(), &second)
+	if ids[second["client_id"].(string)] {
+		t.Fatalf("a registration under the same name joined the first: %v %v", ids, second)
 	}
 
 	// Another app, or another redirect, is a client of its own.
@@ -100,32 +101,29 @@ func TestOAuthBehindPrefixProxy(t *testing.T) {
 	// Admins see the registered clients and can remove one.
 	ctx := context.Background()
 	list, err := env.st.ListOAuthClients(ctx)
-	if err != nil || len(list) != 2 {
+	if err != nil || len(list) != 4 {
 		t.Fatalf("clients: %v %+v", err, list)
 	}
-	// list[1] is Claude Code, list[0] the other.
-	if list[0].Name == "Claude Code (dataport)" {
-		list[0], list[1] = list[1], list[0]
-	}
-	if list[1].Name != "Claude Code (dataport)" || list[1].Tokens != 0 {
-		t.Fatalf("clients: %+v", list)
-	}
-	if err := env.st.CreateAccessToken(ctx, &store.AccessToken{UserID: env.alice.ID, Name: "c", TokenHash: "h", ClientID: list[1].ID}); err != nil {
+	i := slices.IndexFunc(list, func(c store.OAuthClientInfo) bool { return c.Name == "Claude Code (dataport)" })
+	claude := list[i]
+	if err := env.st.CreateAccessToken(ctx, &store.AccessToken{UserID: env.alice.ID, Name: "c", TokenHash: "h", ClientID: claude.ID}); err != nil {
 		t.Fatal(err)
 	}
 	if all, _ := env.st.ListOAuthClients(ctx); !slices.ContainsFunc(all, func(c store.OAuthClientInfo) bool {
-		return c.ID == list[1].ID && len(c.UserList) == 1 && c.UserList[0].Username == "alice"
+		return c.ID == claude.ID && len(c.UserList) == 1 && c.UserList[0].Username == "alice"
 	}) {
 		t.Fatalf("client users: %+v", all)
 	}
-	if err := env.st.DeleteOAuthClient(ctx, list[1].ID); err != nil {
+
+	// Registrations that never got a token go; the one with a token stays.
+	if n, err := env.st.DeleteUnusedOAuthClients(ctx, time.Now().UnixMilli()+1); err != nil || n != 3 {
+		t.Fatalf("unused: %d %v", n, err)
+	}
+	if err := env.st.DeleteOAuthClient(ctx, claude.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.st.GetAccessTokenByHash(ctx, "h"); err == nil {
 		t.Fatal("a removed client's token still works")
-	}
-	if n, err := env.st.DeleteUnusedOAuthClients(ctx, list[0].CreatedAt+1); err != nil || n != 1 {
-		t.Fatalf("unused: %d %v", n, err)
 	}
 }
 
@@ -176,6 +174,18 @@ func TestOAuthSignInFirst(t *testing.T) {
 	// Remembered: back to the client with a code, no question.
 	if p := page(); p["remembered"] != true || !strings.Contains(p["redirect"].(string), "code=") {
 		t.Fatalf("remembered: %v", p)
+	}
+
+	// Another program registering as the same app is asked.
+	resp, err = http.Post(base+"/oauth/register", "application/json", strings.NewReader(`{"client_name":"Claude Code","redirect_uris":["http://localhost:53280/callback"]}`))
+	if err != nil || resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %v %d", err, resp.StatusCode)
+	}
+	var other map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&other)
+	q = strings.Replace(q, "client_id="+c.ID, "client_id="+other["client_id"].(string), 1)
+	if p := page(); p["remembered"] != nil || p["client"] != "Claude Code" {
+		t.Fatalf("another registration under the name: %v", p)
 	}
 }
 

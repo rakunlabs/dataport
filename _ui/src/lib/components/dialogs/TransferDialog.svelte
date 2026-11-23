@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { readNdjson } from '@/lib/helper/ndjson';
+  import { confirmedStream } from '@/lib/stores/tools.svelte';
   import { untrack } from 'svelte';
   import { t } from '@/lib/i18n/index.svelte';
   import { ArrowRightLeft, Info, LoaderCircle, Check, TriangleAlert, ArrowRight } from '@lucide/svelte';
@@ -8,8 +8,6 @@
   import DbIcon from '@/lib/components/ui/DbIcon.svelte';
   import { connection, loadSchemas, refreshConnection, refreshSchema, ws, workspaceConnections } from '@/lib/stores/workspace.svelte';
   import { closeToolDialog } from '@/lib/stores/dialogs.svelte';
-  import { confirmProduction } from '@/lib/stores/confirm.svelte';
-  import { askCredentials } from '@/lib/stores/credentials.svelte';
   import { serverMessage } from '@/lib/i18n/index.svelte';
   import type { TransferProgress } from '@/lib/api/types';
 
@@ -56,53 +54,41 @@
 
   const same = $derived(targetId === connectionId && targetSchema === schema);
 
-  async function start(confirm = false) {
+  async function start() {
     running = true;
     error = '';
     finished = null;
     progress = Object.fromEntries(selected.map((tb) => [tb, { table: tb, rows: 0 }]));
     abort = new AbortController();
     try {
-      const res = await fetch(`./api/v1/connections/${connectionId}/transfer`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schema, tables: selected, target_id: targetId, target_schema: targetSchema, create, data, truncate, confirm }),
-        signal: abort.signal,
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        running = false;
-        if (res.status === 409 && body.confirmation_required) {
-          const what = t('transfer.what', { n: selected.length, target: target?.name ?? '', schema: targetSchema });
-          if (await confirmProduction({ connection: target?.name ?? '', sql: what, risk: 'write' })) return await start(true);
-          return;
-        }
-        if (res.status === 428 && body.credentials_required) {
-          if (await askCredentials(connectionId, serverMessage(body.message))) return await start(confirm);
-          error = serverMessage(body.message);
-          return;
-        }
-        error = serverMessage(body.message || res.statusText);
-        return;
-      }
-
-      await readNdjson<TransferProgress>(res.body!, (p) => {
-        if (p.finished) {
-          finished = p;
-          if (p.error) error = serverMessage(p.error);
-        } else if (p.table) {
-          progress[p.table] = p;
-        }
-      });
+      const what = t('transfer.what', { n: selected.length, target: target?.name ?? '', schema: targetSchema });
+      // The account is asked for the source; the production prompt names
+      // the target, which is written to.
+      await confirmedStream<TransferProgress>(
+        connectionId,
+        `/connections/${connectionId}/transfer`,
+        () => ({ schema, tables: selected, target_id: targetId, target_schema: targetSchema, create, data, truncate }),
+        what,
+        (p) => {
+          if (p.finished) {
+            finished = p;
+            if (p.error) error = serverMessage(p.error);
+          } else if (p.table) {
+            progress[p.table] = p;
+          }
+        },
+        abort.signal,
+        targetId,
+      );
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') error = e instanceof Error ? e.message : String(e);
+      if ((e as Error).name !== 'AbortError') error = serverMessage(e instanceof Error ? e.message : String(e));
     } finally {
       running = false;
       abort = null;
       if (targetId) void (targetSchema ? refreshSchema(targetId, targetSchema) : refreshConnection(targetId));
     }
   }
+
 
   function stop() {
     abort?.abort();

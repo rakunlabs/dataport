@@ -68,6 +68,9 @@ type Server struct {
 	notebookContext context.Context
 	notebookStop    context.CancelFunc
 	notebookWorkers sync.WaitGroup
+	// stopping is set, under notebookMu, once shutdown waits for the
+	// workers: none may start after that.
+	stopping bool
 	// base is the configuration as loaded; cfg holds it with the settings
 	// admins saved over it. settingsMu guards cfg.Query, cfg.MCP,
 	// cfg.Notebook, cfg.Connections and cfg.Docs, which change while running.
@@ -98,6 +101,8 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 
 	s.notebookContext, s.notebookStop = context.WithCancel(context.Background())
 
+	index, _ := fs.ReadFile(uiFS, "dist/index.html")
+
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -105,7 +110,7 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 		mrequestid.Middleware(),
 		mlog.Middleware(),
 		mtelemetry.Middleware(),
-		securityHeaders,
+		securityHeaders(contentPolicy(index)),
 	)
 
 	base := mux.Group(cfg.Server.BasePath)
@@ -312,8 +317,33 @@ func New(cfg *config.Config, st *store.Store, au *auth.Auth, ci *crypto.Cipher, 
 	return s, nil
 }
 
+// addWorker counts background work that shutdown waits for. It refuses
+// once shutdown began: a WaitGroup may not grow while it is waited on.
+func (s *Server) addWorker() bool {
+	s.notebookMu.Lock()
+	defer s.notebookMu.Unlock()
+
+	if s.stopping {
+		return false
+	}
+
+	s.notebookWorkers.Add(1)
+
+	return true
+}
+
+// stopWorkers cancels background work and waits for it to end.
+func (s *Server) stopWorkers() {
+	s.notebookMu.Lock()
+	s.stopping = true
+	s.notebookMu.Unlock()
+
+	s.notebookStop()
+	s.notebookWorkers.Wait()
+}
+
 func (s *Server) Start(ctx context.Context) error {
-	defer func() { s.notebookStop(); s.notebookWorkers.Wait() }()
+	defer s.stopWorkers()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	maintenanceDone := make(chan struct{})
@@ -336,12 +366,11 @@ func (s *Server) isSecure(r *http.Request) bool {
 	return s.cfg.Auth.SecureCookie || r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
-func (s *Server) cookiePath() string {
-	if s.cfg.Server.BasePath == "" {
-		return "/"
-	}
-
-	return s.cfg.Server.BasePath + "/"
+// cookiePath is where the browser sends the session cookie: the path it
+// sees, with a proxy's prefix or the external URL's path, as the SSO
+// cookies use.
+func (s *Server) cookiePath(r *http.Request) string {
+	return s.publicPath(r) + "/"
 }
 
 // setCookie sets the cookie of a new session. A remembered session's cookie
@@ -357,7 +386,7 @@ func (s *Server) setCookieFor(w http.ResponseWriter, r *http.Request, token stri
 	c := &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
-		Path:     s.cookiePath(),
+		Path:     s.cookiePath(r),
 		HttpOnly: true,
 		Secure:   s.isSecure(r),
 		SameSite: http.SameSiteLaxMode,
@@ -374,7 +403,7 @@ func (s *Server) clearCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    "",
-		Path:     s.cookiePath(),
+		Path:     s.cookiePath(r),
 		HttpOnly: true,
 		Secure:   s.isSecure(r),
 		SameSite: http.SameSiteLaxMode,

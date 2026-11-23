@@ -104,7 +104,13 @@
             onclick={() => {
               const existing = ws.tabs.find((t) => t.savedId === q.id);
               if (existing) ws.activeId = existing.id;
-              else openQueryTab(conn ? q.connection_id : (workspaceConnections()[0]?.id ?? ''), q.sql, q.name, q.id);
+              else if (conn) openQueryTab(q.connection_id, q.sql, q.name, q.id);
+              else {
+                // Its connection is gone: a copy opens on another, so saving
+                // does not move the saved query there.
+                const other = workspaceConnections()[0]?.id;
+                if (other) openQueryTab(other, q.sql, q.name);
+              }
             }}
           >
             <div class="flex items-center gap-1.5">

@@ -1,3 +1,8 @@
+<script lang="ts" module>
+  // Editor states kept by stateKey while their editor is closed.
+  const keptStates = new Map<string, { json: { doc: string }; scroll: number }>();
+</script>
+
 <script lang="ts">
   import { t as tr } from '@/lib/i18n/index.svelte';
   import { onDestroy, onMount } from 'svelte';
@@ -12,7 +17,7 @@
   import { defaultOptions, type EditorOptions } from '@/lib/helper/editorOptions';
   import { formatSql } from '@/lib/helper/formatSql';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
-  import { defaultKeymap, history, historyKeymap, indentWithTab, toggleBlockComment, toggleLineComment } from '@codemirror/commands';
+  import { defaultKeymap, history, historyField, historyKeymap, indentWithTab, toggleBlockComment, toggleLineComment } from '@codemirror/commands';
   import { AlignLeft, CaseLower, CaseUpper, ClipboardPaste, Copy, List, MessageSquareCode, Pilcrow, Scissors, TextSelect, WrapText } from '@lucide/svelte';
   import TreeMenu, { type MenuItem } from '@/lib/components/workspace/TreeMenu.svelte';
   import DelimitedListDialog from '@/lib/components/editor/DelimitedListDialog.svelte';
@@ -44,7 +49,11 @@
     readonly = false,
     options = {},
     oninline,
+    stateKey,
   }: {
+    // Set to keep undo history, cursor and scroll while the editor is
+    // closed and opened again, as when switching tabs.
+    stateKey?: string;
     value: string;
     dbType: string;
     schema?: SQLNamespace;
@@ -436,89 +445,96 @@
   });
 
   onMount(() => {
-    view = new EditorView({
-      parent: host,
-      state: EditorState.create({
-        doc: value,
-        extensions: [
-          // Alt+X runs the script, Alt+Z wraps, Alt+S selects the
-          // statement. On macOS they are Ctrl+Option+X/Z/S: Option+letter
-          // types characters there (Polish ś, ź, ż; ß, Ω on US) and must
-          // keep doing so. Keys are matched by their place, as the
-          // character they give changes with Option.
-          EditorView.domEventHandlers({
-            contextmenu: (e, v) => openMenu(e, v),
-            keydown: (e, v) => {
-              const mod = isMac ? e.altKey && e.ctrlKey : e.altKey && !e.ctrlKey;
-              if (!mod || e.metaKey || e.shiftKey) return false;
-              if (e.code === 'KeyX' && onrun && !runsWhole) runScript(v);
-              else if (e.code === 'KeyZ' && onwrap) onwrap();
-              else if (e.code === 'KeyS' && onrun && !runsWhole) selectStatement(v);
-              else return false;
-              e.preventDefault();
-              return true;
-            },
-          }),
-          behaviour.of(behaviourExtension()),
-          inline,
-          runGutter.of(runExtension()),
-          highlightActiveLine(),
-          drawSelection(),
-          history(),
-          indentOnInput(),
-          bracketMatching(),
-          autocompletion({ icons: true }),
-          highlightSelectionMatches(),
-          placeholder(tr('query.placeholder', { script: scriptKey })),
-          keymap.of([
-            // Ctrl+Shift+Enter is kept from earlier versions; it does what
-            // Ctrl+Enter does.
-            { key: 'Mod-Shift-Enter', run: (v) => runTarget(v) },
-            { key: 'Mod-Shift-e', run: explainCurrent },
-            {
-              key: 'Mod-Shift-f',
-              run: () => {
-                void format();
-                return true;
-              },
-            },
-            // DBeaver's keys for case and comments.
-            { key: 'Mod-Shift-x', run: (v) => changeCase(v, true) },
-            { key: 'Mod-Shift-y', run: (v) => changeCase(v, false) },
-            { key: 'Mod-Shift-/', run: toggleBlockComment },
-            { key: 'Mod-Enter', run: (v) => runTarget(v) },
-            // DBX's keys; Alt+Up/Down stay with moving lines.
-            // DBX's keys. On macOS Ctrl+Shift+Up/Down select by page, and
-            // Ctrl+arrows may go to Mission Control: there Ctrl+Option+Up/Down.
-            { key: 'Ctrl-Shift-ArrowUp', mac: 'Ctrl-Alt-ArrowUp', run: (v) => gotoStatement(v, -1) },
-            { key: 'Ctrl-Shift-ArrowDown', mac: 'Ctrl-Alt-ArrowDown', run: (v) => gotoStatement(v, 1) },
-            { key: 'Mod-\\', run: (v) => runTarget(v, true) },
-            { key: 'Shift-Enter', run: (v) => runTarget(v) },
-            {
-              key: 'Mod-s',
-              run: () => {
-                onsave?.();
-                return true;
-              },
-            },
-            ...defaultKeymap,
-            ...searchKeymap,
-            ...historyKeymap,
-            ...completionKeymap,
-            indentWithTab,
-          ]),
-          lang.of(langExt()),
-          syntaxHighlighting(highlight),
-          editorTheme,
-          look.of(lookExtension()),
-          access.of(EditorState.readOnly.of(readonly)),
-          EditorView.updateListener.of((u) => {
-            // A value set from outside is no edit of the user.
-            if (u.docChanged && !u.transactions.some((tr) => tr.annotation(Transaction.remote))) onchange?.(u.state.doc.toString());
-          }),
-        ],
+    // What the editor had when it was last closed, while its text is the
+    // same: the undo history, selection and scroll come back with it.
+    const kept = stateKey ? keptStates.get(stateKey) : undefined;
+    const extensions: Extension = [
+      // Alt+X runs the script, Alt+Z wraps, Alt+S selects the
+      // statement. On macOS they are Ctrl+Option+X/Z/S: Option+letter
+      // types characters there (Polish ś, ź, ż; ß, Ω on US) and must
+      // keep doing so. Keys are matched by their place, as the
+      // character they give changes with Option.
+      EditorView.domEventHandlers({
+        contextmenu: (e, v) => openMenu(e, v),
+        keydown: (e, v) => {
+          const mod = isMac ? e.altKey && e.ctrlKey : e.altKey && !e.ctrlKey;
+          if (!mod || e.metaKey || e.shiftKey) return false;
+          if (e.code === 'KeyX' && onrun && !runsWhole) runScript(v);
+          else if (e.code === 'KeyZ' && onwrap) onwrap();
+          else if (e.code === 'KeyS' && onrun && !runsWhole) selectStatement(v);
+          else return false;
+          e.preventDefault();
+          return true;
+        },
       }),
-    });
+      behaviour.of(behaviourExtension()),
+      inline,
+      runGutter.of(runExtension()),
+      highlightActiveLine(),
+      drawSelection(),
+      history(),
+      indentOnInput(),
+      bracketMatching(),
+      autocompletion({ icons: true }),
+      highlightSelectionMatches(),
+      placeholder(tr('query.placeholder', { script: scriptKey })),
+      keymap.of([
+        // Ctrl+Shift+Enter is kept from earlier versions; it does what
+        // Ctrl+Enter does.
+        { key: 'Mod-Shift-Enter', run: (v) => runTarget(v) },
+        { key: 'Mod-Shift-e', run: explainCurrent },
+        {
+          key: 'Mod-Shift-f',
+          run: () => {
+            void format();
+            return true;
+          },
+        },
+        // DBeaver's keys for case and comments.
+        { key: 'Mod-Shift-x', run: (v) => changeCase(v, true) },
+        { key: 'Mod-Shift-y', run: (v) => changeCase(v, false) },
+        { key: 'Mod-Shift-/', run: toggleBlockComment },
+        { key: 'Mod-Enter', run: (v) => runTarget(v) },
+        // DBX's keys; Alt+Up/Down stay with moving lines.
+        // DBX's keys. On macOS Ctrl+Shift+Up/Down select by page, and
+        // Ctrl+arrows may go to Mission Control: there Ctrl+Option+Up/Down.
+        { key: 'Ctrl-Shift-ArrowUp', mac: 'Ctrl-Alt-ArrowUp', run: (v) => gotoStatement(v, -1) },
+        { key: 'Ctrl-Shift-ArrowDown', mac: 'Ctrl-Alt-ArrowDown', run: (v) => gotoStatement(v, 1) },
+        { key: 'Mod-\\', run: (v) => runTarget(v, true) },
+        { key: 'Shift-Enter', run: (v) => runTarget(v) },
+        {
+          key: 'Mod-s',
+          run: () => {
+            onsave?.();
+            return true;
+          },
+        },
+        ...defaultKeymap,
+        ...searchKeymap,
+        ...historyKeymap,
+        ...completionKeymap,
+        indentWithTab,
+      ]),
+      lang.of(langExt()),
+      syntaxHighlighting(highlight),
+      editorTheme,
+      look.of(lookExtension()),
+      access.of(EditorState.readOnly.of(readonly)),
+      EditorView.updateListener.of((u) => {
+        // A value set from outside is no edit of the user.
+        if (u.docChanged && !u.transactions.some((tr) => tr.annotation(Transaction.remote))) onchange?.(u.state.doc.toString());
+      }),
+    ];
+    let state: EditorState | undefined;
+    if (kept && kept.json.doc === value) {
+      try {
+        state = EditorState.fromJSON(kept.json, { extensions }, { history: historyField });
+      } catch {
+        state = undefined;
+      }
+    }
+    view = new EditorView({ parent: host, state: state ?? EditorState.create({ doc: value, extensions }) });
+    if (state && kept) view.scrollDOM.scrollTop = kept.scroll;
   });
 
   // Keep the editor in sync when the value changes outside of it.
@@ -553,7 +569,15 @@
     if (!opts.aiComplete && view) clearGhost(view);
   });
 
-  onDestroy(() => view?.destroy());
+  onDestroy(() => {
+    if (view && stateKey) {
+      keptStates.delete(stateKey);
+      keptStates.set(stateKey, { json: view.state.toJSON({ history: historyField }) as { doc: string }, scroll: view.scrollDOM.scrollTop });
+      // The oldest go first; each keeps its whole undo history.
+      while (keptStates.size > 30) keptStates.delete(keptStates.keys().next().value!);
+    }
+    view?.destroy();
+  });
 
   export function focus() {
     view?.focus();

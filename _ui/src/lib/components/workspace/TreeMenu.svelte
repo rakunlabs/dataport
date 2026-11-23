@@ -18,6 +18,7 @@
 </script>
 
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { ChevronRight } from '@lucide/svelte';
 
   let { x, y, items, onclose }: { x: number; y: number; items: MenuItem[]; onclose: () => void } = $props();
@@ -66,8 +67,30 @@
     pos = { left: Math.min(x, window.innerWidth - w - 8), top: Math.min(y, window.innerHeight - h - 8) };
   });
 
+  // The keyboard reaches the menu: focus goes to its first item, the
+  // arrows move between items, and closing gives focus back.
+  onMount(() => {
+    const before = document.activeElement as HTMLElement | null;
+    el?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+    return () => {
+      if (before?.isConnected && (!document.activeElement || document.activeElement === document.body || el?.contains(document.activeElement))) before.focus();
+    };
+  });
+
   function onkeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') onclose();
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onclose();
+      return;
+    }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const menu = subEl?.contains(document.activeElement) ? subEl : el;
+    const items = [...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])];
+    if (!items.length) return;
+    e.preventDefault();
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const next = e.key === 'ArrowDown' ? (at + 1) % items.length : (at - 1 + items.length) % items.length;
+    items[next].focus();
   }
 </script>
 

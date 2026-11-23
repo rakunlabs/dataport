@@ -115,18 +115,25 @@ func TestResolve(t *testing.T) {
 		t.Fatalf("role removal: %+v %v", u, err)
 	}
 
-	// The last admin is never demoted by SSO.
-	_ = st.DeleteUser(ctx, admin.ID)
+	// The last admin is never demoted by SSO. Root goes once ayse is an
+	// admin again; the store refuses to delete the last one.
 	_, _ = m.Resolve(ctx, p, id("s1", "ayse@example.com", true, claims))
+	if err := st.DeleteUser(ctx, admin.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	if u, _ = m.Resolve(ctx, p, id("s1", "ayse@example.com", true, map[string]any{})); !u.IsAdmin() {
 		t.Fatal("last admin was demoted")
 	}
 
-	// Disabled users are refused.
+	// Disabled users are refused. Another admin first, as the last one
+	// cannot be disabled.
+	_ = st.CreateUser(ctx, &store.User{Username: "root2", PasswordHash: "x", Role: store.RoleAdmin})
 	u.Disabled = true
 	u.GroupIDs = nil
-	_ = st.UpdateUser(ctx, u)
+	if err := st.UpdateUser(ctx, u); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := m.Resolve(ctx, p, id("s1", "", false, nil)); !errors.As(err, &denied) {
 		t.Fatalf("disabled user must be refused, got %v", err)

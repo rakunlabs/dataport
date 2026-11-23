@@ -263,7 +263,16 @@ func (m *Manager) sync(ctx context.Context, p Provider, user *store.User, roles 
 	}
 
 	user.PasswordHash = ""
-	if err := m.store.UpdateUser(ctx, user); err != nil {
+	err := m.store.UpdateUser(ctx, user)
+	// Another admin was demoted at the same time: this one keeps the role.
+	if errors.Is(err, store.ErrLastAdmin) {
+		slog.Warn("sso would demote the last admin; keeping the role", "user", user.Username)
+
+		user.Role = store.RoleAdmin
+		err = m.store.UpdateUser(ctx, user)
+	}
+
+	if err != nil {
 		return nil, fmt.Errorf("sync roles; %w", err)
 	}
 

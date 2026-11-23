@@ -349,7 +349,11 @@ func (s *Server) runDocsNow(by *store.User) bool {
 		return false
 	}
 	ctx := s.notebookContext
-	s.notebookWorkers.Add(1)
+	if !s.addWorker() {
+		s.docDispatch.Unlock()
+
+		return false
+	}
 	go func() {
 		defer s.notebookWorkers.Done()
 		defer s.docDispatch.Unlock()

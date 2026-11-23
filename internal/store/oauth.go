@@ -55,37 +55,6 @@ func (s *Store) GetOAuthClient(ctx context.Context, id string) (*OAuthClient, er
 	return &c, nil
 }
 
-// ListOAuthClientsNamed returns the clients registered under a name, oldest
-// first, so a new registration of the same app can join the first one.
-func (s *Store) ListOAuthClientsNamed(ctx context.Context, name string) ([]*OAuthClient, error) {
-	rows, err := s.query(ctx, "SELECT id, name, redirect_uris, created_at FROM "+s.t("oauth_clients")+" WHERE name = ? ORDER BY created_at", name)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	list := []*OAuthClient{}
-
-	for rows.Next() {
-		var (
-			c    OAuthClient
-			uris string
-		)
-
-		if err := rows.Scan(&c.ID, &c.Name, &uris, &c.CreatedAt); err != nil {
-			return nil, err
-		}
-
-		if err := json.Unmarshal([]byte(uris), &c.RedirectURIs); err != nil {
-			continue
-		}
-
-		list = append(list, &c)
-	}
-
-	return list, rows.Err()
-}
-
 // OAuthClientUser is a person a client acts as.
 type OAuthClientUser struct {
 	ID          string `json:"id"`

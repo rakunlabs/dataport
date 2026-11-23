@@ -297,23 +297,10 @@ func (s *Server) oauthRegister(w http.ResponseWriter, r *http.Request) {
 
 	name = clip(name, 100)
 
-	// The same app registers again for every person and every sign-in; it
-	// joins the client registered first under its name and redirects, so
-	// admins see one Claude Code or OpenCode with all its users. Approval,
-	// tokens and remembered consent stay per user.
-	if same, err := s.store.ListOAuthClientsNamed(r.Context(), name); err == nil {
-		for _, c := range same {
-			if sameRedirects(c.RedirectURIs, req.RedirectURIs) {
-				// The client gets back the redirects it sent, on its own port.
-				joined := *c
-				joined.RedirectURIs = req.RedirectURIs
-				writeJSON(w, http.StatusCreated, registrationOf(&joined))
-
-				return
-			}
-		}
-	}
-
+	// Every registration is a client of its own, even under a name already
+	// registered: anyone may register as "Claude Code", and an approval the
+	// user remembered must not pass to whoever does. Admins see them grouped
+	// by name; registrations that never got a token are removed.
 	c := &store.OAuthClient{Name: name, RedirectURIs: req.RedirectURIs}
 	if err := s.store.CreateOAuthClient(r.Context(), c); err != nil {
 		slog.Error("register oauth client", "error", err)
@@ -355,21 +342,6 @@ func redirectMatches(registered, used string) bool {
 	loopback := func(h string) bool { return h == "localhost" || h == "127.0.0.1" || h == "::1" }
 
 	return loopback(a.Hostname()) && a.Hostname() == b.Hostname() && a.Path == b.Path && a.RawQuery == b.RawQuery
-}
-
-// sameRedirects tells whether two lists of redirect URIs match one another.
-func sameRedirects(a, b []string) bool {
-	covers := func(x, y []string) bool {
-		for _, u := range y {
-			if !slices.ContainsFunc(x, func(r string) bool { return redirectMatches(r, u) }) {
-				return false
-			}
-		}
-
-		return true
-	}
-
-	return covers(a, b) && covers(b, a)
 }
 
 // decodeLoose reads JSON that may hold fields dataport does not use.

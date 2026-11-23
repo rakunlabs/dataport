@@ -62,8 +62,10 @@
     try {
       // What the client may do on each connection (read, write, schema) is
       // set under Settings → MCP access, not here.
-      const body: Record<string, unknown> = { approve, remember: approve && remember };
-      for (const [k, v] of query) body[k] = v;
+      // The user's answer comes last: a link cannot set it.
+      const body: Record<string, unknown> = Object.fromEntries(query);
+      body.approve = approve;
+      body.remember = approve && remember;
       const res = await api.post<{ redirect: string }>('/oauth/authorize', body);
       done = approve ? t('oauth.approved') : t('oauth.declined');
       window.location.href = res.redirect;

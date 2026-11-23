@@ -385,3 +385,97 @@ func TestQueryLogPagesSameMillisecond(t *testing.T) {
 		})
 	}
 }
+
+// The last active admin can be neither demoted nor deleted; the check runs
+// in the same transaction as the change.
+func TestLastAdmin(t *testing.T) {
+	ctx := context.Background()
+
+	for name, s := range stores(t) {
+		t.Run(name, func(t *testing.T) {
+			a := &User{Username: "a", PasswordHash: "x", Role: RoleAdmin}
+			b := &User{Username: "b", PasswordHash: "x", Role: RoleAdmin}
+			for _, u := range []*User{a, b} {
+				if err := s.CreateUser(ctx, u); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			demoted := *a
+			demoted.Role, demoted.PasswordHash = RoleUser, ""
+			if err := s.UpdateUser(ctx, &demoted); err != nil {
+				t.Fatal(err)
+			}
+
+			last := *b
+			last.Disabled, last.PasswordHash = true, ""
+			if err := s.UpdateUser(ctx, &last); !errors.Is(err, ErrLastAdmin) {
+				t.Fatalf("disable the last admin: %v", err)
+			}
+
+			if err := s.DeleteUser(ctx, b.ID); !errors.Is(err, ErrLastAdmin) {
+				t.Fatalf("delete the last admin: %v", err)
+			}
+
+			// A user who is not an admin is not counted.
+			if err := s.DeleteUser(ctx, a.ID); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// On PostgreSQL a second demotion waits for the first to commit, then sees
+// it: without the lock both would count the other as still admin.
+func TestLastAdminLockPostgres(t *testing.T) {
+	s, ok := stores(t)["postgres"]
+	if !ok {
+		t.Skip("DATAPORT_TEST_POSTGRES_DSN not set")
+	}
+
+	ctx := context.Background()
+	a := &User{Username: "a", PasswordHash: "x", Role: RoleAdmin}
+	b := &User{Username: "b", PasswordHash: "x", Role: RoleAdmin}
+	for _, u := range []*User{a, b} {
+		if err := s.CreateUser(ctx, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	demote := func(tx *sql.Tx, id string) error {
+		check, err := s.guardAdmins(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, s.q("UPDATE "+s.t("users")+" SET role = ? WHERE id = ?"), RoleUser, id); err != nil {
+			return err
+		}
+		return check()
+	}
+
+	first, _ := s.db.BeginTx(ctx, nil)
+	if err := demote(first, a.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	second := make(chan error, 1)
+	go func() {
+		tx, _ := s.db.BeginTx(ctx, nil)
+		err := demote(tx, b.ID)
+		if err != nil {
+			_ = tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+		second <- err
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	if err := first.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := <-second; !errors.Is(err, ErrLastAdmin) {
+		t.Fatalf("second demotion: %v", err)
+	}
+}

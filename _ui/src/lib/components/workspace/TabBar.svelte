@@ -82,7 +82,7 @@
   const marker = $derived(from >= 0 && dropAt >= 0 && dropAt !== from && dropAt !== from + 1 ? dropAt : -1);
 </script>
 
-<svelte:window onclick={() => (menu = null)} />
+<svelte:window onclick={() => (menu = null)} onkeydown={(e) => e.key === 'Escape' && (menu = null)} />
 
 <div class="pane-head relative">
   <div

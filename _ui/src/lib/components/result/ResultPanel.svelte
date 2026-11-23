@@ -1,6 +1,8 @@
 <script lang="ts">
+  import PendingEdits from '@/lib/components/edit/PendingEdits.svelte';
+  import EditPreview from '@/lib/components/edit/EditPreview.svelte';
   import { drag } from '@/lib/helper/drag';
-  import { CircleCheck, CircleX, TriangleAlert, Info, Copy, ChevronRight, Rows3, X, PanelRight, RefreshCw, Square, LoaderCircle, Ban, Plus, Trash2, Eye, Undo2, Save, Pencil, KeyRound, Palette, Calculator, TableProperties, Table2, Eraser, Sparkles } from '@lucide/svelte';
+  import { CircleCheck, CircleX, TriangleAlert, Info, Copy, ChevronRight, Rows3, X, PanelRight, RefreshCw, Square, LoaderCircle, Ban, Plus, Trash2, Undo2, Pencil, KeyRound, Palette, Calculator, TableProperties, Table2, Eraser, Sparkles } from '@lucide/svelte';
   import type { Snippet } from 'svelte';
   import { formatRows, sqlFormats, type CopyFormat } from '@/lib/helper/copy';
   import { copyText } from '@/lib/helper/clipboard';
@@ -23,7 +25,6 @@
   import type { ResultSet } from '@/lib/api/types';
   import { EditState, commitEdits, keepEdits, previewEdits } from '@/lib/stores/edits.svelte';
   import { defaultSchemas, sourceTable } from '@/lib/helper/sourceTable';
-  import Modal from '@/lib/components/ui/Modal.svelte';
   import VirtualKeyDialog from '@/lib/components/dialogs/VirtualKeyDialog.svelte';
   import { setVirtualKey, virtualKey } from '@/lib/stores/virtualKeys.svelte';
   import { errorMessage, toast } from '@/lib/stores/toast.svelte';
@@ -623,14 +624,7 @@
         <button class="icon-btn size-6 hover:text-danger" onclick={queryDeleteRows} title={t('edit.deleteHint')} aria-label={t('edit.deleteToggle')}><Trash2 size={13} /></button>
         <button class="btn h-6" onclick={queryAddRow} title={t('edit.addRowHint')}><Plus size={13} /> {t('edit.addRow')}</button>
         {#if queryPending}
-          <div class="toolbar-sep"></div>
-          <span class="mr-1 flex shrink-0 items-center gap-1.5 font-medium whitespace-nowrap text-row-dirty-fg" title={t('edit.pending', { count: queryPending })}><span class="size-2 rounded-full bg-warn"></span>{queryPending}</span>
-          <button class="icon-btn size-6" onclick={queryShowPreview} title={t('edit.preview')} aria-label={t('edit.preview')}><Eye size={13} /></button>
-          <button class="icon-btn size-6" onclick={queryDiscard} title={t('edit.discard')} aria-label={t('edit.discard')}><Undo2 size={13} /></button>
-          <button class="{queryConn?.production ? 'btn-danger' : 'btn-primary'} h-6" onclick={() => saveQueryEdits()} disabled={querySaving} title="Ctrl+S">
-            {#if querySaving}<LoaderCircle size={12} class="animate-spin" />{:else}<Save size={12} />{/if}
-            {t('edit.save', { count: queryPending })}
-          </button>
+          <PendingEdits compact pending={queryPending} saving={querySaving} production={queryConn?.production} onpreview={queryShowPreview} ondiscard={queryDiscard} onsave={() => saveQueryEdits()} />
         {/if}
       {:else}
         <span class="flex min-w-0 items-center gap-1.5 text-faint" title={queryNoEdit}>
@@ -963,14 +957,7 @@
 {/if}
 
 {#if queryPreview}
-  <Modal title={t('edit.previewTitle')} onclose={() => (queryPreview = null)} width="max-w-3xl">
-    <p class="mb-2 text-xs text-muted">{t('edit.previewHint')}</p>
-    <pre class="max-h-[55vh] overflow-auto rounded-md border border-line bg-sunken p-3 font-mono text-xs whitespace-pre-wrap break-all">{queryPreview.join(';\n\n')};</pre>
-    {#snippet footer()}
-      <button class="btn" onclick={() => (queryPreview = null)}>{t('common.close')}</button>
-      <button class={queryConn?.production ? 'btn-danger' : 'btn-primary'} onclick={() => saveQueryEdits()} disabled={querySaving}><Save size={13} /> {t('edit.save', { count: queryPending })}</button>
-    {/snippet}
-  </Modal>
+  <EditPreview statements={queryPreview} pending={queryPending} saving={querySaving} production={queryConn?.production} onclose={() => (queryPreview = null)} onsave={() => saveQueryEdits()} />
 {/if}
 
 {#if colorDialog}

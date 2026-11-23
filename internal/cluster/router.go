@@ -632,6 +632,11 @@ func (c *call) forget() {
 func (r *Router) handleResult(ctx context.Context, _ *net.UDPAddr, body io.Reader) {
 	rd := bufio.NewReaderSize(body, 64<<10)
 
+	// What the request leaves unread, or all of it when no request waits
+	// any more, is drained, so the owner, told to stop, can finish writing
+	// and let go of its pool.
+	defer func() { _, _ = io.Copy(io.Discard, rd) }()
+
 	id, err := readHeader(rd)
 	if err != nil {
 		return
@@ -655,10 +660,6 @@ func (r *Router) handleResult(ctx context.Context, _ *net.UDPAddr, body io.Reade
 	case <-p.done:
 	case <-ctx.Done():
 	}
-
-	// What the request left unread is drained, so the owner, told to stop,
-	// can finish writing.
-	_, _ = io.Copy(io.Discard, rd)
 }
 
 // handleCall runs an operation a peer forwarded, when this replica owns

@@ -29,6 +29,8 @@ func writeStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, store.ErrLastAdmin):
+		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, "name already exists")
 	default:

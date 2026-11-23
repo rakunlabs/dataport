@@ -66,13 +66,16 @@
 
   // apply puts a proposal into the editor of the tab it was made for, or
   // the open one.
-  function apply(p: AIProposal, mode: 'replace' | 'insert' | 'statement') {
+  async function apply(p: AIProposal, mode: 'replace' | 'insert' | 'statement') {
     const target = ws.tabs.find((x) => x.id === p.tabId && (x.kind === 'query' || x.kind === 'notebook')) ?? (canEdit ? tab : undefined);
     if (!target) {
       toast(t('assistant.noEditor'), 'info');
       return;
     }
+    // A tab opened just now mounts its editor on the next render.
+    const switched = ws.activeId !== target.id;
     ws.activeId = target.id;
+    if (switched) await tick();
     const ed = editorOf(target.id);
     // A notebook's text is its cells: changes go into the cell's editor.
     const text = ed?.cell ? ed.cell.sql : target.sql;
@@ -81,13 +84,24 @@
       return;
     }
     // The statement is replaced where it was, if the user has not changed it since.
-    if (mode === 'statement' && p.range && text.slice(p.range.from, p.range.to) === p.range.text && ed?.replaceRange(p.range.from, p.range.to, p.sql)) {
+    const sameRange = !!p.range && text.slice(p.range.from, p.range.to) === p.range.text;
+    if (mode === 'statement' && p.range && sameRange && ed?.replaceRange(p.range.from, p.range.to, p.sql)) {
       // The editor reports the change itself.
+    } else if (mode === 'statement' && p.range && sameRange && !ed) {
+      target.sql = text.slice(0, p.range.from) + p.sql + text.slice(p.range.to);
+      target.dirty = true;
+      persist();
     } else if (mode === 'statement' && p.range) {
       toast(t('assistant.statementMoved'), 'info');
       return;
     } else if (mode === 'insert' && ed?.insert(p.sql)) {
       // The editor reports the change itself.
+    } else if (mode === 'insert' && !ed) {
+      // Without an editor there is no cursor: the text goes at the end, and
+      // what was there stays.
+      target.sql = target.sql.trimEnd() ? target.sql.trimEnd() + '\n\n' + p.sql : p.sql;
+      target.dirty = true;
+      persist();
     } else if (ed?.cell) {
       ed.replaceRange(0, text.length, p.sql);
     } else {

@@ -23,20 +23,41 @@ type Reload = boolean | 'failed';
 // Loads in progress, so a second caller can wait for the same one.
 const inflight = new WeakMap<object, Map<string, Promise<void>>>();
 
+// The newest load of each key: a forced reload, or a node dropped while a
+// load runs, makes the older answer stale, and only the newest one writes.
+let generation = 0;
+const latest = new WeakMap<object, Map<string, number>>();
+
+function stamp(map: object, key: string): number {
+  let m = latest.get(map);
+  if (!m) latest.set(map, (m = new Map()));
+  m.set(key, ++generation);
+  return generation;
+}
+
+// forgetNode drops a node; a load still running for it does not bring it back.
+function forgetNode(map: Record<string, unknown>, key: string) {
+  delete map[key];
+  stamp(map, key);
+  inflight.get(map)?.delete(key);
+}
+
 // loadNode is called from effects: it reads the node untracked, so writing
 // it does not rerun the caller. A failed node loads again only when forced,
 // or with 'failed', which callers pass on an explicit open.
 async function loadNode<T>(map: Record<string, TreeNode<T>>, key: string, fetcher: () => Promise<T[]>, force: Reload = false) {
   const node = untrack(() => map[key]);
-  if (node?.loading) return inflight.get(map)?.get(key);
-  if (node && force !== true && (node.loaded || (node.error && force !== 'failed'))) return;
+  if (node?.loading && force !== true) return inflight.get(map)?.get(key);
+  if (node && !node.loading && force !== true && (node.loaded || (node.error && force !== 'failed'))) return;
+  const gen = stamp(map, key);
+  const current = () => latest.get(map)?.get(key) === gen;
   map[key] = { loading: true, loaded: false, error: '', items: node?.items ?? [] };
   const run = (async () => {
     try {
       const items = await fetcher();
-      map[key] = { loading: false, loaded: true, error: '', items };
+      if (current()) map[key] = { loading: false, loaded: true, error: '', items };
     } catch (e) {
-      map[key] = { loading: false, loaded: false, error: errorMessage(e), items: [] };
+      if (current()) map[key] = { loading: false, loaded: false, error: errorMessage(e), items: [] };
     }
   })();
   let pending = inflight.get(map);
@@ -96,15 +117,15 @@ function forgetStructures(prefix: string) {
 export function refreshSchema(connId: string, schema: string) {
   const prefix = `${connId}|${schema}|`;
   forgetStructures(prefix);
-  for (const key of Object.keys(ws.columns)) if (key.startsWith(prefix)) delete ws.columns[key];
+  for (const key of Object.keys(ws.columns)) if (key.startsWith(prefix)) forgetNode(ws.columns, key);
   return Promise.all([loadObjects(connId, schema, true), loadRoutines(connId, schema, true)]);
 }
 
 export function refreshConnection(connId: string) {
   forgetStructures(connId + '|');
-  for (const key of Object.keys(ws.objects)) if (key.startsWith(connId + '|')) delete ws.objects[key];
-  for (const key of Object.keys(ws.columns)) if (key.startsWith(connId + '|')) delete ws.columns[key];
-  for (const key of Object.keys(ws.routines)) if (key.startsWith(connId + '|')) delete ws.routines[key];
+  for (const m of [ws.objects, ws.columns, ws.routines] as Record<string, unknown>[]) {
+    for (const key of Object.keys(m)) if (key.startsWith(connId + '|')) forgetNode(m, key);
+  }
   return loadSchemas(connId, true);
 }
 
@@ -124,12 +145,18 @@ export async function setSelfReadOnly(connId: string, readOnly: boolean) {
 // connection and folds its tree, so nothing stays connected.
 export async function disconnect(connId: string) {
   await api.post(`/connections/${connId}/disconnect`);
+  dropConnectionCache(connId);
+}
+
+// dropConnectionCache folds a connection's tree and forgets all it loaded,
+// as after a change of the account it reads with.
+export function dropConnectionCache(connId: string) {
   ws.expanded[connId] = false;
   for (const key of Object.keys(ws.expanded)) if (key.startsWith(connId + '|')) delete ws.expanded[key];
   forgetStructures(connId + '|');
   for (const m of [ws.objects, ws.columns, ws.routines] as Record<string, unknown>[]) {
-    for (const key of Object.keys(m)) if (key.startsWith(connId + '|')) delete m[key];
+    for (const key of Object.keys(m)) if (key.startsWith(connId + '|')) forgetNode(m, key);
   }
-  delete ws.schemas[connId];
+  forgetNode(ws.schemas, connId);
   persist();
 }

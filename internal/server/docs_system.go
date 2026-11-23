@@ -412,7 +412,11 @@ func (s *Server) buildConnectionDocsInBackground(dc *store.DocConnection, by *st
 	}
 
 	ctx := s.notebookContext
-	s.notebookWorkers.Add(1)
+	if !s.addWorker() {
+		s.docDispatch.Unlock()
+
+		return false
+	}
 
 	go func() {
 		defer s.notebookWorkers.Done()
@@ -436,7 +440,9 @@ func (s *Server) docsChanged(connectionID string, by *store.User) {
 	}
 
 	ctx := s.notebookContext
-	s.notebookWorkers.Add(1)
+	if !s.addWorker() {
+		return
+	}
 
 	go func() {
 		defer s.notebookWorkers.Done()
@@ -614,7 +620,9 @@ func (s *Server) adminConnectionForDocs(w http.ResponseWriter, r *http.Request) 
 // the background, each with its owner's access, then pushes what changed.
 func (s *Server) refreshConnectionDocs(connectionID string) {
 	ctx := s.notebookContext
-	s.notebookWorkers.Add(1)
+	if !s.addWorker() {
+		return
+	}
 
 	go func() {
 		defer s.notebookWorkers.Done()

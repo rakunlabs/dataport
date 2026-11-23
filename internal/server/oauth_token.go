@@ -151,8 +151,10 @@ func (s *Server) refreshToken(w http.ResponseWriter, r *http.Request) {
 
 	old := dpauth.HashSecret(raw)
 
+	// A public client proves nothing but its id, which OAuth 2.1 requires it
+	// to send: a refresh token taken from one app does not work without it.
 	t, err := s.store.GetAccessTokenByRefresh(r.Context(), old)
-	if err != nil || (f.Get("client_id") != "" && f.Get("client_id") != t.ClientID) ||
+	if err != nil || f.Get("client_id") == "" || f.Get("client_id") != t.ClientID ||
 		(t.RefreshExpiresAt > 0 && t.RefreshExpiresAt < time.Now().UnixMilli()) {
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "unknown or expired refresh token; sign in again")
 

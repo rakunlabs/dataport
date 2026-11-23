@@ -2,7 +2,7 @@ import { t } from '@/lib/i18n/index.svelte';
 import { EditState, pendingEdits } from '@/lib/stores/edits.svelte';
 import { connection, newId, workspaceConnections, ws, type Tab, type TabKind } from '@/lib/stores/workspace/state.svelte';
 import { loadConnections, loadSchemas } from '@/lib/stores/workspace/tree';
-import { loadPersisted, persist, persistedUser, setPersistedUser } from '@/lib/stores/workspace/persist';
+import { loadPersisted, pausePersist, persist, persistedUser, setPersistedUser } from '@/lib/stores/workspace/persist';
 import { cancel, cancelPending, endTx, run, runTable, setRunElsewhere, syncTxs } from '@/lib/stores/workspace/run';
 import { prefs } from '@/lib/stores/prefs.svelte';
 import { loadSaved } from '@/lib/stores/workspace/saved';
@@ -240,8 +240,11 @@ export function moveTab(id: string, to: number) {
 
 // startWorkspace resets the state for the user and restores their tabs.
 export async function startWorkspace(userId: string) {
-  if (persistedUser() === userId && ws.connectionsLoaded) return;
+  if (persistedUser() === userId && ws.connectionsLoaded && !ws.connectionsError) return;
 
+  // Nothing is saved until the tabs are back, so a click while loading does
+  // not write over them.
+  pausePersist(true);
   setPersistedUser(userId);
   ws.tabs = [];
   ws.activeId = '';
@@ -254,12 +257,17 @@ export async function startWorkspace(userId: string) {
   ws.connectionsLoaded = false;
   queryCount = 0;
 
+  const data = loadPersisted();
   await loadConnections();
 
-  const data = loadPersisted();
+  // Without the connections no tab can be told apart from one that lost
+  // its connection: the stored ones stay as they are until a reload works.
+  if (ws.connectionsError) return;
+
   if (data) {
     try {
-      for (const p of data.tabs) {
+      let active = '';
+      for (const [i, p] of data.tabs.entries()) {
         if (!['settings', 'notebooks', 'notebook', 'docsHub'].includes(p.kind) && !connection(p.connectionId)) continue;
         // Notebooks may have been closed to this user since.
         if ((p.kind === 'notebooks' || p.kind === 'notebook') && !session.user?.can_use_notebooks) continue;
@@ -270,12 +278,15 @@ export async function startWorkspace(userId: string) {
         if (p.kind === 'settings') t.title = '';
         if (p.kind === 'query') queryCount++;
         ws.tabs.push(t);
+        if (i === data.active) active = t.id;
       }
-      ws.activeId = ws.tabs[data.active]?.id ?? ws.tabs[0]?.id ?? '';
+      ws.activeId = active || ws.tabs[0]?.id || '';
     } catch {
       // Ignore corrupt state.
     }
   }
+
+  pausePersist(false);
 
   // Tabs learn which of their transactions the server still holds.
   void syncTxs();

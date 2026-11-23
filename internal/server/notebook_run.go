@@ -265,8 +265,13 @@ func (s *Server) beginNotebookRun(ctx context.Context, user *store.User, n *stor
 	}
 	// Bound whole-notebook resource use even where query timeouts are disabled.
 	ctx, cancel := context.WithTimeout(ctx, limits.MaxDuration)
+	if !s.addWorker() {
+		cancel()
+		s.releaseNotebookSlot()
+		_ = s.store.UpdateNotebookRun(context.WithoutCancel(ctx), run.ID, "cancelled", map[string]string{"error": "the server is shutting down"})
+		return nil, nil, refuse(http.StatusServiceUnavailable, "the server is shutting down")
+	}
 	stopShutdown := context.AfterFunc(s.notebookContext, cancel)
-	s.notebookWorkers.Add(1)
 	work := func() notebookResult {
 		defer s.notebookWorkers.Done()
 		defer s.releaseNotebookSlot()
@@ -304,7 +309,12 @@ func needsConfirmation(c notebook.Cell, g cellGrants) bool {
 // templated write cell asks before the run like this too, and the rendered
 // SQL is checked again when it runs.
 func changesEveryRow(c notebook.Cell, g cellGrants) bool {
-	if !c.Write || c.Transfer != nil {
+	// A transfer that wipes its target deletes every row there.
+	if c.Transfer != nil {
+		return c.Transfer.Wipe
+	}
+
+	if !c.Write {
 		return false
 	}
 

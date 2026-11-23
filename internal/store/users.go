@@ -61,6 +61,44 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// ErrLastAdmin refuses a change that would leave no active admin.
+var ErrLastAdmin = errors.New("at least one active admin is required")
+
+// guardAdmins is called in a transaction before a user is changed or
+// deleted; the check it returns, called after the change, fails with
+// ErrLastAdmin when the user was an active admin and none is left. On
+// PostgreSQL these transactions take one lock, so two admins demoted at the
+// same time cannot each count the other; SQLite runs one at a time anyway.
+func (s *Store) guardAdmins(ctx context.Context, tx *sql.Tx, userID string) (func() error, error) {
+	if s.postgres {
+		if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", "dataport:"+s.prefix+"admins"); err != nil {
+			return nil, err
+		}
+	}
+
+	var n int
+	if err := tx.QueryRowContext(ctx, s.q("SELECT COUNT(*) FROM "+s.t("users")+" WHERE id = ? AND role = ? AND disabled = 0"), userID, RoleAdmin).Scan(&n); err != nil {
+		return nil, err
+	}
+
+	if n == 0 {
+		return func() error { return nil }, nil
+	}
+
+	return func() error {
+		var left int
+		if err := tx.QueryRowContext(ctx, s.q("SELECT COUNT(*) FROM "+s.t("users")+" WHERE role = ? AND disabled = 0"), RoleAdmin).Scan(&left); err != nil {
+			return err
+		}
+
+		if left == 0 {
+			return ErrLastAdmin
+		}
+
+		return nil
+	}, nil
+}
+
 func (s *Store) CountActiveAdmins(ctx context.Context) (int, error) {
 	var n int
 	err := s.queryRow(ctx, "SELECT COUNT(*) FROM "+s.t("users")+" WHERE role = ? AND disabled = 0", RoleAdmin).Scan(&n)
@@ -175,6 +213,11 @@ func (s *Store) UpdateUser(ctx context.Context, u *User) error {
 	u.UpdatedAt = now()
 
 	return wrapWriteErr(s.inTx(ctx, func(tx *sql.Tx) error {
+		check, err := s.guardAdmins(ctx, tx, u.ID)
+		if err != nil {
+			return err
+		}
+
 		res, err := tx.ExecContext(ctx, s.q("UPDATE "+s.t("users")+
 			" SET username = ?, display_name = ?, email = ?, role = ?, disabled = ?, updated_at = ? WHERE id = ?"),
 			u.Username, u.DisplayName, u.Email, u.Role, b2i(u.Disabled), u.UpdatedAt, u.ID)
@@ -199,6 +242,10 @@ func (s *Store) UpdateUser(ctx context.Context, u *User) error {
 			}
 		}
 
+		if err := check(); err != nil {
+			return err
+		}
+
 		if u.GroupIDs != nil {
 			return s.setUserGroups(ctx, tx, u.ID, u.GroupIDs)
 		}
@@ -221,6 +268,11 @@ func (s *Store) TouchUserLogin(ctx context.Context, id string) error {
 
 func (s *Store) DeleteUser(ctx context.Context, id string) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error {
+		check, err := s.guardAdmins(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+
 		if _, err := tx.ExecContext(ctx, s.q("DELETE FROM "+s.t("connection_access")+" WHERE subject_type = ? AND subject_id = ?"),
 			SubjectUser, id); err != nil {
 			return err
@@ -249,6 +301,10 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrNotFound
+		}
+
+		if err := check(); err != nil {
+			return err
 		}
 
 		return nil

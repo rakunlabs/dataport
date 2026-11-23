@@ -86,6 +86,7 @@ const tr: Messages = {
       failed: 'Bağlanılamadı',
       closed: 'Bağlı değil',
     },
+    retry: 'Tekrar dene',
   },
   welcome: {
     keyRunNewResult: 'Diğerlerini koruyup yeni bir sonuç sekmesinde çalıştır',
@@ -1780,7 +1781,7 @@ const tr: Messages = {
     },
     oauthClients: {
       title: 'MCP istemcileri',
-      description: 'Tarayıcıdan oturum açmak (OAuth) için kendini kaydeden istemciler, örneğin Claude Code ya da OpenCode. Aynı uygulama aynı yönlendirmelerle yeniden kaydolursa ilk kaydına katılır; böylece her uygulama, kullanan herkesle birlikte bir kez listelenir. Hiç onaylanmayan kayıtlar bir gün sonra silinir.',
+      description: 'Tarayıcıdan oturum açmak (OAuth) için kendini kaydeden istemciler, örneğin Claude Code ya da OpenCode. Her kayıt ayrı bir istemcidir; böylece kullanıcının hatırlanan onayı aynı adı kullanan başka bir programa geçmez. Bir uygulamanın kayıtları birlikte listelenir. Hiç onaylanmayan kayıtlar bir gün sonra silinir.',
       search: 'Ad ya da yönlendirme ara…',
       client: 'İstemci',
       redirect: 'Yönlendirme URI',
@@ -1795,6 +1796,7 @@ const tr: Messages = {
       noMatch: 'Eşleşen istemci yok.',
       showUsers: 'Kimlerin kullandığını göster',
       usersTitle: 'Oturum açan kullanıcılar',
+      registrations: '{count} kayıt | {count} kayıt',
     },
     ai: {
       title: 'Yapay zekâ asistanı',

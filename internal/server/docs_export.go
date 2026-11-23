@@ -313,7 +313,11 @@ func (s *Server) exportDocsInBackground() bool {
 	s.setDocExportRun(docExportStatus{Running: true, Manual: true, StartedAt: time.Now().UnixMilli()})
 
 	ctx := s.notebookContext
-	s.notebookWorkers.Add(1)
+	if !s.addWorker() {
+		s.docExport.Unlock()
+
+		return false
+	}
 
 	go func() {
 		defer s.notebookWorkers.Done()

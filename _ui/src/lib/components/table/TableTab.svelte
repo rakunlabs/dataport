@@ -1,35 +1,12 @@
 <script lang="ts">
-  import {
-    RefreshCw,
-    ChevronLeft,
-    ChevronRight,
-    Code,
-    Lock,
-    Plus,
-    Copy,
-    Trash2,
-    Save,
-    Undo2,
-    Eye,
-    Ban,
-    KeyRound,
-    LoaderCircle,
-    ShieldAlert,
-    X,
-    Table2,
-    ListTree,
-    FileCode,
-    PanelRight,
-    TableProperties,
-    Palette,
-    Calculator,
-  } from '@lucide/svelte';
+  import PendingEdits from '@/lib/components/edit/PendingEdits.svelte';
+  import EditPreview from '@/lib/components/edit/EditPreview.svelte';
+  import { RefreshCw, ChevronLeft, ChevronRight, Code, Lock, Plus, Copy, Trash2, Ban, KeyRound, ShieldAlert, X, Table2, ListTree, FileCode, PanelRight, TableProperties, Palette, Calculator } from '@lucide/svelte';
   import TableStructure from '@/lib/components/table/TableStructure.svelte';
   import ConditionInput from '@/lib/components/table/ConditionInput.svelte';
   import ExportMenu from '@/lib/components/result/ExportMenu.svelte';
   import ResultPanel from '@/lib/components/result/ResultPanel.svelte';
   import TotalCount from '@/lib/components/result/TotalCount.svelte';
-  import Modal from '@/lib/components/ui/Modal.svelte';
   import VirtualKeyDialog from '@/lib/components/dialogs/VirtualKeyDialog.svelte';
   import { setVirtualKey, virtualKey } from '@/lib/stores/virtualKeys.svelte';
   import {
@@ -279,14 +256,7 @@
         <RefreshCw size={14} class={tab.running ? 'animate-spin' : ''} />
       </button>
       {#if pending}
-        <div class="toolbar-sep"></div>
-        <span class="mr-1 flex shrink-0 items-center gap-1.5 text-xs font-medium whitespace-nowrap text-row-dirty-fg" title={t('edit.pending', { count: pending })}><span class="size-2 rounded-full bg-warn"></span>{pending}</span>
-        <button class="icon-btn" onclick={showPreview} title={t('edit.preview')} aria-label={t('edit.preview')}><Eye size={14} /></button>
-        <button class="icon-btn" onclick={discard} title={t('edit.discard')} aria-label={t('edit.discard')}><Undo2 size={14} /></button>
-        <button class={conn?.production ? 'btn-danger' : 'btn-primary'} onclick={() => save()} disabled={saving} title="Ctrl+S">
-          {#if saving}<LoaderCircle size={13} class="animate-spin" />{:else}<Save size={13} />{/if}
-          {t('edit.save', { count: pending })}
-        </button>
+        <PendingEdits {pending} {saving} production={conn?.production} onpreview={showPreview} ondiscard={discard} onsave={() => save()} />
       {/if}
     {/if}
   </div>
@@ -385,12 +355,5 @@
 {/if}
 
 {#if preview}
-  <Modal title={t('edit.previewTitle')} onclose={() => (preview = null)} width="max-w-3xl">
-    <p class="mb-2 text-xs text-muted">{t('edit.previewHint')}</p>
-    <pre class="max-h-[55vh] overflow-auto rounded-md border border-line bg-sunken p-3 font-mono text-xs whitespace-pre-wrap break-all">{preview.join(';\n\n')};</pre>
-    {#snippet footer()}
-      <button class="btn" onclick={() => (preview = null)}>{t('common.close')}</button>
-      <button class={conn?.production ? 'btn-danger' : 'btn-primary'} onclick={() => save()} disabled={saving}><Save size={13} /> {t('edit.save', { count: pending })}</button>
-    {/snippet}
-  </Modal>
+  <EditPreview statements={preview} {pending} {saving} production={conn?.production} onclose={() => (preview = null)} onsave={() => save()} />
 {/if}

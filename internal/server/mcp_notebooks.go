@@ -345,6 +345,10 @@ func (s *Server) registerNotebookWriteTools(server *mcp.Server) {
 			return nil, mcpNotebook{}, err
 		}
 
+		if caller.token != nil && caller.token.ReadOnly {
+			return nil, mcpNotebook{}, errMCPReadOnlyToken
+		}
+
 		if !s.notebooksAllowed(ctx, caller.user) {
 			return nil, mcpNotebook{}, errNotebooksOff
 		}

@@ -106,8 +106,15 @@ func (s *Server) mcpGenerate(ctx context.Context, req *mcp.CallToolRequest, in g
 	ereq.Seed, ereq.Rows = plan.Seed, in.Rows
 	summary := generateSummary(generateIn{Schema: in.Schema, Table: in.Table, Columns: plan.Columns, Rows: in.Rows, Seed: plan.Seed, Truncate: in.Truncate})
 
-	if g.Connection.Production {
+	// Emptying the table first deletes every row, which asks on any
+	// connection, as a DELETE without WHERE does.
+	switch {
+	case g.Connection.Production:
 		if err := confirmProduction(ctx, req, g.Connection, summary, engine.RiskWrite); err != nil {
+			return nil, generateRowsOut{}, err
+		}
+	case in.Truncate:
+		if err := confirmRun(ctx, req, g.Connection, summary, &confirmationError{risk: engine.RiskWrite, unbounded: []string{summary}}); err != nil {
 			return nil, generateRowsOut{}, err
 		}
 	}

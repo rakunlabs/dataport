@@ -61,6 +61,8 @@
   ];
 
   function apply() {
+    // Ctrl+Enter follows the button: nothing to make is nothing to apply.
+    if (!count) return;
     keep(opts);
     onapply(out);
   }

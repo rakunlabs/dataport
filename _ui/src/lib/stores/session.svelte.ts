@@ -17,20 +17,25 @@ export async function login(username: string, password: string, remember = false
   session.user = await api.post<Me>('/auth/login', { username, password, remember });
 }
 
+// signedOut goes to the sign-in page with a fresh page: what the user had
+// in memory (the assistant's conversation, cached table structures, typed
+// values) must not reach whoever signs in next in this browser.
+function signedOut() {
+  session.user = null;
+  window.location.hash = '#/login';
+  window.location.reload();
+}
+
 export async function logout() {
   try {
     await api.post('/auth/logout');
   } finally {
-    session.user = null;
-    window.location.hash = '#/login';
+    signedOut();
   }
 }
 
 onUnauthorized(() => {
-  if (session.user) {
-    session.user = null;
-    window.location.hash = '#/login';
-  }
+  if (session.user) signedOut();
 });
 
 export const isAdmin = () => session.user?.role === 'admin';

@@ -84,6 +84,7 @@ const en = {
       failed: 'Could not connect',
       closed: 'Not connected',
     },
+    retry: 'Try again',
   },
   welcome: {
     keyRunNewResult: 'Run into a new result tab, keeping the others',
@@ -1699,7 +1700,7 @@ const en = {
     },
     oauthClients: {
       title: 'MCP clients',
-      description: 'Clients that registered themselves to sign in through the browser (OAuth), such as Claude Code or OpenCode. The same app registering again with the same redirects joins its first registration, so each app is listed once with everyone who uses it. Registrations never approved go after a day.',
+      description: 'Clients that registered themselves to sign in through the browser (OAuth), such as Claude Code or OpenCode. Each registration is a client of its own, so an approval a user remembered never passes to another program using the same name; registrations of one app are listed together. Registrations never approved go after a day.',
       search: 'Search name or redirect…',
       client: 'Client',
       redirect: 'Redirect URI',
@@ -1714,6 +1715,7 @@ const en = {
       noMatch: 'No client matches.',
       showUsers: 'Show who uses it',
       usersTitle: 'Signed in as',
+      registrations: '{count} registration | {count} registrations',
     },
     ai: {
       title: 'AI assistant',

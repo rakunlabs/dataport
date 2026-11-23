@@ -22,6 +22,9 @@ import (
 
 var errMCPAdminOnly = errors.New("only an administrator can use this tool, with a token not tied to one connection")
 
+// errMCPReadOnlyToken refuses a change made with a read-only token.
+var errMCPReadOnlyToken = errors.New("this token is read-only; changes need a token that may write")
+
 func mcpAdmin(caller *mcpCaller) bool {
 	return caller.user.Role == store.RoleAdmin && caller.scope == ""
 }
@@ -134,7 +137,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 			"Say which databases and schemas it holds and which services or repositories use them, so search agents " +
 			"know when to look there. Empty restores the default. Sent to the search index on the next push.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in docExportDescriptionIn) (*mcp.CallToolResult, docExportChangedOut, error) {
-		caller, err := s.mcpAdminCaller(req)
+		caller, err := s.mcpAdminWriter(req)
 		if err != nil {
 			return nil, docExportChangedOut{}, err
 		}
@@ -160,7 +163,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 			"the repositories or services that own, write or read the schema, and what it holds. Keep it short. " +
 			"An empty note removes it. The connection must already be pushed; add connections in the admin UI.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in docExportNoteIn) (*mcp.CallToolResult, docExportChangedOut, error) {
-		caller, err := s.mcpAdminCaller(req)
+		caller, err := s.mcpAdminWriter(req)
 		if err != nil {
 			return nil, docExportChangedOut{}, err
 		}
@@ -203,7 +206,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 			"data. Show the user the list and get their approval before saving. Saving rebuilds the connection's saved " +
 			"documentation in the background and pushes it.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in docSetLookupsIn) (*mcp.CallToolResult, docExportChangedOut, error) {
-		caller, err := s.mcpAdminCaller(req)
+		caller, err := s.mcpAdminWriter(req)
 		if err != nil {
 			return nil, docExportChangedOut{}, err
 		}
@@ -248,7 +251,7 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 		Description: "Admin only. Push the documentation to the search index now, in the background, sending every " +
 			"item again. Check its outcome with docs_export_settings.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, docExportChangedOut, error) {
-		caller, err := s.mcpAdminCaller(req)
+		caller, err := s.mcpAdminWriter(req)
 		if err != nil {
 			return nil, docExportChangedOut{}, err
 		}
@@ -270,6 +273,17 @@ func (s *Server) registerMCPAdminTools(server *mcp.Server, readOnly bool) {
 
 		return nil, docExportChangedOut{Message: "pushing in the background; check docs_export_settings for the outcome"}, nil
 	})
+}
+
+// mcpAdminWriter is mcpAdminCaller for tools that change settings or push:
+// not with a read-only token.
+func (s *Server) mcpAdminWriter(req *mcp.CallToolRequest) (*mcpCaller, error) {
+	caller, err := s.mcpAdminCaller(req)
+	if err == nil && caller.token != nil && caller.token.ReadOnly {
+		return nil, errMCPReadOnlyToken
+	}
+
+	return caller, err
 }
 
 func (s *Server) mcpAdminCaller(req *mcp.CallToolRequest) (*mcpCaller, error) {
